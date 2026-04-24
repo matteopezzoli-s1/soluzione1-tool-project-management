@@ -83,7 +83,7 @@ steps:
           --set-secrets \
             "DATABASE_URL=$$DB_SECRET:latest,GOOGLE_CLIENT_ID=$$GCLIENT_ID_SECRET:latest,GOOGLE_CLIENT_SECRET=$$GCLIENT_SECRET_SECRET:latest,JWT_SECRET=$$JWT_SECRET_NAME:latest" \
           --set-env-vars \
-            "NODE_ENV=$$NODE_ENV,PORT=8080,GCS_BUCKET_NAME=$$GCS_BUCKET" \
+            "NODE_ENV=$$NODE_ENV,GCS_BUCKET_NAME=$$GCS_BUCKET" \
           --min-instances 0 \
           --max-instances 10 \
           --memory 512Mi \
