@@ -1,0 +1,98 @@
+# =============================================================================
+# cloudbuild-backend.yaml
+# Pipeline CI/CD - Backend Node.js + Prisma
+#
+# Trigger GCP:
+#   - Branch: develop  → deploy su be-dev  (database: s1-gantt-dev)
+#   - Branch: main     → deploy su be-prod (database: s1-gantt-prod)
+#
+# Istanza Cloud SQL: soluzione1-progetti-interni:europe-west1:s1-progetti-interni
+# =============================================================================
+
+substitutions:
+  _REGION: europe-west1
+  _PROJECT_ID: soluzione1-progetti-interni
+  _IMAGE: europe-west1-docker.pkg.dev/soluzione1-progetti-interni/docker-images/backend
+  _CLOUDSQL_INSTANCE: soluzione1-progetti-interni:europe-west1:s1-progetti-interni
+
+steps:
+
+  # ---------------------------------------------------------------------------
+  # STEP 1 — Build immagine Docker del backend
+  # ---------------------------------------------------------------------------
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-backend'
+    args:
+      - 'build'
+      - '--file=backend/Dockerfile'
+      - '--tag=$_IMAGE:$BRANCH_NAME-$SHORT_SHA'
+      - '--tag=$_IMAGE:$BRANCH_NAME-latest'
+      - '--cache-from=$_IMAGE:$BRANCH_NAME-latest'
+      - 'backend'
+    waitFor: ['-']
+
+  # ---------------------------------------------------------------------------
+  # STEP 2 — Push immagine su Artifact Registry
+  # ---------------------------------------------------------------------------
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-backend'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '$_IMAGE'
+    waitFor: ['build-backend']
+
+  # ---------------------------------------------------------------------------
+  # STEP 3 — Deploy su Cloud Run (branch-aware)
+  # ---------------------------------------------------------------------------
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-backend'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e
+
+        if [ "$BRANCH_NAME" = "main" ]; then
+          SERVICE="$_PROJECT_ID-be-prod"
+          NODE_ENV="production"
+          GCS_BUCKET="s1-progetti-interni-prod"
+          DB_SECRET="database-url-prod"
+          GCLIENT_ID_SECRET="google-client-id-prod"
+          GCLIENT_SECRET_SECRET="google-client-secret-prod"
+          JWT_SECRET_NAME="jwt-secret-prod"
+        else
+          SERVICE="$_PROJECT_ID-be-dev"
+          NODE_ENV="development"
+          GCS_BUCKET="s1-progetti-interni-dev"
+          DB_SECRET="database-url-dev"
+          GCLIENT_ID_SECRET="google-client-id-dev"
+          GCLIENT_SECRET_SECRET="google-client-secret-dev"
+          JWT_SECRET_NAME="jwt-secret-dev"
+        fi
+
+        echo "▶ Deploy branch=$BRANCH_NAME → service=$$SERVICE"
+
+        gcloud run deploy "$$SERVICE" \
+          --image "$_IMAGE:$BRANCH_NAME-$SHORT_SHA" \
+          --region "$_REGION" \
+          --platform managed \
+          --allow-unauthenticated \
+          --port 8080 \
+          --add-cloudsql-instances "$_CLOUDSQL_INSTANCE" \
+          --set-secrets \
+            "DATABASE_URL=$$DB_SECRET:latest,GOOGLE_CLIENT_ID=$$GCLIENT_ID_SECRET:latest,GOOGLE_CLIENT_SECRET=$$GCLIENT_SECRET_SECRET:latest,JWT_SECRET=$$JWT_SECRET_NAME:latest" \
+          --set-env-vars \
+            "NODE_ENV=$$NODE_ENV,PORT=8080,GCS_BUCKET_NAME=$$GCS_BUCKET" \
+          --min-instances 0 \
+          --max-instances 10 \
+          --memory 512Mi \
+          --cpu 1 \
+          --timeout 60s
+
+        echo "✅ Deploy completato: $$SERVICE"
+    waitFor: ['push-backend']
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'

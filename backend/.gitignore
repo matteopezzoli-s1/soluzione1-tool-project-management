@@ -1,0 +1,37 @@
+# =============================================================================
+# backend/.gitignore — Node.js + Prisma + TypeScript
+# =============================================================================
+
+# Dipendenze
+node_modules/
+
+# Build TypeScript
+dist/
+build/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Prisma
+prisma/migrations/dev.db
+prisma/migrations/dev.db-journal
+*.db
+*.db-journal
+
+# Prisma generated client (viene rigenerato da `prisma generate`)
+# Se usi un path custom in schema.prisma, aggiorna il path qui sotto
+node_modules/.prisma/
+
+# Upload temporanei
+uploads/
+tmp/
+
+# Coverage e test
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs/

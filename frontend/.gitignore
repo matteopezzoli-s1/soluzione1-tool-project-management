@@ -1,0 +1,28 @@
+# =============================================================================
+# frontend/.gitignore — React + Vite + TypeScript
+# =============================================================================
+
+# Dipendenze
+node_modules/
+
+# Build Vite
+dist/
+dist-ssr/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Vite cache
+.vite/
+.vite-cache/
+
+# TypeScript
+*.tsbuildinfo
+
+# Coverage e test
+coverage/
+
+# Logs
+*.log

@@ -1,0 +1,29 @@
+# =============================================================================
+# .gitignore — Root monorepo
+# =============================================================================
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Editor
+.vscode/
+.idea/
+*.iml
+
+# Env files — MAI committare secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# Cloud Build local test artifacts
+.cloudbuild/
