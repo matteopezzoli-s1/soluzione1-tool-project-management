@@ -1,9 +1,8 @@
 #!/bin/sh
 set -e
 
-echo "🔄 Avvio migrations Prisma..."
-npx prisma migrate deploy --schema /app/prisma/schema.prisma
+echo "📁 Contenuto /app/dist:"
+ls -la /app/dist || echo "ERRORE: cartella dist non trovata"
 
-echo "✅ Migrations completate."
 echo "🚀 Avvio server Node.js..."
 exec node dist/index.js
