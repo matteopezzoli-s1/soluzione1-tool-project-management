@@ -6,14 +6,12 @@
 #   - Branch: develop  → deploy su fe-dev  (VITE_API_URL punta a be-dev)
 #   - Branch: main     → deploy su fe-prod (VITE_API_URL punta a be-prod)
 #
-# ⚠️  IMPORTANTE — Variabili VITE_ sono "baked" a BUILD TIME
-#    Il bundle JS prodotto da `vite build` contiene già l'URL del backend
-#    hardcoded. Ogni ambiente produce un'immagine Docker diversa.
-#    Aggiorna i PLACEHOLDER con le URL reali dei tuoi Cloud Run backend.
+# ℹ️  VITE_API_URL viene risolto dinamicamente da Cloud Run (Step 0).
+#    Non è più necessario aggiornare manualmente i placeholder.
+#    Prerequisito: il backend deve essere già deployato almeno una volta.
 #
-# Prerequisiti:
-#   - Artifact Registry repository "docker-images" già creato in europe-west1
-#   - Service account Cloud Build con i ruoli necessari (vedi docs/gcp-setup.md)
+# ℹ️  Alla fine del deploy (Step 4), il backend viene aggiornato con
+#    il FRONTEND_URL corretto → CORS e redirect OAuth sempre aggiornati.
 # =============================================================================
 
 substitutions:
@@ -22,16 +20,50 @@ substitutions:
   _AR_REPO: docker-images
   _IMAGE: europe-west1-docker.pkg.dev/soluzione1-progetti-interni/docker-images/frontend
 
-  # ⚠️  PLACEHOLDER — Aggiorna con le URL reali una volta noti i Cloud Run BE
-  # Formato: https://NOME-SERVICE-HASH-ew.a.run.app  oppure dominio custom
-  _API_URL_DEV: https://PLACEHOLDER-be-dev-url.a.run.app
-  _API_URL_PROD: https://PLACEHOLDER-be-prod-url.a.run.app
-
 steps:
 
   # ---------------------------------------------------------------------------
+  # STEP 0 — Risolvi VITE_API_URL leggendo l'URL del backend da Cloud Run
+  #          Salva il risultato in /workspace/api_url.txt per i passi successivi
+  # ---------------------------------------------------------------------------
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'get-backend-url'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e
+
+        if [ "$BRANCH_NAME" = "main" ]; then
+          BE_SERVICE="$_PROJECT_ID-be-prod"
+          FE_SERVICE="$_PROJECT_ID-fe-prod"
+        else
+          BE_SERVICE="$_PROJECT_ID-be-dev"
+          FE_SERVICE="$_PROJECT_ID-fe-dev"
+        fi
+
+        # Salva i nomi dei servizi per gli step successivi
+        echo -n "$$BE_SERVICE" > /workspace/be_service.txt
+        echo -n "$$FE_SERVICE" > /workspace/fe_service.txt
+
+        # Ottieni URL backend da Cloud Run
+        API_URL=$(gcloud run services describe "$$BE_SERVICE" \
+          --region "$_REGION" \
+          --format='value(status.url)' 2>/dev/null || echo "")
+
+        if [ -z "$$API_URL" ]; then
+          echo "⚠️  Servizio backend '$$BE_SERVICE' non trovato."
+          echo "    Assicurati che il backend sia deployato prima del frontend."
+          exit 1
+        fi
+
+        echo "▶ VITE_API_URL=$$API_URL"
+        echo -n "$$API_URL" > /workspace/api_url.txt
+    waitFor: ['-']
+
+  # ---------------------------------------------------------------------------
   # STEP 1 — Build immagine Docker del frontend
-  #          VITE_API_URL viene passato come build-arg (baked nel bundle JS)
+  #          VITE_API_URL viene letto da /workspace/api_url.txt (baked nel bundle JS)
   # ---------------------------------------------------------------------------
   - name: 'gcr.io/cloud-builders/docker'
     id: 'build-frontend'
@@ -40,14 +72,7 @@ steps:
       - '-c'
       - |
         set -e
-
-        # Seleziona VITE_API_URL in base al branch
-        if [ "$BRANCH_NAME" = "main" ]; then
-          API_URL="$_API_URL_PROD"
-        else
-          API_URL="$_API_URL_DEV"
-        fi
-
+        API_URL=$(cat /workspace/api_url.txt)
         echo "▶ Build branch=$BRANCH_NAME → VITE_API_URL=$$API_URL"
 
         docker build \
@@ -57,7 +82,7 @@ steps:
           --tag "$_IMAGE:$BRANCH_NAME-latest" \
           --cache-from "$_IMAGE:$BRANCH_NAME-latest" \
           frontend
-    waitFor: ['-']
+    waitFor: ['get-backend-url']
 
   # ---------------------------------------------------------------------------
   # STEP 2 — Push immagine su Artifact Registry
@@ -80,17 +105,11 @@ steps:
       - '-c'
       - |
         set -e
+        FE_SERVICE=$(cat /workspace/fe_service.txt)
 
-        # Seleziona servizio Cloud Run in base al branch
-        if [ "$BRANCH_NAME" = "main" ]; then
-          SERVICE="$_PROJECT_ID-fe-prod"
-        else
-          SERVICE="$_PROJECT_ID-fe-dev"
-        fi
+        echo "▶ Deploy branch=$BRANCH_NAME → service=$$FE_SERVICE"
 
-        echo "▶ Deploy branch=$BRANCH_NAME → service=$$SERVICE"
-
-        gcloud run deploy "$$SERVICE" \
+        gcloud run deploy "$$FE_SERVICE" \
           --image "$_IMAGE:$BRANCH_NAME-$SHORT_SHA" \
           --region "$_REGION" \
           --platform managed \
@@ -102,8 +121,37 @@ steps:
           --cpu 1 \
           --timeout 30s
 
-        echo "✅ Deploy completato: $$SERVICE"
+        echo "✅ Deploy completato: $$FE_SERVICE"
     waitFor: ['push-frontend']
+
+  # ---------------------------------------------------------------------------
+  # STEP 4 — Aggiorna FRONTEND_URL sul backend
+  #
+  # Ora che il frontend è deployato, comunichiamo il suo URL al backend
+  # in modo che CORS e il redirect OAuth post-login siano sempre corretti.
+  # ---------------------------------------------------------------------------
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-backend-cors'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e
+        BE_SERVICE=$(cat /workspace/be_service.txt)
+        FE_SERVICE=$(cat /workspace/fe_service.txt)
+
+        FRONTEND_URL=$(gcloud run services describe "$$FE_SERVICE" \
+          --region "$_REGION" \
+          --format='value(status.url)')
+
+        echo "▶ Aggiorno FRONTEND_URL=$$FRONTEND_URL su $$BE_SERVICE"
+
+        gcloud run services update "$$BE_SERVICE" \
+          --region "$_REGION" \
+          --update-env-vars "FRONTEND_URL=$$FRONTEND_URL"
+
+        echo "✅ Backend CORS aggiornato → $$FRONTEND_URL"
+    waitFor: ['deploy-frontend']
 
 options:
   logging: CLOUD_LOGGING_ONLY

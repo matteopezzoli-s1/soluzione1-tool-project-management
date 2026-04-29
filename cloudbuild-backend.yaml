@@ -90,8 +90,56 @@ steps:
           --cpu 1 \
           --timeout 60s
 
+        # Salva il nome del servizio per lo step successivo
+        echo -n "$$SERVICE" > /workspace/be_service.txt
         echo "✅ Deploy completato: $$SERVICE"
     waitFor: ['push-backend']
+
+  # ---------------------------------------------------------------------------
+  # STEP 4 — Aggiorna BACKEND_URL e FRONTEND_URL sul servizio deployato
+  #
+  # BACKEND_URL: l'URL Cloud Run del backend stesso (per costruire il
+  #              callback OAuth correttamente).
+  # FRONTEND_URL: l'URL Cloud Run del frontend (per CORS e redirect OAuth).
+  #              Viene risolto dinamicamente; se il frontend non è ancora
+  #              deployato, viene usato "*" (permetti tutto) — sicuro perché
+  #              il frontend cloudbuild aggiorna questo valore alla fine.
+  # ---------------------------------------------------------------------------
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'configure-urls'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e
+
+        BE_SERVICE=$(cat /workspace/be_service.txt)
+
+        if [ "$BRANCH_NAME" = "main" ]; then
+          FE_SERVICE="$_PROJECT_ID-fe-prod"
+        else
+          FE_SERVICE="$_PROJECT_ID-fe-dev"
+        fi
+
+        # Ottieni URL del backend (ora che è deployato)
+        BACKEND_URL=$(gcloud run services describe "$$BE_SERVICE" \
+          --region "$_REGION" \
+          --format='value(status.url)')
+
+        # Ottieni URL del frontend (potrebbe non esistere al primo deploy)
+        FRONTEND_URL=$(gcloud run services describe "$$FE_SERVICE" \
+          --region "$_REGION" \
+          --format='value(status.url)' 2>/dev/null || echo "")
+
+        echo "▶ BACKEND_URL=$$BACKEND_URL"
+        echo "▶ FRONTEND_URL=${FRONTEND_URL:-'(non ancora deployato, sarà aggiornato dal pipeline frontend)'}"
+
+        gcloud run services update "$$BE_SERVICE" \
+          --region "$_REGION" \
+          --update-env-vars "BACKEND_URL=$$BACKEND_URL,FRONTEND_URL=$$FRONTEND_URL"
+
+        echo "✅ URL env vars aggiornate su $$BE_SERVICE"
+    waitFor: ['deploy-backend']
 
 options:
   logging: CLOUD_LOGGING_ONLY
