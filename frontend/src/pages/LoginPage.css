@@ -1,0 +1,409 @@
+/* ============================================================
+   LoginPage.css — Option A: Editorial Precision
+   Palette: Navy #0f1b35 · Cream #fafaf8 · Gold #c9a84c
+   ============================================================ */
+
+/* ── Entry animations ─────────────────────────────────────── */
+
+@keyframes lp-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes lp-fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes lp-slide-right {
+  from { opacity: 0; transform: translateX(-20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Root layout ──────────────────────────────────────────── */
+
+.lp-root {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* ── Left panel: Illustration ─────────────────────────────── */
+
+.lp-illustration {
+  position: relative;
+  flex: 0 0 55%;
+  background: #0f1b35;
+  display: flex;
+  overflow: hidden;
+  animation: lp-fade-in 0.6s ease both;
+}
+
+/* Subtle grid texture */
+.lp-illustration::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0px,
+      transparent 65px,
+      rgba(255, 255, 255, 0.03) 65px,
+      rgba(255, 255, 255, 0.03) 66px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 37px,
+      rgba(255, 255, 255, 0.03) 37px,
+      rgba(255, 255, 255, 0.03) 38px
+    );
+}
+
+/* Gold accent separator on right edge */
+.lp-illustration::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 8%;
+  height: 84%;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(201, 168, 76, 0.55) 25%,
+    rgba(201, 168, 76, 0.55) 75%,
+    transparent
+  );
+}
+
+.lp-ill-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 3rem 3.5rem;
+}
+
+.lp-ill-eyebrow {
+  display: block;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: rgba(201, 168, 76, 0.75);
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: 2rem;
+  font-family: system-ui, sans-serif;
+}
+
+.gantt-illustration {
+  width: 100%;
+  max-width: 540px;
+  height: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.lp-ill-tagline {
+  margin-top: 2rem;
+  font-size: 0.975rem;
+  line-height: 1.75;
+  color: rgba(255, 255, 255, 0.42);
+  font-style: italic;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+/* ── Right panel: Form ────────────────────────────────────── */
+
+.lp-form {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafaf8;
+  padding: 2.5rem 2rem;
+}
+
+.lp-form-inner {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 2.75rem;
+}
+
+/* ── Brand header ─────────────────────────────────────────── */
+
+.lp-brand {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  animation: lp-fade-up 0.55s 0.15s ease both;
+}
+
+.lp-brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  background: #0f1b35;
+  border-radius: 11px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 12px rgba(15, 27, 53, 0.25);
+}
+
+.brand-icon {
+  width: 26px;
+  height: 26px;
+}
+
+.lp-brand-name {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.65rem;
+  font-weight: normal;
+  color: #0f1b35;
+  margin: 0;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.lp-brand-sub {
+  font-size: 0.68rem;
+  color: #8a8a8a;
+  margin: 0.3rem 0 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  font-family: system-ui, sans-serif;
+}
+
+/* ── CTA section ──────────────────────────────────────────── */
+
+.lp-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  animation: lp-fade-up 0.55s 0.3s ease both;
+}
+
+.lp-message {
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: #4a5568;
+  margin: 0;
+  padding-left: 1rem;
+  border-left: 2.5px solid #c9a84c;
+  font-family: system-ui, sans-serif;
+}
+
+/* ── Auth error message ───────────────────────────────────── */
+
+.lp-error {
+  font-size: 0.82rem;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 0.6rem 0.875rem;
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+/* ── Google button ────────────────────────────────────────── */
+
+.lp-google-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.9rem 1.2rem;
+  background: #fff;
+  border: 1.5px solid #ddd9d0;
+  border-radius: 9px;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #0f1b35;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  transition:
+    color       0.22s ease,
+    border-color 0.22s ease,
+    box-shadow  0.22s ease,
+    transform   0.15s ease;
+}
+
+/* Navy fill on hover, slides in from left */
+.lp-google-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, #0f1b35 0%, #1a3060 100%);
+  transform: translateX(-101%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lp-google-btn:hover {
+  color: #fff;
+  border-color: #0f1b35;
+  box-shadow: 0 6px 24px rgba(15, 27, 53, 0.22);
+  transform: translateY(-2px);
+}
+
+.lp-google-btn:hover::before {
+  transform: translateX(0);
+}
+
+.lp-google-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(15, 27, 53, 0.15);
+}
+
+.lp-google-btn:focus-visible {
+  outline: 2.5px solid #c9a84c;
+  outline-offset: 3px;
+}
+
+.lp-google-btn--loading,
+.lp-google-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.lp-google-btn__icon {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  background: #fff;
+  border-radius: 5px;
+  padding: 2px;
+  transition: background 0.22s ease;
+}
+
+.lp-google-btn:hover .lp-google-btn__icon {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.google-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.lp-google-btn__label {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+}
+
+.lp-google-btn__arrow {
+  position: relative;
+  z-index: 1;
+  font-size: 1.05rem;
+  color: #c9a84c;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition:
+    opacity   0.22s ease,
+    transform 0.22s ease;
+}
+
+.lp-google-btn:hover .lp-google-btn__arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+
+.lp-footer {
+  animation: lp-fade-up 0.55s 0.45s ease both;
+}
+
+.lp-footer p {
+  font-size: 0.72rem;
+  color: #b0b0b0;
+  margin: 0;
+  text-align: center;
+  letter-spacing: 0.04em;
+  font-family: system-ui, sans-serif;
+}
+
+/* ── Responsive: tablet (768–1024px) ─────────────────────── */
+
+@media (max-width: 1024px) {
+  .lp-illustration {
+    flex: 0 0 48%;
+  }
+
+  .lp-ill-inner {
+    padding: 2.5rem 2.5rem;
+  }
+}
+
+/* ── Responsive: mobile (≤ 768px) ────────────────────────── */
+
+@media (max-width: 768px) {
+  .lp-root {
+    flex-direction: column;
+  }
+
+  .lp-illustration {
+    flex: 0 0 auto;
+    animation: none;
+    border-bottom: 1px solid rgba(201, 168, 76, 0.3);
+  }
+
+  .lp-illustration::after {
+    display: none;
+  }
+
+  .lp-ill-inner {
+    padding: 1.75rem 1.5rem 1.5rem;
+  }
+
+  .lp-ill-eyebrow {
+    margin-bottom: 1rem;
+    font-size: 0.58rem;
+  }
+
+  .gantt-illustration {
+    max-height: 155px;
+  }
+
+  .lp-ill-tagline {
+    display: none;
+  }
+
+  .lp-form {
+    padding: 2rem 1.5rem 2.5rem;
+    align-items: flex-start;
+  }
+
+  .lp-form-inner {
+    gap: 2rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .lp-ill-inner {
+    padding: 1.25rem 1.25rem 1rem;
+  }
+
+  .lp-brand-name {
+    font-size: 1.45rem;
+  }
+
+  .lp-form-inner {
+    gap: 1.75rem;
+  }
+}
