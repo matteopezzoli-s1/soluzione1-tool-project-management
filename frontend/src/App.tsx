@@ -187,7 +187,7 @@ type NavPage = 'dashboard' | 'progetti' | 'timeline' | 'team-pm' | 'team-account
 const PAGE_LABELS: Record<NavPage, string> = {
   dashboard:      'Dashboard',
   progetti:       'Progetti',
-  timeline:       'Timeline',
+  timeline:       'Gantt',
   'team-pm':      'Team PM',
   'team-account': 'Team Account',
   impostazioni:   'Impostazioni',
@@ -250,7 +250,7 @@ export default function App() {
         <div className="db-sidebar-nav">
           {navBtn('dashboard',     'Dashboard',      <IconGrid />)}
           {navBtn('progetti',      'Progetti',       <IconBars />)}
-          {navBtn('timeline',      'Timeline Gantt', <IconTimeline />)}
+          {navBtn('timeline',      'Gantt',          <IconTimeline />)}
           {navBtn('team-pm',       'Team PM',        <IconUsers />)}
           {navBtn('team-account',  'Team Account',   <IconAccount />)}
         </div>

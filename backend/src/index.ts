@@ -24,13 +24,17 @@ const CALLBACK_URL         = `${BACKEND_URL}/auth/google/callback`
 // ── Middleware ────────────────────────────────────────────────
 app.use(express.json())
 
-const CORS_ORIGIN: string | boolean = FRONTEND_URL
-  ? FRONTEND_URL
-  : process.env.NODE_ENV === 'production' ? false : true
+const IS_PROD = process.env.NODE_ENV === 'production'
 
 app.use(cors({
-  origin:      CORS_ORIGIN,
-  credentials: CORS_ORIGIN !== false,
+  origin: IS_PROD
+    ? FRONTEND_URL
+    : (origin, cb) => {
+        // In dev: accetta qualsiasi localhost (qualsiasi porta) + richieste senza origin (curl/Postman)
+        if (!origin || /^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true)
+        return cb(null, false)
+      },
+  credentials: true,
 }))
 
 // ── Auth middleware ───────────────────────────────────────────
