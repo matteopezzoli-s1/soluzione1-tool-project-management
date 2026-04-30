@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import LoginPage from './pages/LoginPage'
 import './App.css'
 
@@ -170,12 +170,43 @@ function GanttPreview() {
   )
 }
 
+// ─── Sezione placeholder ─────────────────────────────────────────────────────
+
+type NavPage = 'dashboard' | 'progetti' | 'timeline' | 'team' | 'impostazioni'
+
+const PAGE_LABELS: Record<NavPage, string> = {
+  dashboard:     'Dashboard',
+  progetti:      'Progetti',
+  timeline:      'Timeline',
+  team:          'Team',
+  impostazioni:  'Impostazioni',
+}
+
+function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard'> }) {
+  return (
+    <div className="db-placeholder">
+      <div className="db-placeholder-inner">
+        <div className="db-placeholder-icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none" width="48" height="48">
+            <rect x="4" y="10" width="26" height="6"  rx="3" fill="#0D9488" opacity="0.6" />
+            <rect x="10" y="22" width="28" height="6" rx="3" fill="#F59E0B" opacity="0.5" />
+            <rect x="6"  y="34" width="22" height="6" rx="3" fill="#0D9488" opacity="0.35" />
+          </svg>
+        </div>
+        <h2 className="db-placeholder-title">{PAGE_LABELS[page]}</h2>
+        <p className="db-placeholder-desc">Questa sezione è in sviluppo e sarà disponibile a breve.</p>
+      </div>
+    </div>
+  )
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [token, setToken] = useState<string | null>(() =>
     localStorage.getItem('auth_token')
   )
+  const [page, setPage] = useState<NavPage>('dashboard')
 
   const handleLogin  = (t: string) => setToken(t)
   const handleLogout = () => {
@@ -184,6 +215,17 @@ export default function App() {
   }
 
   if (!token) return <LoginPage onLogin={handleLogin} />
+
+  const navBtn = (id: NavPage, label: string, icon: ReactNode) => (
+    <button
+      className={`db-nav-btn${page === id ? ' db-nav-btn--active' : ''}`}
+      type="button" title={label} aria-label={label}
+      aria-current={page === id ? 'page' : undefined}
+      onClick={() => setPage(id)}
+    >
+      {icon}
+    </button>
+  )
 
   return (
     <div className="db-shell">
@@ -195,25 +237,14 @@ export default function App() {
         </div>
 
         <div className="db-sidebar-nav">
-          <button className="db-nav-btn db-nav-btn--active" type="button"
-            title="Dashboard" aria-label="Dashboard" aria-current="page">
-            <IconGrid />
-          </button>
-          <button className="db-nav-btn" type="button" title="Progetti" aria-label="Progetti">
-            <IconBars />
-          </button>
-          <button className="db-nav-btn" type="button" title="Timeline" aria-label="Timeline Gantt">
-            <IconTimeline />
-          </button>
-          <button className="db-nav-btn" type="button" title="Team" aria-label="Team">
-            <IconUsers />
-          </button>
+          {navBtn('dashboard',    'Dashboard',      <IconGrid />)}
+          {navBtn('progetti',     'Progetti',       <IconBars />)}
+          {navBtn('timeline',     'Timeline Gantt', <IconTimeline />)}
+          {navBtn('team',         'Team',           <IconUsers />)}
         </div>
 
         <div className="db-sidebar-foot">
-          <button className="db-nav-btn" type="button" title="Impostazioni" aria-label="Impostazioni">
-            <IconSettings />
-          </button>
+          {navBtn('impostazioni', 'Impostazioni',   <IconSettings />)}
           <button className="db-nav-btn db-nav-btn--logout" type="button"
             title="Esci" aria-label="Esci dall'applicazione" onClick={handleLogout}>
             <IconLogout />
@@ -229,7 +260,7 @@ export default function App() {
           <div className="db-header-left">
             <span className="db-header-app">s1 Gantt</span>
             <span className="db-header-divider" aria-hidden="true">/</span>
-            <span className="db-header-page">Dashboard</span>
+            <span className="db-header-page">{PAGE_LABELS[page]}</span>
           </div>
           <div className="db-header-right">
             <div className="db-avatar" aria-label="Profilo utente">MP</div>
@@ -237,7 +268,8 @@ export default function App() {
         </header>
 
         {/* Content */}
-        <main className="db-content">
+        {page !== 'dashboard' && <PlaceholderPage page={page} />}
+        <main className="db-content" style={page !== 'dashboard' ? { display: 'none' } : undefined}>
 
           {/* Hero card */}
           <div className="db-hero">

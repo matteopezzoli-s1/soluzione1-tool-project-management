@@ -398,6 +398,52 @@
 .db-kpi-bar--indigo { background: #6366F1; }
 .db-kpi-bar--sky    { background: #0EA5E9; }
 
+/* ── Placeholder page (sezioni non ancora implementate) ───── */
+
+.db-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2rem;
+  animation: db-fade-up 0.35s ease both;
+}
+
+.db-placeholder-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+  max-width: 320px;
+}
+
+.db-placeholder-icon {
+  width: 72px;
+  height: 72px;
+  background: #FFFFFF;
+  border-radius: 18px;
+  border: 1px solid #E2E8F0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  margin-bottom: 0.5rem;
+}
+
+.db-placeholder-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0F172A;
+  letter-spacing: -0.02em;
+}
+
+.db-placeholder-desc {
+  font-size: 0.875rem;
+  color: #94A3B8;
+  line-height: 1.6;
+}
+
 /* ── Responsive ────────────────────────────────────────────── */
 
 @media (max-width: 1024px) {
