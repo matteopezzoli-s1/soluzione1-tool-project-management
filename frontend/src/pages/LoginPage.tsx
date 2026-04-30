@@ -299,6 +299,20 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         <div className="lp-ill-inner">
           <span className="lp-ill-eyebrow">PIANIFICAZIONE PROGETTI</span>
           <GanttIllustration />
+          <div className="lp-metrics" aria-hidden="true">
+            <div className="lp-metric">
+              <span className="lp-metric-val">12</span>
+              <span className="lp-metric-lbl">Progetti attivi</span>
+            </div>
+            <div className="lp-metric lp-metric--hi">
+              <span className="lp-metric-val">87%</span>
+              <span className="lp-metric-lbl">On Schedule</span>
+            </div>
+            <div className="lp-metric">
+              <span className="lp-metric-val">4</span>
+              <span className="lp-metric-lbl">Scadenze oggi</span>
+            </div>
+          </div>
           <p className="lp-ill-tagline">
             Visibilità completa sul progresso.<br />
             Collaborazione al centro.

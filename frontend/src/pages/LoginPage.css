@@ -1,9 +1,11 @@
-/* ============================================================
-   LoginPage.css — Option A: Editorial Precision
-   Palette: Navy #0f1b35 · Cream #fafaf8 · Gold #c9a84c
-   ============================================================ */
+/* =============================================================
+   s1 Gantt — Login Page
+   Font: Plus Jakarta Sans
+   Left: Deep dark (teal orb + amber orb + dot grid)
+   Right: Clean white — teal-branded form
+   ============================================================= */
 
-/* ── Entry animations ─────────────────────────────────────── */
+/* ── Entry animations ──────────────────────────────────────── */
 
 @keyframes lp-fade-in {
   from { opacity: 0; }
@@ -11,72 +13,53 @@
 }
 
 @keyframes lp-fade-up {
-  from { opacity: 0; transform: translateY(18px); }
+  from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes lp-slide-right {
-  from { opacity: 0; transform: translateX(-20px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
-/* ── Root layout ──────────────────────────────────────────── */
+/* ── Root layout ───────────────────────────────────────────── */
 
 .lp-root {
   display: flex;
   min-height: 100vh;
   min-height: 100dvh;
+  font-family: var(--font-sans, 'Plus Jakarta Sans', system-ui, sans-serif);
 }
 
-/* ── Left panel: Illustration ─────────────────────────────── */
+/* ── Left panel: Illustration ──────────────────────────────── */
 
 .lp-illustration {
   position: relative;
   flex: 0 0 55%;
-  background: #0f1b35;
   display: flex;
   overflow: hidden;
-  animation: lp-fade-in 0.6s ease both;
-}
+  animation: lp-fade-in 0.5s ease both;
 
-/* Subtle grid texture */
-.lp-illustration::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+  /* Multi-layer background: dot grid + teal orb (top-left) + amber orb (bottom-right) */
+  background-color: #07091A;
   background-image:
-    repeating-linear-gradient(
-      90deg,
-      transparent 0px,
-      transparent 65px,
-      rgba(255, 255, 255, 0.03) 65px,
-      rgba(255, 255, 255, 0.03) 66px
-    ),
-    repeating-linear-gradient(
-      0deg,
-      transparent 0px,
-      transparent 37px,
-      rgba(255, 255, 255, 0.03) 37px,
-      rgba(255, 255, 255, 0.03) 38px
-    );
+    radial-gradient(circle, rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    radial-gradient(ellipse 72% 65% at 12% 22%, rgba(13, 148, 136, 0.22) 0%, transparent 100%),
+    radial-gradient(ellipse 55% 50% at 88% 82%, rgba(245, 158, 11, 0.10) 0%, transparent 100%);
+  background-size: 28px 28px, 100% 100%, 100% 100%;
 }
 
-/* Gold accent separator on right edge */
+/* Teal separator on right edge */
 .lp-illustration::after {
   content: '';
   position: absolute;
   right: 0;
-  top: 8%;
-  height: 84%;
+  top: 6%;
+  height: 88%;
   width: 1px;
   background: linear-gradient(
     to bottom,
-    transparent,
-    rgba(201, 168, 76, 0.55) 25%,
-    rgba(201, 168, 76, 0.55) 75%,
-    transparent
+    transparent 0%,
+    rgba(13, 148, 136, 0.5) 25%,
+    rgba(13, 148, 136, 0.5) 75%,
+    transparent 100%
   );
+  pointer-events: none;
 }
 
 .lp-ill-inner {
@@ -88,16 +71,32 @@
   padding: 3rem 3.5rem;
 }
 
+/* ── Eyebrow label ─────────────────────────────────────────── */
+
 .lp-ill-eyebrow {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.625rem;
-  letter-spacing: 0.2em;
-  color: rgba(201, 168, 76, 0.75);
+  letter-spacing: 0.18em;
+  color: rgba(13, 148, 136, 0.9);
   font-weight: 700;
   text-transform: uppercase;
-  margin-bottom: 2rem;
-  font-family: system-ui, sans-serif;
+  margin-bottom: 2.25rem;
+  font-family: var(--font-sans, system-ui);
 }
+
+.lp-ill-eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 18px;
+  height: 1.5px;
+  background: rgba(13, 148, 136, 0.7);
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+/* ── Gantt illustration ────────────────────────────────────── */
 
 .gantt-illustration {
   width: 100%;
@@ -105,25 +104,66 @@
   height: auto;
   flex: 1;
   min-height: 0;
+  filter: drop-shadow(0 4px 24px rgba(13, 148, 136, 0.12));
 }
+
+/* ── Metric chips ──────────────────────────────────────────── */
+
+.lp-metrics {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.lp-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  padding: 0.32rem 0.85rem;
+}
+
+.lp-metric-val {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.88);
+  font-family: var(--font-sans, system-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+.lp-metric-lbl {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.42);
+  font-weight: 500;
+  font-family: var(--font-sans, system-ui);
+}
+
+.lp-metric--hi .lp-metric-val {
+  color: #5EEAD4;
+}
+
+/* ── Tagline ───────────────────────────────────────────────── */
 
 .lp-ill-tagline {
   margin-top: 2rem;
-  font-size: 0.975rem;
-  line-height: 1.75;
-  color: rgba(255, 255, 255, 0.42);
+  font-size: 0.935rem;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.35);
   font-style: italic;
   font-family: Georgia, 'Times New Roman', serif;
 }
 
-/* ── Right panel: Form ────────────────────────────────────── */
+/* ── Right panel: Form ─────────────────────────────────────── */
 
 .lp-form {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fafaf8;
+  background: #FFFFFF;
   padding: 2.5rem 2rem;
 }
 
@@ -135,25 +175,28 @@
   gap: 2.75rem;
 }
 
-/* ── Brand header ─────────────────────────────────────────── */
+/* ── Brand header ──────────────────────────────────────────── */
 
 .lp-brand {
   display: flex;
   align-items: center;
   gap: 1rem;
-  animation: lp-fade-up 0.55s 0.15s ease both;
+  animation: lp-fade-up 0.5s 0.1s ease both;
 }
 
 .lp-brand-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 50px;
-  height: 50px;
-  background: #0f1b35;
-  border-radius: 11px;
+  width: 52px;
+  height: 52px;
+  background: linear-gradient(145deg, #0D1528 0%, #07091A 100%);
+  border-radius: 14px;
   flex-shrink: 0;
-  box-shadow: 0 2px 12px rgba(15, 27, 53, 0.25);
+  box-shadow:
+    0 0 0 1px rgba(13, 148, 136, 0.3),
+    0 4px 16px rgba(13, 148, 136, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .brand-icon {
@@ -162,59 +205,59 @@
 }
 
 .lp-brand-name {
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: var(--font-sans, system-ui);
   font-size: 1.65rem;
-  font-weight: normal;
-  color: #0f1b35;
+  font-weight: 800;
+  color: #0F172A;
   margin: 0;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.035em;
   line-height: 1.1;
 }
 
 .lp-brand-sub {
   font-size: 0.68rem;
-  color: #8a8a8a;
+  color: #0D9488;
   margin: 0.3rem 0 0;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   font-weight: 600;
-  font-family: system-ui, sans-serif;
+  font-family: var(--font-sans, system-ui);
 }
 
-/* ── CTA section ──────────────────────────────────────────── */
+/* ── CTA section ───────────────────────────────────────────── */
 
 .lp-cta {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  animation: lp-fade-up 0.55s 0.3s ease both;
+  animation: lp-fade-up 0.5s 0.22s ease both;
 }
 
 .lp-message {
   font-size: 0.9rem;
-  line-height: 1.65;
-  color: #4a5568;
+  line-height: 1.7;
+  color: #475569;
   margin: 0;
   padding-left: 1rem;
-  border-left: 2.5px solid #c9a84c;
-  font-family: system-ui, sans-serif;
+  border-left: 2.5px solid #0D9488;
+  font-family: var(--font-sans, system-ui);
 }
 
-/* ── Auth error message ───────────────────────────────────── */
+/* ── Auth error ────────────────────────────────────────────── */
 
 .lp-error {
   font-size: 0.82rem;
-  color: #b91c1c;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 6px;
-  padding: 0.6rem 0.875rem;
+  color: #991B1B;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  border-radius: var(--r-md, 10px);
+  padding: 0.65rem 0.9rem;
   margin: 0;
-  font-family: system-ui, sans-serif;
+  font-family: var(--font-sans, system-ui);
   line-height: 1.5;
 }
 
-/* ── Google button ────────────────────────────────────────── */
+/* ── Google button ─────────────────────────────────────────── */
 
 .lp-google-btn {
   position: relative;
@@ -223,37 +266,37 @@
   gap: 0.75rem;
   width: 100%;
   padding: 0.9rem 1.2rem;
-  background: #fff;
-  border: 1.5px solid #ddd9d0;
-  border-radius: 9px;
-  font-family: system-ui, -apple-system, sans-serif;
+  background: #FFFFFF;
+  border: 1.5px solid #E2E8F0;
+  border-radius: var(--r-lg, 14px);
+  font-family: var(--font-sans, system-ui);
   font-size: 0.9rem;
-  font-weight: 500;
-  color: #0f1b35;
+  font-weight: 600;
+  color: #1E293B;
   cursor: pointer;
   text-align: left;
   overflow: hidden;
   transition:
-    color       0.22s ease,
-    border-color 0.22s ease,
-    box-shadow  0.22s ease,
-    transform   0.15s ease;
+    color         var(--t-mid, 250ms) ease,
+    border-color  var(--t-mid, 250ms) ease,
+    box-shadow    var(--t-mid, 250ms) ease,
+    transform     var(--t-fast, 150ms) ease;
 }
 
-/* Navy fill on hover, slides in from left */
+/* Teal gradient fill slides in from left on hover */
 .lp-google-btn::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(120deg, #0f1b35 0%, #1a3060 100%);
+  background: linear-gradient(120deg, #0D9488 0%, #0891B2 100%);
   transform: translateX(-101%);
   transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .lp-google-btn:hover {
-  color: #fff;
-  border-color: #0f1b35;
-  box-shadow: 0 6px 24px rgba(15, 27, 53, 0.22);
+  color: #FFFFFF;
+  border-color: #0D9488;
+  box-shadow: 0 6px 28px rgba(13, 148, 136, 0.28);
   transform: translateY(-2px);
 }
 
@@ -263,17 +306,17 @@
 
 .lp-google-btn:active {
   transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(15, 27, 53, 0.15);
+  box-shadow: 0 2px 10px rgba(13, 148, 136, 0.18);
 }
 
 .lp-google-btn:focus-visible {
-  outline: 2.5px solid #c9a84c;
+  outline: 2.5px solid #0D9488;
   outline-offset: 3px;
 }
 
 .lp-google-btn--loading,
 .lp-google-btn:disabled {
-  opacity: 0.65;
+  opacity: 0.6;
   cursor: not-allowed;
   transform: none !important;
 }
@@ -284,14 +327,14 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  background: #fff;
-  border-radius: 5px;
-  padding: 2px;
-  transition: background 0.22s ease;
+  background: #FFFFFF;
+  border-radius: var(--r-sm, 6px);
+  padding: 3px;
+  transition: background var(--t-mid, 250ms) ease;
 }
 
 .lp-google-btn:hover .lp-google-btn__icon {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .google-icon {
@@ -310,12 +353,11 @@
   position: relative;
   z-index: 1;
   font-size: 1.05rem;
-  color: #c9a84c;
   opacity: 0;
-  transform: translateX(-6px);
+  transform: translateX(-8px);
   transition:
-    opacity   0.22s ease,
-    transform 0.22s ease;
+    opacity   var(--t-mid, 250ms) ease,
+    transform var(--t-mid, 250ms) ease;
 }
 
 .lp-google-btn:hover .lp-google-btn__arrow {
@@ -323,26 +365,26 @@
   transform: translateX(0);
 }
 
-/* ── Footer ───────────────────────────────────────────────── */
+/* ── Footer ────────────────────────────────────────────────── */
 
 .lp-footer {
-  animation: lp-fade-up 0.55s 0.45s ease both;
+  animation: lp-fade-up 0.5s 0.35s ease both;
 }
 
 .lp-footer p {
   font-size: 0.72rem;
-  color: #b0b0b0;
+  color: #94A3B8;
   margin: 0;
   text-align: center;
-  letter-spacing: 0.04em;
-  font-family: system-ui, sans-serif;
+  letter-spacing: 0.03em;
+  font-family: var(--font-sans, system-ui);
 }
 
-/* ── Responsive: tablet (768–1024px) ─────────────────────── */
+/* ── Responsive: tablet ────────────────────────────────────── */
 
 @media (max-width: 1024px) {
   .lp-illustration {
-    flex: 0 0 48%;
+    flex: 0 0 50%;
   }
 
   .lp-ill-inner {
@@ -350,7 +392,7 @@
   }
 }
 
-/* ── Responsive: mobile (≤ 768px) ────────────────────────── */
+/* ── Responsive: mobile ────────────────────────────────────── */
 
 @media (max-width: 768px) {
   .lp-root {
@@ -360,7 +402,6 @@
   .lp-illustration {
     flex: 0 0 auto;
     animation: none;
-    border-bottom: 1px solid rgba(201, 168, 76, 0.3);
   }
 
   .lp-illustration::after {
@@ -378,6 +419,10 @@
 
   .gantt-illustration {
     max-height: 155px;
+  }
+
+  .lp-metrics {
+    display: none;
   }
 
   .lp-ill-tagline {

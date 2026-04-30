@@ -1,4 +1,61 @@
-/* ── Global reset & base ──────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap');
+
+:root {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Teal */
+  --c-teal-700: #0F766E;
+  --c-teal-600: #0D9488;
+  --c-teal-500: #14B8A6;
+  --c-teal-300: #5EEAD4;
+  --c-teal-100: #CCFBF1;
+
+  /* Amber */
+  --c-amber-600: #D97706;
+  --c-amber-500: #F59E0B;
+  --c-amber-300: #FCD34D;
+
+  /* Neutral dark */
+  --c-navy-950: #06080F;
+  --c-navy-900: #0D1117;
+  --c-navy-800: #161B22;
+  --c-navy-600: #30363D;
+
+  /* Neutral light */
+  --c-slate-100: #F1F5F9;
+  --c-slate-200: #E2E8F0;
+  --c-slate-400: #94A3B8;
+  --c-slate-600: #475569;
+  --c-slate-800: #1E293B;
+  --c-slate-900: #0F172A;
+
+  /* Semantic */
+  --c-bg-dark:       #07091A;
+  --c-surface-dark:  #0D1528;
+  --c-border-dark:   rgba(255, 255, 255, 0.07);
+  --c-border-light:  #E2E8F0;
+  --c-text-dark:     rgba(255, 255, 255, 0.88);
+  --c-text-muted:    rgba(255, 255, 255, 0.45);
+  --c-destructive:   #DC2626;
+
+  /* Radii */
+  --r-sm:  6px;
+  --r-md:  10px;
+  --r-lg:  14px;
+  --r-xl:  20px;
+  --r-2xl: 28px;
+
+  /* Transitions */
+  --t-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --t-mid:  250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --t-slow: 380ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.08);
+  --shadow-lg: 0 10px 40px rgba(0,0,0,0.18), 0 4px 12px rgba(0,0,0,0.10);
+  --shadow-xl: 0 24px 64px rgba(0,0,0,0.28), 0 8px 20px rgba(0,0,0,0.12);
+}
 
 *,
 *::before,
@@ -16,11 +73,21 @@ body {
   height: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
 }
 
 #root {
   height: 100%;
   min-height: 100vh;
   min-height: 100dvh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
