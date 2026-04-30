@@ -18,6 +18,17 @@ model ProjectManager {
   @@map("project_managers")
 }
 
+model Account {
+  id        String   @id @default(cuid())
+  firstName String   @map("first_name")
+  lastName  String   @map("last_name")
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("accounts")
+}
+
 model User {
   id             String   @id @default(cuid())
   googleId       String   @unique @map("google_id")

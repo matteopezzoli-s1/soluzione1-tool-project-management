@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
-import LoginPage  from './pages/LoginPage'
-import TeamPage   from './pages/TeamPage'
+import LoginPage        from './pages/LoginPage'
+import TeamPage         from './pages/TeamPage'
+import TeamAccountPage  from './pages/TeamAccountPage'
 import './App.css'
 
 // ─── Sidebar icons ──────────────────────────────────────────────────────────
@@ -44,6 +45,14 @@ function IconUsers() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true">
       <path d="M7 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.5 1a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM1.615 16.428a1.224 1.224 0 0 1-.569-1.175 6.002 6.002 0 0 1 11.908 0c.058.467-.172.92-.57 1.174A9.953 9.953 0 0 1 7 17a9.953 9.953 0 0 1-5.385-1.572zM14.5 16h-.106c.07-.297.088-.611.048-.933a7.47 7.47 0 0 0-1.588-3.755 4.502 4.502 0 0 1 5.874 4.575.8.8 0 0 1-.36.734A7.506 7.506 0 0 1 14.5 16z" />
+    </svg>
+  )
+}
+
+function IconAccount() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true">
+      <path fillRule="evenodd" d="M10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-7 9a7 7 0 1 1 14 0H3z" clipRule="evenodd" />
     </svg>
   )
 }
@@ -173,14 +182,15 @@ function GanttPreview() {
 
 // ─── Sezione placeholder ─────────────────────────────────────────────────────
 
-type NavPage = 'dashboard' | 'progetti' | 'timeline' | 'team' | 'impostazioni'
+type NavPage = 'dashboard' | 'progetti' | 'timeline' | 'team-pm' | 'team-account' | 'impostazioni'
 
 const PAGE_LABELS: Record<NavPage, string> = {
-  dashboard:     'Dashboard',
-  progetti:      'Progetti',
-  timeline:      'Timeline',
-  team:          'Team',
-  impostazioni:  'Impostazioni',
+  dashboard:      'Dashboard',
+  progetti:       'Progetti',
+  timeline:       'Timeline',
+  'team-pm':      'Team PM',
+  'team-account': 'Team Account',
+  impostazioni:   'Impostazioni',
 }
 
 function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard'> }) {
@@ -238,10 +248,11 @@ export default function App() {
         </div>
 
         <div className="db-sidebar-nav">
-          {navBtn('dashboard',    'Dashboard',      <IconGrid />)}
-          {navBtn('progetti',     'Progetti',       <IconBars />)}
-          {navBtn('timeline',     'Timeline Gantt', <IconTimeline />)}
-          {navBtn('team',         'Team',           <IconUsers />)}
+          {navBtn('dashboard',     'Dashboard',      <IconGrid />)}
+          {navBtn('progetti',      'Progetti',       <IconBars />)}
+          {navBtn('timeline',      'Timeline Gantt', <IconTimeline />)}
+          {navBtn('team-pm',       'Team PM',        <IconUsers />)}
+          {navBtn('team-account',  'Team Account',   <IconAccount />)}
         </div>
 
         <div className="db-sidebar-foot">
@@ -269,8 +280,11 @@ export default function App() {
         </header>
 
         {/* Content */}
-        {page === 'team' && <TeamPage token={token} />}
-        {page !== 'dashboard' && page !== 'team' && <PlaceholderPage page={page} />}
+        {page === 'team-pm'      && <TeamPage        token={token} />}
+        {page === 'team-account' && <TeamAccountPage token={token} />}
+        {page !== 'dashboard' && page !== 'team-pm' && page !== 'team-account' && (
+          <PlaceholderPage page={page} />
+        )}
         <main className="db-content" style={page !== 'dashboard' ? { display: 'none' } : undefined}>
 
           {/* Hero card */}

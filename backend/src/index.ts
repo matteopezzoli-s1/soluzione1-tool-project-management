@@ -1,4 +1,4 @@
-// v0.3.0 — Google OAuth + JWT + PM CRUD
+// v0.4.0 — Google OAuth + JWT + PM CRUD + Account CRUD
 import express, { Request, Response, NextFunction } from 'express'
 import cors    from 'cors'
 import { PrismaClient } from '@prisma/client'
@@ -50,7 +50,7 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
 
 // ── Health ────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', version: '0.3.0' })
+  res.json({ status: 'ok', version: '0.4.0' })
 })
 
 // ── Auth: Step 1 — redirect a Google ─────────────────────────
@@ -216,6 +216,113 @@ app.delete('/pm/:id', requireAuth, async (req, res) => {
     }
     console.error('[pm] DELETE error:', err)
     res.status(500).json({ error: 'Errore nella cancellazione del PM' })
+  }
+})
+
+// ── Account CRUD ──────────────────────────────────────────────
+
+// GET /accounts
+app.get('/accounts', requireAuth, async (_req, res) => {
+  try {
+    const accounts = await prisma.account.findMany({
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+    })
+    res.json(accounts)
+  } catch (err) {
+    console.error('[accounts] GET error:', err)
+    res.status(500).json({ error: 'Errore nel recupero degli account' })
+  }
+})
+
+// POST /accounts
+app.post('/accounts', requireAuth, async (req, res) => {
+  const { firstName, lastName, email } = req.body as {
+    firstName?: string; lastName?: string; email?: string
+  }
+
+  if (!firstName?.trim() || !lastName?.trim() || !email?.trim()) {
+    res.status(400).json({ error: 'firstName, lastName ed email sono obbligatori' })
+    return
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    res.status(400).json({ error: 'Email non valida' })
+    return
+  }
+
+  try {
+    const account = await prisma.account.create({
+      data: {
+        firstName: firstName.trim(),
+        lastName:  lastName.trim(),
+        email:     email.trim().toLowerCase(),
+      },
+    })
+    res.status(201).json(account)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2002') {
+      res.status(409).json({ error: 'Email già presente' })
+      return
+    }
+    console.error('[accounts] POST error:', err)
+    res.status(500).json({ error: 'Errore nella creazione dell\'account' })
+  }
+})
+
+// PUT /accounts/:id
+app.put('/accounts/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  const { firstName, lastName, email } = req.body as {
+    firstName?: string; lastName?: string; email?: string
+  }
+
+  if (!firstName?.trim() || !lastName?.trim() || !email?.trim()) {
+    res.status(400).json({ error: 'firstName, lastName ed email sono obbligatori' })
+    return
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    res.status(400).json({ error: 'Email non valida' })
+    return
+  }
+
+  try {
+    const account = await prisma.account.update({
+      where: { id },
+      data: {
+        firstName: firstName.trim(),
+        lastName:  lastName.trim(),
+        email:     email.trim().toLowerCase(),
+      },
+    })
+    res.json(account)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Account non trovato' })
+      return
+    }
+    if ((err as { code?: string }).code === 'P2002') {
+      res.status(409).json({ error: 'Email già presente' })
+      return
+    }
+    console.error('[accounts] PUT error:', err)
+    res.status(500).json({ error: 'Errore nell\'aggiornamento dell\'account' })
+  }
+})
+
+// DELETE /accounts/:id
+app.delete('/accounts/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  try {
+    await prisma.account.delete({ where: { id } })
+    res.status(204).send()
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Account non trovato' })
+      return
+    }
+    console.error('[accounts] DELETE error:', err)
+    res.status(500).json({ error: 'Errore nella cancellazione dell\'account' })
   }
 })
 
