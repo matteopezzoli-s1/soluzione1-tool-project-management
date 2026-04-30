@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import LoginPage from './pages/LoginPage'
+import LoginPage  from './pages/LoginPage'
+import TeamPage   from './pages/TeamPage'
 import './App.css'
 
 // ─── Sidebar icons ──────────────────────────────────────────────────────────
@@ -268,7 +269,8 @@ export default function App() {
         </header>
 
         {/* Content */}
-        {page !== 'dashboard' && <PlaceholderPage page={page} />}
+        {page === 'team' && <TeamPage token={token} />}
+        {page !== 'dashboard' && page !== 'team' && <PlaceholderPage page={page} />}
         <main className="db-content" style={page !== 'dashboard' ? { display: 'none' } : undefined}>
 
           {/* Hero card */}
