@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react'
-import LoginPage        from './pages/LoginPage'
-import TeamPage         from './pages/TeamPage'
-import TeamAccountPage  from './pages/TeamAccountPage'
+import LoginPage             from './pages/LoginPage'
+import TeamPage              from './pages/TeamPage'
+import TeamAccountPage       from './pages/TeamAccountPage'
+import ElencoAttivitaPage    from './pages/ElencoAttivitaPage'
 import './App.css'
 
 // ─── Sidebar icons ──────────────────────────────────────────────────────────
@@ -53,6 +54,18 @@ function IconAccount() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true">
       <path fillRule="evenodd" d="M10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-7 9a7 7 0 1 1 14 0H3z" clipRule="evenodd" />
+    </svg>
+  )
+}
+
+function IconClipboard() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+      width="20" height="20" aria-hidden="true">
+      <path d="M8 3H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1h-3"
+        strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="7" y="2" width="6" height="3" rx="1" strokeLinecap="round" />
+      <path d="M7 9h6M7 12h4" strokeLinecap="round" />
     </svg>
   )
 }
@@ -182,18 +195,19 @@ function GanttPreview() {
 
 // ─── Sezione placeholder ─────────────────────────────────────────────────────
 
-type NavPage = 'dashboard' | 'progetti' | 'timeline' | 'team-pm' | 'team-account' | 'impostazioni'
+type NavPage = 'dashboard' | 'progetti' | 'timeline' | 'attivita' | 'team-pm' | 'team-account' | 'impostazioni'
 
 const PAGE_LABELS: Record<NavPage, string> = {
   dashboard:      'Dashboard',
   progetti:       'Progetti',
   timeline:       'Gantt',
+  attivita:       'Elenco Attività',
   'team-pm':      'Team PM',
   'team-account': 'Team Account',
   impostazioni:   'Impostazioni',
 }
 
-function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard'> }) {
+function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard' | 'attivita'> }) {
   return (
     <div className="db-placeholder">
       <div className="db-placeholder-inner">
@@ -251,6 +265,7 @@ export default function App() {
           {navBtn('dashboard',     'Dashboard',      <IconGrid />)}
           {navBtn('progetti',      'Progetti',       <IconBars />)}
           {navBtn('timeline',      'Gantt',          <IconTimeline />)}
+          {navBtn('attivita',      'Elenco Attività', <IconClipboard />)}
           {navBtn('team-pm',       'Team PM',        <IconUsers />)}
           {navBtn('team-account',  'Team Account',   <IconAccount />)}
         </div>
@@ -280,9 +295,10 @@ export default function App() {
         </header>
 
         {/* Content */}
-        {page === 'team-pm'      && <TeamPage        token={token} />}
-        {page === 'team-account' && <TeamAccountPage token={token} />}
-        {page !== 'dashboard' && page !== 'team-pm' && page !== 'team-account' && (
+        {page === 'team-pm'      && <TeamPage              token={token} />}
+        {page === 'team-account' && <TeamAccountPage       token={token} />}
+        {page === 'attivita'     && <ElencoAttivitaPage    token={token} />}
+        {page !== 'dashboard' && page !== 'team-pm' && page !== 'team-account' && page !== 'attivita' && (
           <PlaceholderPage page={page} />
         )}
         <main className="db-content" style={page !== 'dashboard' ? { display: 'none' } : undefined}>

@@ -330,6 +330,152 @@ app.delete('/accounts/:id', requireAuth, async (req, res) => {
   }
 })
 
+// ── Attività ──────────────────────────────────────────────────
+
+const STATO_LABEL: Record<string, string> = {
+  IN_CORSO:        'In corso',
+  COMPLETATO:      'Completato',
+  DA_INIZIARE:     'Da iniziare',
+  IN_APPROVAZIONE: 'In approvazione',
+  ANALISI:         'Analisi',
+  FERMI:           'Fermi',
+  RIFIUTATO:       'Rifiutato',
+}
+
+const STATO_FROM_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(STATO_LABEL).map(([k, v]) => [v, k])
+)
+
+function toNumber(d: unknown): number {
+  if (d === null || d === undefined) return 0
+  return typeof d === 'object' && 'toNumber' in (d as object)
+    ? (d as { toNumber(): number }).toNumber()
+    : Number(d)
+}
+
+// GET /api/attivita — lista raggruppata per cliente+progetto
+app.get('/api/attivita', requireAuth, async (req, res) => {
+  try {
+    const { account, pm, stato, soloAttivi } = req.query as {
+      account?: string; pm?: string; stato?: string; soloAttivi?: string
+    }
+
+    // Build Prisma where clause
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: Record<string, any> = {}
+
+    if (account?.trim()) where['account'] = account.trim()
+    if (pm?.trim()) where['projectManager'] = pm.trim()
+
+    const statoAttivi = soloAttivi === 'true'
+      ? ['IN_CORSO', 'DA_INIZIARE', 'IN_APPROVAZIONE', 'ANALISI', 'FERMI']
+      : undefined
+
+    if (stato?.trim()) {
+      const labels = stato.split(',').map(s => s.trim()).filter(Boolean)
+      const dbValues = labels.map(l => STATO_FROM_LABEL[l] ?? l).filter(Boolean)
+      if (dbValues.length > 0) {
+        where['stato'] = { in: statoAttivi
+          ? dbValues.filter(v => statoAttivi.includes(v))
+          : dbValues }
+      }
+    } else if (statoAttivi) {
+      where['stato'] = { in: statoAttivi }
+    }
+
+    const rows = await prisma.attivita.findMany({
+      where,
+      orderBy: [{ cliente: 'asc' }, { progetto: 'asc' }, { attivita: 'asc' }],
+    })
+
+    // Group by cliente+progetto
+    const groupMap = new Map<string, {
+      cliente: string
+      progetto: string
+      account: string
+      projectManager: string
+      attivita: typeof rows
+    }>()
+
+    for (const row of rows) {
+      const key = `${row.cliente}|||${row.progetto}`
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          cliente:        row.cliente,
+          progetto:       row.progetto,
+          account:        row.account,
+          projectManager: row.projectManager,
+          attivita:       [],
+        })
+      }
+      groupMap.get(key)!.attivita.push(row)
+    }
+
+    const gruppi = Array.from(groupMap.values()).map(g => {
+      const attivitaMapped = g.attivita.map(a => ({
+        id:                       a.id,
+        cliente:                  a.cliente,
+        progetto:                 a.progetto,
+        attivita:                 a.attivita,
+        risorseCoinvolte:         a.risorseCoinvolte,
+        account:                  a.account,
+        projectManager:           a.projectManager,
+        giornateVendute:          a.giornateVendute !== null ? toNumber(a.giornateVendute) : null,
+        giornateConsuntivate:     a.giornateConsuntivate !== null ? toNumber(a.giornateConsuntivate) : null,
+        riferimentoOrdineVendita: a.riferimentoOrdineVendita,
+        stato:                    STATO_LABEL[a.stato] ?? a.stato,
+        inizio:                   a.inizio?.toISOString().split('T')[0] ?? null,
+        deadline:                 a.deadline?.toISOString().split('T')[0] ?? null,
+        note:                     a.note,
+      }))
+
+      const totaleVendute      = attivitaMapped.reduce((s, a) => s + (a.giornateVendute ?? 0), 0)
+      const totaleConsuntivate = attivitaMapped.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0)
+
+      const inSforamento = totaleConsuntivate > totaleVendute ||
+        attivitaMapped.some(a =>
+          (a.giornateConsuntivate ?? 0) > 0 &&
+          (a.giornateVendute === null || (a.giornateConsuntivate ?? 0) > (a.giornateVendute ?? 0))
+        )
+
+      return {
+        cliente:             g.cliente,
+        progetto:            g.progetto,
+        account:             g.account,
+        projectManager:      g.projectManager,
+        totaleVendute:       Math.round(totaleVendute * 100) / 100,
+        totaleConsuntivate:  Math.round(totaleConsuntivate * 100) / 100,
+        inSforamento,
+        attivita:            attivitaMapped,
+      }
+    })
+
+    // Sforamento groups first, then alphabetically
+    gruppi.sort((a, b) => {
+      if (a.inSforamento !== b.inSforamento) return a.inSforamento ? -1 : 1
+      return `${a.cliente}${a.progetto}`.localeCompare(`${b.cliente}${b.progetto}`, 'it')
+    })
+
+    const allAttivita = gruppi.flatMap(g => g.attivita)
+    const riepilogo = {
+      totaleProgetti:           gruppi.length,
+      totaleAttivita:           allAttivita.length,
+      attivitaInSforamento:     allAttivita.filter(a =>
+        (a.giornateConsuntivate ?? 0) > 0 &&
+        (a.giornateVendute === null || (a.giornateConsuntivate ?? 0) > (a.giornateVendute ?? 0))
+      ).length,
+      attivitaInApprovazione:   allAttivita.filter(a => a.stato === 'In approvazione').length,
+      totaleGiornateVendute:    Math.round(allAttivita.reduce((s, a) => s + (a.giornateVendute ?? 0), 0) * 100) / 100,
+      totaleGiornateConsuntivate: Math.round(allAttivita.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0) * 100) / 100,
+    }
+
+    res.json({ gruppi, riepilogo })
+  } catch (err) {
+    console.error('[attivita] GET error:', err)
+    res.status(500).json({ error: 'Errore nel recupero delle attività' })
+  }
+})
+
 // ── Start ─────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[s1-gantt] Backend → http://localhost:${PORT}`)
