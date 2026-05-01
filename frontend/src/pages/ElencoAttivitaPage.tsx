@@ -64,10 +64,46 @@ interface AttivitaResponse {
   riepilogo: Riepilogo
 }
 
+// ─── CRUD types ───────────────────────────────────────────────────────────────
+
+const STATO_TO_ENUM: Record<StatoAttivita, string> = {
+  'In corso':        'IN_CORSO',
+  'Completato':      'COMPLETATO',
+  'Da iniziare':     'DA_INIZIARE',
+  'In approvazione': 'IN_APPROVAZIONE',
+  'Analisi':         'ANALISI',
+  'Fermi':           'FERMI',
+  'Rifiutato':       'RIFIUTATO',
+}
+
+interface PMOption      { id: string; firstName: string; lastName: string }
+interface AccountOption { id: string; firstName: string; lastName: string }
+interface ClienteOption { id: string; nome: string }
+
+type AttivitaFormData = {
+  cliente: string; progetto: string; attivita: string
+  risorseCoinvolte: string; account: string; projectManager: string
+  stato: StatoAttivita
+  giornateVendute: string; giornateConsuntivate: string
+  riferimentoOrdineVendita: string
+  inizio: string; deadline: string; note: string
+}
+
+const EMPTY_FORM: AttivitaFormData = {
+  cliente: '', progetto: '', attivita: '', risorseCoinvolte: '',
+  account: '', projectManager: '', stato: 'In corso',
+  giornateVendute: '', giornateConsuntivate: '',
+  riferimentoOrdineVendita: '', inizio: '', deadline: '', note: '',
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function authHeaders(token: string) {
   return { Authorization: `Bearer ${token}` }
+}
+
+function authHeadersJson(token: string) {
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 }
 
 function fmt(n: number | null): string {
@@ -448,9 +484,11 @@ interface GroupCardProps {
   expanded: boolean
   onToggle: () => void
   onSelectItem: (item: AttivitaItem) => void
+  onEditItem: (item: AttivitaItem) => void
+  onDeleteItem: (item: AttivitaItem) => void
 }
 
-function GroupCard({ group, expanded, onToggle, onSelectItem }: GroupCardProps) {
+function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem }: GroupCardProps) {
   const statoPrev = getStatoPrevValente(group.attivita)
   const delta = group.totaleVendute - group.totaleConsuntivate
 
@@ -551,6 +589,7 @@ function GroupCard({ group, expanded, onToggle, onSelectItem }: GroupCardProps) 
                   <th scope="col" className="ea-th ea-th--num">Delta</th>
                   <th scope="col" className="ea-th">Deadline</th>
                   <th scope="col" className="ea-th ea-th--ordine">Ord. Vendita</th>
+                  <th scope="col" className="ea-th ea-th--actions"></th>
                 </tr>
               </thead>
               <tbody>
@@ -589,6 +628,28 @@ function GroupCard({ group, expanded, onToggle, onSelectItem }: GroupCardProps) 
                       </td>
                       <td className="ea-cell">{fmtDate(item.deadline)}</td>
                       <td className="ea-cell ea-cell--ordine">{item.riferimentoOrdineVendita || '—'}</td>
+                      <td className="ea-cell ea-cell-actions" onClick={e => e.stopPropagation()}>
+                        <button
+                          className="ea-icon-btn"
+                          type="button"
+                          aria-label={`Modifica ${item.attivita}`}
+                          onClick={() => onEditItem(item)}
+                        >
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
+                            <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                        <button
+                          className="ea-icon-btn ea-icon-btn--danger"
+                          type="button"
+                          aria-label={`Elimina ${item.attivita}`}
+                          onClick={() => onDeleteItem(item)}
+                        >
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
+                            <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      </td>
                     </tr>
                   )
                 })}
@@ -633,6 +694,210 @@ function exportCSV(gruppi: GruppoAttivita[]) {
   URL.revokeObjectURL(url)
 }
 
+// ─── Attività Modal ───────────────────────────────────────────────────────────
+
+interface AttivitaModalProps {
+  title: string
+  form: AttivitaFormData
+  loading: boolean
+  apiError: string | null
+  clienti: ClienteOption[]
+  accounts: AccountOption[]
+  pms: PMOption[]
+  onChange: (f: AttivitaFormData) => void
+  onSave: () => void
+  onClose: () => void
+}
+
+function AttivitaModal({ title, form, loading, apiError, clienti, accounts, pms, onChange, onSave, onClose }: AttivitaModalProps) {
+  const set = (key: keyof AttivitaFormData) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      onChange({ ...form, [key]: e.target.value })
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
+  return (
+    <div className="ea-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ea-modal-title"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="ea-modal">
+        <div className="ea-modal-header">
+          <h2 id="ea-modal-title" className="ea-modal-title">{title}</h2>
+          <button className="ea-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="ea-modal-body">
+          {apiError && <p className="ea-field-error ea-field-error--banner" role="alert">{apiError}</p>}
+
+          {/* Row 1: cliente + progetto */}
+          <div className="ea-form-row">
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-cliente" className="ea-form-label">Cliente <span aria-hidden="true">*</span></label>
+              <select id="ea-f-cliente" className="ea-form-input ea-form-select"
+                value={form.cliente} onChange={set('cliente')}>
+                <option value="">— Seleziona cliente —</option>
+                {clienti.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+              </select>
+            </div>
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-progetto" className="ea-form-label">Progetto <span aria-hidden="true">*</span></label>
+              <input id="ea-f-progetto" className="ea-form-input" type="text"
+                value={form.progetto} onChange={set('progetto')} placeholder="es. Rebranding 2024" />
+            </div>
+          </div>
+
+          {/* Row 2: attività (full width) */}
+          <div className="ea-form-field">
+            <label htmlFor="ea-f-attivita" className="ea-form-label">Attività <span aria-hidden="true">*</span></label>
+            <input id="ea-f-attivita" className="ea-form-input" type="text" autoFocus
+              value={form.attivita} onChange={set('attivita')} placeholder="es. Design UI screens" />
+          </div>
+
+          {/* Row 3: account + PM */}
+          <div className="ea-form-row">
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-account" className="ea-form-label">Account</label>
+              <select id="ea-f-account" className="ea-form-input ea-form-select"
+                value={form.account} onChange={set('account')}>
+                <option value="">— Nessun account —</option>
+                {accounts.map(a => {
+                  const name = `${a.firstName} ${a.lastName}`
+                  return <option key={a.id} value={name}>{name}</option>
+                })}
+              </select>
+            </div>
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-pm" className="ea-form-label">Project Manager</label>
+              <select id="ea-f-pm" className="ea-form-input ea-form-select"
+                value={form.projectManager} onChange={set('projectManager')}>
+                <option value="">— Nessun PM —</option>
+                {pms.map(p => {
+                  const name = `${p.firstName} ${p.lastName}`
+                  return <option key={p.id} value={name}>{name}</option>
+                })}
+              </select>
+            </div>
+          </div>
+
+          {/* Row 4: risorse + stato */}
+          <div className="ea-form-row">
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-risorse" className="ea-form-label">Risorse coinvolte</label>
+              <input id="ea-f-risorse" className="ea-form-input" type="text"
+                value={form.risorseCoinvolte} onChange={set('risorseCoinvolte')}
+                placeholder="es. Mario, Laura" />
+            </div>
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-stato" className="ea-form-label">Stato</label>
+              <select id="ea-f-stato" className="ea-form-input ea-form-select"
+                value={form.stato} onChange={set('stato')}>
+                {TUTTI_GLI_STATI.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Row 5: GG vendute + GG consuntivate */}
+          <div className="ea-form-row">
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-vendute" className="ea-form-label">GG Vendute</label>
+              <input id="ea-f-vendute" className="ea-form-input" type="number" min="0" step="0.5"
+                value={form.giornateVendute} onChange={set('giornateVendute')} placeholder="0" />
+            </div>
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-consuntivate" className="ea-form-label">GG Consuntivate</label>
+              <input id="ea-f-consuntivate" className="ea-form-input" type="number" min="0" step="0.5"
+                value={form.giornateConsuntivate} onChange={set('giornateConsuntivate')} placeholder="0" />
+            </div>
+          </div>
+
+          {/* Row 6: inizio + deadline */}
+          <div className="ea-form-row">
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-inizio" className="ea-form-label">Inizio</label>
+              <input id="ea-f-inizio" className="ea-form-input" type="date"
+                value={form.inizio} onChange={set('inizio')} />
+            </div>
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-deadline" className="ea-form-label">Deadline</label>
+              <input id="ea-f-deadline" className="ea-form-input" type="date"
+                value={form.deadline} onChange={set('deadline')} />
+            </div>
+          </div>
+
+          {/* Ordine vendita */}
+          <div className="ea-form-field">
+            <label htmlFor="ea-f-ordine" className="ea-form-label">Riferimento ordine vendita</label>
+            <input id="ea-f-ordine" className="ea-form-input" type="text"
+              value={form.riferimentoOrdineVendita} onChange={set('riferimentoOrdineVendita')}
+              placeholder="es. OV-2024-001" />
+          </div>
+
+          {/* Note */}
+          <div className="ea-form-field">
+            <label htmlFor="ea-f-note" className="ea-form-label">Note</label>
+            <textarea id="ea-f-note" className="ea-form-input ea-form-textarea"
+              value={form.note} onChange={set('note')}
+              placeholder="Informazioni aggiuntive…" rows={3} />
+          </div>
+        </div>
+        <div className="ea-modal-footer">
+          <button className="ea-btn ea-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
+          <button className="ea-btn ea-btn--primary" type="button" onClick={onSave} disabled={loading}>
+            {loading ? 'Salvataggio…' : 'Salva'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Confirm delete attività ──────────────────────────────────────────────────
+
+function ConfirmDeleteAttivita({ item, loading, onConfirm, onClose }: {
+  item: AttivitaItem; loading: boolean; onConfirm: () => void; onClose: () => void
+}) {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
+  return (
+    <div className="ea-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ea-del-title"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="ea-modal ea-modal--sm">
+        <div className="ea-modal-header">
+          <h2 id="ea-del-title" className="ea-modal-title">Elimina attività</h2>
+          <button className="ea-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="ea-modal-body">
+          <p className="ea-confirm-text">
+            Sei sicuro di voler eliminare <strong>{item.attivita}</strong>?
+            <br /><span className="ea-confirm-sub">{item.cliente} — {item.progetto}</span>
+            <br /><span className="ea-confirm-sub">Questa azione non è reversibile.</span>
+          </p>
+        </div>
+        <div className="ea-modal-footer">
+          <button className="ea-btn ea-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
+          <button className="ea-btn ea-btn--danger" type="button" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Eliminazione…' : 'Elimina'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── ElencoAttivitaPage ───────────────────────────────────────────────────────
 
 interface ElencoAttivitaPageProps { token: string }
@@ -648,17 +913,44 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const [expanded,    setExpanded]    = useState<Set<string>>(new Set())
   const [selected,    setSelected]    = useState<AttivitaItem | null>(null)
 
+  // Options for dropdowns
+  const [clientiOpts,  setClientiOpts]  = useState<ClienteOption[]>([])
+  const [accountsOpts, setAccountsOpts] = useState<AccountOption[]>([])
+  const [pmsOpts,      setPmsOpts]      = useState<PMOption[]>([])
+
+  // CRUD state
+  const [modal,     setModal]     = useState<'add' | 'edit' | null>(null)
+  const [editing,   setEditing]   = useState<AttivitaItem | null>(null)
+  const [form,      setForm]      = useState<AttivitaFormData>(EMPTY_FORM)
+  const [saving,    setSaving]    = useState(false)
+  const [formErr,   setFormErr]   = useState<string | null>(null)
+  const [delTarget, setDelTarget] = useState<AttivitaItem | null>(null)
+  const [deleting,  setDeleting]  = useState(false)
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${API_URL}/api/attivita`, { headers: authHeaders(token) })
+      const [res, rC, rA, rP] = await Promise.all([
+        fetch(`${API_URL}/api/attivita`, { headers: authHeaders(token) }),
+        fetch(`${API_URL}/clienti`,      { headers: authHeaders(token) }),
+        fetch(`${API_URL}/accounts`,     { headers: authHeaders(token) }),
+        fetch(`${API_URL}/pm`,           { headers: authHeaders(token) }),
+      ])
       if (!res.ok) throw new Error(`Errore ${res.status}`)
-      const json: AttivitaResponse = await res.json()
+      const [json, clienti, accounts, pms] = await Promise.all([
+        res.json() as Promise<AttivitaResponse>,
+        rC.ok ? rC.json() : Promise.resolve([]),
+        rA.ok ? rA.json() : Promise.resolve([]),
+        rP.ok ? rP.json() : Promise.resolve([]),
+      ])
       setData(json)
+      setClientiOpts(clienti)
+      setAccountsOpts(accounts)
+      setPmsOpts(pms)
       // Auto-expand sforamento groups on first load
       const sfora = new Set(
-        json.gruppi.filter(g => g.inSforamento).map(g => `${g.cliente}|||${g.progetto}`)
+        json.gruppi.filter((g: GruppoAttivita) => g.inSforamento).map((g: GruppoAttivita) => `${g.cliente}|||${g.progetto}`)
       )
       setExpanded(sfora)
     } catch {
@@ -669,6 +961,88 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   }, [token])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // ── CRUD handlers ──
+
+  const openAdd = () => { setForm(EMPTY_FORM); setFormErr(null); setModal('add') }
+
+  const openEdit = (item: AttivitaItem) => {
+    setEditing(item)
+    setForm({
+      cliente:                  item.cliente,
+      progetto:                 item.progetto,
+      attivita:                 item.attivita,
+      risorseCoinvolte:         item.risorseCoinvolte,
+      account:                  item.account,
+      projectManager:           item.projectManager,
+      stato:                    item.stato,
+      giornateVendute:          item.giornateVendute  != null ? String(item.giornateVendute)  : '',
+      giornateConsuntivate:     item.giornateConsuntivate != null ? String(item.giornateConsuntivate) : '',
+      riferimentoOrdineVendita: item.riferimentoOrdineVendita ?? '',
+      inizio:                   item.inizio   ? item.inizio.slice(0, 10)   : '',
+      deadline:                 item.deadline ? item.deadline.slice(0, 10) : '',
+      note:                     item.note ?? '',
+    })
+    setFormErr(null)
+    setModal('edit')
+  }
+
+  const handleSave = async () => {
+    if (!form.cliente.trim() || !form.progetto.trim() || !form.attivita.trim()) {
+      setFormErr('Cliente, progetto e attività sono obbligatori.')
+      return
+    }
+    setSaving(true); setFormErr(null)
+    try {
+      const url    = modal === 'edit' ? `${API_URL}/api/attivita/${editing!.id}` : `${API_URL}/api/attivita`
+      const method = modal === 'edit' ? 'PUT' : 'POST'
+      const body = {
+        cliente:                  form.cliente.trim(),
+        progetto:                 form.progetto.trim(),
+        attivita:                 form.attivita.trim(),
+        risorseCoinvolte:         form.risorseCoinvolte.trim(),
+        account:                  form.account.trim(),
+        projectManager:           form.projectManager.trim(),
+        stato:                    STATO_TO_ENUM[form.stato],
+        giornateVendute:          form.giornateVendute          !== '' ? parseFloat(form.giornateVendute)          : null,
+        giornateConsuntivate:     form.giornateConsuntivate     !== '' ? parseFloat(form.giornateConsuntivate)     : null,
+        riferimentoOrdineVendita: form.riferimentoOrdineVendita.trim() || null,
+        inizio:                   form.inizio   || null,
+        deadline:                 form.deadline || null,
+        note:                     form.note.trim() || null,
+      }
+      const res = await fetch(url, { method, headers: authHeadersJson(token), body: JSON.stringify(body) })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setFormErr((data as { error?: string }).error ?? `Errore ${res.status}`)
+        return
+      }
+      setModal(null)
+      await fetchData()
+    } catch {
+      setFormErr('Errore di rete. Riprova.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!delTarget) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`${API_URL}/api/attivita/${delTarget.id}`, {
+        method: 'DELETE', headers: authHeaders(token),
+      })
+      if (!res.ok && res.status !== 404) throw new Error()
+      setDelTarget(null)
+      await fetchData()
+    } catch {
+      setDelTarget(null)
+      setError('Errore durante l\'eliminazione.')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   // Unique values for filter dropdowns
   const uniqueAccounts = useMemo(() => {
@@ -739,6 +1113,13 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           <p className="ea-week-label">{getWorkWeekLabel()}</p>
         </div>
         <div className="ea-topbar-right">
+          <button type="button" className="ea-btn ea-btn--primary" onClick={openAdd}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
+              width="15" height="15" aria-hidden="true">
+              <path d="M10 4v12M4 10h12" strokeLinecap="round" />
+            </svg>
+            Aggiungi attività
+          </button>
           <div className="ea-expand-btns">
             <button type="button" className="ea-btn ea-btn--ghost" onClick={expandAll}
               disabled={loading || filteredGruppi.length === 0}>
@@ -886,6 +1267,8 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
                   expanded={expanded.has(key)}
                   onToggle={() => toggleGroup(key)}
                   onSelectItem={setSelected}
+                  onEditItem={openEdit}
+                  onDeleteItem={setDelTarget}
                 />
               </div>
             )
@@ -895,6 +1278,32 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
 
       {/* ── Detail drawer ── */}
       {selected && <Drawer item={selected} onClose={() => setSelected(null)} />}
+
+      {/* ── Add / edit modal ── */}
+      {(modal === 'add' || modal === 'edit') && (
+        <AttivitaModal
+          title={modal === 'add' ? 'Aggiungi attività' : 'Modifica attività'}
+          form={form}
+          loading={saving}
+          apiError={formErr}
+          clienti={clientiOpts}
+          accounts={accountsOpts}
+          pms={pmsOpts}
+          onChange={setForm}
+          onSave={handleSave}
+          onClose={() => setModal(null)}
+        />
+      )}
+
+      {/* ── Confirm delete ── */}
+      {delTarget && (
+        <ConfirmDeleteAttivita
+          item={delTarget}
+          loading={deleting}
+          onConfirm={handleDelete}
+          onClose={() => setDelTarget(null)}
+        />
+      )}
     </div>
   )
 }
