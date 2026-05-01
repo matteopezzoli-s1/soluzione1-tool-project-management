@@ -1,0 +1,231 @@
+/* =============================================================
+   ClientiPage — CRUD Clienti
+   ============================================================= */
+
+@keyframes cl-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes cl-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cl-modal-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cl-page, .cl-modal { animation: none !important; }
+}
+
+/* ── Page ──────────────────────────────────────────────────── */
+
+.cl-page {
+  flex: 1;
+  padding: 2rem 1.75rem;
+  max-width: 1000px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  animation: cl-fade-up 0.35s ease both;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.cl-topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; }
+.cl-title { font-size: 1.5rem; font-weight: 800; color: #0F172A; letter-spacing: -0.03em; line-height: 1.2; }
+.cl-subtitle { font-size: 0.8rem; color: #94A3B8; margin-top: 0.2rem; font-weight: 500; }
+
+/* ── Buttons ───────────────────────────────────────────────── */
+
+.cl-btn {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  padding: 0.6rem 1.1rem; border-radius: 10px; font-family: inherit;
+  font-size: 0.875rem; font-weight: 600; cursor: pointer;
+  border: 1.5px solid transparent;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 100ms ease;
+  white-space: nowrap;
+}
+.cl-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; }
+.cl-btn:focus-visible { outline: 2.5px solid #0D9488; outline-offset: 3px; }
+.cl-btn--primary { background: #0D9488; color: #fff; border-color: #0D9488; }
+.cl-btn--primary:hover:not(:disabled) { background: #0F766E; box-shadow: 0 4px 14px rgba(13,148,136,.3); transform: translateY(-1px); }
+.cl-btn--ghost { background: transparent; color: #475569; border-color: #E2E8F0; }
+.cl-btn--ghost:hover:not(:disabled) { background: #F8FAFC; border-color: #CBD5E1; }
+.cl-btn--danger { background: #DC2626; color: #fff; border-color: #DC2626; }
+.cl-btn--danger:hover:not(:disabled) { background: #B91C1C; box-shadow: 0 4px 14px rgba(220,38,38,.25); transform: translateY(-1px); }
+
+/* ── Icon buttons ──────────────────────────────────────────── */
+
+.cl-icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px; border: none;
+  background: transparent; color: #94A3B8; cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.cl-icon-btn:hover { background: #F1F5F9; color: #475569; }
+.cl-icon-btn--danger:hover { background: #FEF2F2; color: #DC2626; }
+.cl-icon-btn:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+
+/* ── Error / empty ─────────────────────────────────────────── */
+
+.cl-page-error {
+  font-size: 0.875rem; color: #991B1B;
+  background: #FEF2F2; border: 1px solid #FECACA; border-radius: 10px; padding: 0.75rem 1rem;
+}
+.cl-empty {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 1rem; padding: 4rem 2rem;
+  background: #fff; border: 1px solid #E2E8F0; border-radius: 16px; text-align: center;
+}
+.cl-empty-text { font-size: 0.9rem; color: #94A3B8; }
+
+/* ── Skeleton ──────────────────────────────────────────────── */
+
+.cl-loading { display: flex; flex-direction: column; gap: 0.75rem; }
+.cl-skeleton {
+  height: 60px;
+  background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+  background-size: 200% 100%; border-radius: 12px; animation: shimmer 1.4s infinite;
+}
+
+/* ── Table ─────────────────────────────────────────────────── */
+
+.cl-table-wrap { background: #fff; border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; }
+.cl-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.cl-table thead { background: #F8FAFC; border-bottom: 1px solid #E2E8F0; }
+.cl-table th {
+  padding: 0.75rem 1.25rem; text-align: left;
+  font-size: 0.7rem; font-weight: 700; color: #94A3B8;
+  letter-spacing: 0.07em; text-transform: uppercase;
+}
+.cl-th--actions { text-align: right; }
+.cl-row { border-bottom: 1px solid #F1F5F9; transition: background 120ms ease; }
+.cl-row:last-child { border-bottom: none; }
+.cl-row:hover { background: #FAFCFF; }
+.cl-table td { padding: 0.9rem 1.25rem; vertical-align: middle; }
+
+/* ── Cell: name ────────────────────────────────────────────── */
+
+.cl-cell-name { display: flex; align-items: center; gap: 0.75rem; }
+.cl-cell-name-info { display: flex; flex-direction: column; gap: 0.15rem; }
+
+.cl-avatar {
+  width: 38px; height: 38px; border-radius: 10px;
+  background: linear-gradient(135deg, #0D9488 0%, #0891B2 100%);
+  color: #fff; font-size: 0.68rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  letter-spacing: 0.04em; flex-shrink: 0; user-select: none;
+}
+.cl-nome { font-weight: 600; color: #1E293B; }
+.cl-note-preview {
+  font-size: 0.75rem; color: #94A3B8;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px;
+}
+
+/* ── Cells ─────────────────────────────────────────────────── */
+
+.cl-cell-text { color: #475569; font-size: 0.85rem; }
+.cl-empty-cell { color: #CBD5E1; }
+.cl-cell-contacts { display: flex; flex-direction: column; gap: 0.25rem; }
+.cl-link { color: #64748B; text-decoration: none; font-size: 0.85rem; }
+.cl-link:hover { color: #0D9488; text-decoration: underline; }
+.cl-link--phone { color: #0D9488; font-size: 0.82rem; }
+
+/* ── Account tag ───────────────────────────────────────────── */
+
+.cl-account-tag {
+  display: inline-flex; align-items: center;
+  padding: 0.2rem 0.65rem; border-radius: 999px;
+  background: #EEF2FF; border: 1px solid #C7D2FE; color: #4338CA;
+  font-size: 0.78rem; font-weight: 600;
+}
+
+/* ── Select ────────────────────────────────────────────────── */
+
+.cl-select {
+  appearance: none; cursor: pointer; padding-right: 2rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2394A3B8' stroke-width='1.5'%3E%3Cpath d='M4 6l4 4 4-4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 0.6rem center; background-size: 16px;
+}
+
+/* ── Badge ─────────────────────────────────────────────────── */
+
+.cl-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; height: 22px; padding: 0 7px;
+  background: #F0FDFA; border: 1px solid #99F6E4; border-radius: 999px;
+  color: #0F766E; font-size: 0.72rem; font-weight: 700;
+}
+
+/* ── Cell: actions ─────────────────────────────────────────── */
+
+.cl-cell-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.25rem; }
+
+/* ── Overlay ───────────────────────────────────────────────── */
+
+.cl-overlay {
+  position: fixed; inset: 0; background: rgba(15,23,42,.45);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200; padding: 1rem; animation: cl-overlay-in 0.2s ease both;
+}
+
+/* ── Modal ─────────────────────────────────────────────────── */
+
+.cl-modal {
+  background: #fff; border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.08);
+  width: 100%; max-width: 500px; display: flex; flex-direction: column;
+  animation: cl-modal-in 0.25s cubic-bezier(0.34,1.56,0.64,1) both;
+}
+.cl-modal--sm { max-width: 380px; }
+
+.cl-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1.5rem 0; }
+.cl-modal-title { font-size: 1.1rem; font-weight: 700; color: #0F172A; letter-spacing: -0.02em; }
+.cl-modal-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border: none; border-radius: 8px;
+  background: transparent; color: #94A3B8; cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.cl-modal-close:hover { background: #F1F5F9; color: #475569; }
+.cl-modal-close:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+.cl-modal-body { padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+.cl-modal-footer { display: flex; justify-content: flex-end; gap: 0.6rem; padding: 0 1.5rem 1.25rem; }
+
+/* ── Form fields ───────────────────────────────────────────── */
+
+.cl-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.cl-field { display: flex; flex-direction: column; gap: 0.4rem; }
+.cl-label { font-size: 0.78rem; font-weight: 600; color: #374151; letter-spacing: 0.01em; }
+.cl-label span { color: #0D9488; }
+.cl-input {
+  padding: 0.6rem 0.875rem; border: 1.5px solid #E2E8F0; border-radius: 9px;
+  font-family: inherit; font-size: 0.9rem; color: #1E293B; background: #fff;
+  outline: none; transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.cl-input::placeholder { color: #CBD5E1; }
+.cl-input:focus { border-color: #0D9488; box-shadow: 0 0 0 3px rgba(13,148,136,.12); }
+.cl-textarea { resize: vertical; min-height: 72px; }
+
+.cl-field-error { font-size: 0.8rem; color: #DC2626; }
+.cl-field-error--banner {
+  background: #FEF2F2; border: 1px solid #FECACA; border-radius: 8px; padding: 0.6rem 0.875rem;
+}
+
+/* ── Confirm ───────────────────────────────────────────────── */
+
+.cl-confirm-text { font-size: 0.9rem; color: #374151; line-height: 1.6; }
+.cl-confirm-sub  { font-size: 0.82rem; color: #94A3B8; }
+.cl-confirm-warn { font-size: 0.82rem; color: #B45309; }
+
+/* ── Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 680px) {
+  .cl-page { padding: 1.25rem 1rem; }
+  .cl-field-row { grid-template-columns: 1fr; }
+  .cl-table th:nth-child(3), .cl-table td:nth-child(3) { display: none; }
+}

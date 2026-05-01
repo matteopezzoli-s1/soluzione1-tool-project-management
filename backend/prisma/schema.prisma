@@ -26,6 +26,8 @@ model Account {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  clienti   Cliente[]
+
   @@map("accounts")
 }
 
@@ -254,6 +256,53 @@ model ActivityLog {
   @@index([projectId])
   @@index([userId])
   @@map("activity_logs")
+}
+
+// ── Clienti ───────────────────────────────────────────────────
+
+model Cliente {
+  id        String   @id @default(cuid())
+  nome      String
+  referente String?
+  email     String?
+  telefono  String?
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  accountId String?  @map("account_id")
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  progetti  Progetto[]
+
+  @@index([accountId])
+  @@map("clienti")
+}
+
+// ── Progetti ──────────────────────────────────────────────────
+
+enum StatoProgetto {
+  ATTIVO
+  IN_PAUSA
+  COMPLETATO
+  ANNULLATO
+}
+
+model Progetto {
+  id          String        @id @default(cuid())
+  nome        String
+  descrizione String?
+  stato       StatoProgetto @default(ATTIVO)
+  dataInizio  DateTime?     @map("data_inizio")
+  dataFine    DateTime?     @map("data_fine")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  clienteId   String?   @map("cliente_id")
+  cliente     Cliente?  @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+
+  @@index([clienteId])
+  @@map("progetti")
 }
 
 // ── Elenco Attività ───────────────────────────────────────────
