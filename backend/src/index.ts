@@ -330,6 +330,194 @@ app.delete('/accounts/:id', requireAuth, async (req, res) => {
   }
 })
 
+// ── Clienti CRUD ─────────────────────────────────────────────
+
+// GET /clienti
+app.get('/clienti', requireAuth, async (_req, res) => {
+  try {
+    const clienti = await prisma.cliente.findMany({
+      orderBy: { nome: 'asc' },
+      include: {
+        _count: { select: { progetti: true } },
+        account: { select: { id: true, firstName: true, lastName: true } },
+      },
+    })
+    res.json(clienti)
+  } catch (err) {
+    console.error('[clienti] GET error:', err)
+    res.status(500).json({ error: 'Errore nel recupero dei clienti' })
+  }
+})
+
+const CLIENTI_INCLUDE = {
+  _count: { select: { progetti: true } },
+  account: { select: { id: true, firstName: true, lastName: true } },
+} as const
+
+// POST /clienti
+app.post('/clienti', requireAuth, async (req, res) => {
+  const { nome, referente, email, telefono, note, accountId } = req.body as {
+    nome?: string; referente?: string; email?: string; telefono?: string; note?: string; accountId?: string
+  }
+  if (!nome?.trim()) { res.status(400).json({ error: 'Il nome è obbligatorio' }); return }
+  if (email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    res.status(400).json({ error: 'Email non valida' }); return
+  }
+  try {
+    const cliente = await prisma.cliente.create({
+      data: {
+        nome:      nome.trim(),
+        referente: referente?.trim() || null,
+        email:     email?.trim().toLowerCase() || null,
+        telefono:  telefono?.trim() || null,
+        note:      note?.trim() || null,
+        accountId: accountId?.trim() || null,
+      },
+      include: CLIENTI_INCLUDE,
+    })
+    res.status(201).json(cliente)
+  } catch (err) {
+    console.error('[clienti] POST error:', err)
+    res.status(500).json({ error: 'Errore nella creazione del cliente' })
+  }
+})
+
+// PUT /clienti/:id
+app.put('/clienti/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  const { nome, referente, email, telefono, note, accountId } = req.body as {
+    nome?: string; referente?: string; email?: string; telefono?: string; note?: string; accountId?: string
+  }
+  if (!nome?.trim()) { res.status(400).json({ error: 'Il nome è obbligatorio' }); return }
+  if (email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    res.status(400).json({ error: 'Email non valida' }); return
+  }
+  try {
+    const cliente = await prisma.cliente.update({
+      where: { id },
+      data: {
+        nome:      nome.trim(),
+        referente: referente?.trim() || null,
+        email:     email?.trim().toLowerCase() || null,
+        telefono:  telefono?.trim() || null,
+        note:      note?.trim() || null,
+        accountId: accountId?.trim() || null,
+      },
+      include: CLIENTI_INCLUDE,
+    })
+    res.json(cliente)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') { res.status(404).json({ error: 'Cliente non trovato' }); return }
+    console.error('[clienti] PUT error:', err)
+    res.status(500).json({ error: 'Errore nell\'aggiornamento del cliente' })
+  }
+})
+
+// DELETE /clienti/:id
+app.delete('/clienti/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  try {
+    await prisma.cliente.delete({ where: { id } })
+    res.status(204).send()
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') { res.status(404).json({ error: 'Cliente non trovato' }); return }
+    console.error('[clienti] DELETE error:', err)
+    res.status(500).json({ error: 'Errore nella cancellazione del cliente' })
+  }
+})
+
+// ── Progetti CRUD ─────────────────────────────────────────────
+
+const STATI_PROGETTO = ['ATTIVO', 'IN_PAUSA', 'COMPLETATO', 'ANNULLATO'] as const
+type StatoProgetto = typeof STATI_PROGETTO[number]
+
+// GET /progetti
+app.get('/progetti', requireAuth, async (_req, res) => {
+  try {
+    const progetti = await prisma.progetto.findMany({
+      orderBy: { nome: 'asc' },
+      include: { cliente: { select: { id: true, nome: true } } },
+    })
+    res.json(progetti)
+  } catch (err) {
+    console.error('[progetti] GET error:', err)
+    res.status(500).json({ error: 'Errore nel recupero dei progetti' })
+  }
+})
+
+// POST /progetti
+app.post('/progetti', requireAuth, async (req, res) => {
+  const { nome, descrizione, stato, clienteId, dataInizio, dataFine } = req.body as {
+    nome?: string; descrizione?: string; stato?: string
+    clienteId?: string; dataInizio?: string; dataFine?: string
+  }
+  if (!nome?.trim()) { res.status(400).json({ error: 'Il nome è obbligatorio' }); return }
+  const statoVal = (stato?.trim() ?? 'ATTIVO') as StatoProgetto
+  if (!STATI_PROGETTO.includes(statoVal)) { res.status(400).json({ error: 'Stato non valido' }); return }
+  try {
+    const progetto = await prisma.progetto.create({
+      data: {
+        nome:        nome.trim(),
+        descrizione: descrizione?.trim() || null,
+        stato:       statoVal,
+        clienteId:   clienteId?.trim() || null,
+        dataInizio:  dataInizio ? new Date(dataInizio) : null,
+        dataFine:    dataFine   ? new Date(dataFine)   : null,
+      },
+      include: { cliente: { select: { id: true, nome: true } } },
+    })
+    res.status(201).json(progetto)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2003') { res.status(400).json({ error: 'Cliente non trovato' }); return }
+    console.error('[progetti] POST error:', err)
+    res.status(500).json({ error: 'Errore nella creazione del progetto' })
+  }
+})
+
+// PUT /progetti/:id
+app.put('/progetti/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  const { nome, descrizione, stato, clienteId, dataInizio, dataFine } = req.body as {
+    nome?: string; descrizione?: string; stato?: string
+    clienteId?: string; dataInizio?: string; dataFine?: string
+  }
+  if (!nome?.trim()) { res.status(400).json({ error: 'Il nome è obbligatorio' }); return }
+  const statoVal = (stato?.trim() ?? 'ATTIVO') as StatoProgetto
+  if (!STATI_PROGETTO.includes(statoVal)) { res.status(400).json({ error: 'Stato non valido' }); return }
+  try {
+    const progetto = await prisma.progetto.update({
+      where: { id },
+      data: {
+        nome:        nome.trim(),
+        descrizione: descrizione?.trim() || null,
+        stato:       statoVal,
+        clienteId:   clienteId?.trim() || null,
+        dataInizio:  dataInizio ? new Date(dataInizio) : null,
+        dataFine:    dataFine   ? new Date(dataFine)   : null,
+      },
+      include: { cliente: { select: { id: true, nome: true } } },
+    })
+    res.json(progetto)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') { res.status(404).json({ error: 'Progetto non trovato' }); return }
+    console.error('[progetti] PUT error:', err)
+    res.status(500).json({ error: 'Errore nell\'aggiornamento del progetto' })
+  }
+})
+
+// DELETE /progetti/:id
+app.delete('/progetti/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  try {
+    await prisma.progetto.delete({ where: { id } })
+    res.status(204).send()
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') { res.status(404).json({ error: 'Progetto non trovato' }); return }
+    console.error('[progetti] DELETE error:', err)
+    res.status(500).json({ error: 'Errore nella cancellazione del progetto' })
+  }
+})
+
 // ── Attività ──────────────────────────────────────────────────
 
 const STATO_LABEL: Record<string, string> = {
@@ -383,10 +571,26 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
       where['stato'] = { in: statoAttivi }
     }
 
-    const rows = await prisma.attivita.findMany({
-      where,
-      orderBy: [{ cliente: 'asc' }, { progetto: 'asc' }, { attivita: 'asc' }],
-    })
+    const [rows, clientiRows] = await Promise.all([
+      prisma.attivita.findMany({
+        where,
+        orderBy: [{ cliente: 'asc' }, { progetto: 'asc' }, { attivita: 'asc' }],
+      }),
+      prisma.cliente.findMany({
+        select: { nome: true, account: { select: { firstName: true, lastName: true } } },
+      }),
+    ])
+
+    // Map cliente nome (lowercase) → account full name
+    const clienteAccountMap = new Map<string, string>()
+    for (const c of clientiRows) {
+      if (c.account) {
+        clienteAccountMap.set(
+          c.nome.toLowerCase(),
+          `${c.account.firstName} ${c.account.lastName}`.trim()
+        )
+      }
+    }
 
     // Group by cliente+progetto
     const groupMap = new Map<string, {
@@ -400,10 +604,12 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
     for (const row of rows) {
       const key = `${row.cliente}|||${row.progetto}`
       if (!groupMap.has(key)) {
+        // Account: prefer the one linked to the Cliente record, fallback to the activity field
+        const clienteAccount = clienteAccountMap.get(row.cliente.toLowerCase()) ?? ''
         groupMap.set(key, {
           cliente:        row.cliente,
           progetto:       row.progetto,
-          account:        row.account,
+          account:        clienteAccount || row.account,
           projectManager: row.projectManager,
           attivita:       [],
         })

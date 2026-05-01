@@ -3,6 +3,8 @@ import LoginPage             from './pages/LoginPage'
 import TeamPage              from './pages/TeamPage'
 import TeamAccountPage       from './pages/TeamAccountPage'
 import ElencoAttivitaPage    from './pages/ElencoAttivitaPage'
+import ClientiPage           from './pages/ClientiPage'
+import ProgettiPage          from './pages/ProgettiPage'
 import './App.css'
 
 // ─── Sidebar icons ──────────────────────────────────────────────────────────
@@ -66,6 +68,30 @@ function IconClipboard() {
         strokeLinecap="round" strokeLinejoin="round" />
       <rect x="7" y="2" width="6" height="3" rx="1" strokeLinecap="round" />
       <path d="M7 9h6M7 12h4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconBuilding() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+      width="20" height="20" aria-hidden="true">
+      <path d="M3 18V5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v13" strokeLinecap="round" />
+      <path d="M1 18h18" strokeLinecap="round" />
+      <rect x="7"  y="9"  width="2.5" height="2.5" rx="0.5" />
+      <rect x="10.5" y="9"  width="2.5" height="2.5" rx="0.5" />
+      <rect x="7"  y="13" width="2.5" height="2.5" rx="0.5" />
+      <rect x="10.5" y="13" width="2.5" height="2.5" rx="0.5" />
+    </svg>
+  )
+}
+
+function IconFolder() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+      width="20" height="20" aria-hidden="true">
+      <path d="M2 6a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L9.707 5.7A1 1 0 0 0 10.414 6H16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z"
+        strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -195,10 +221,11 @@ function GanttPreview() {
 
 // ─── Sezione placeholder ─────────────────────────────────────────────────────
 
-type NavPage = 'dashboard' | 'progetti' | 'timeline' | 'attivita' | 'team-pm' | 'team-account' | 'impostazioni'
+type NavPage = 'dashboard' | 'clienti' | 'progetti' | 'timeline' | 'attivita' | 'team-pm' | 'team-account' | 'impostazioni'
 
 const PAGE_LABELS: Record<NavPage, string> = {
   dashboard:      'Dashboard',
+  clienti:        'Clienti',
   progetti:       'Progetti',
   timeline:       'Gantt',
   attivita:       'Elenco Attività',
@@ -207,7 +234,7 @@ const PAGE_LABELS: Record<NavPage, string> = {
   impostazioni:   'Impostazioni',
 }
 
-function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard' | 'attivita'> }) {
+function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard' | 'attivita' | 'clienti' | 'progetti'> }) {
   return (
     <div className="db-placeholder">
       <div className="db-placeholder-inner">
@@ -262,12 +289,13 @@ export default function App() {
         </div>
 
         <div className="db-sidebar-nav">
-          {navBtn('dashboard',     'Dashboard',      <IconGrid />)}
-          {navBtn('progetti',      'Progetti',       <IconBars />)}
-          {navBtn('timeline',      'Gantt',          <IconTimeline />)}
+          {navBtn('dashboard',     'Dashboard',       <IconGrid />)}
           {navBtn('attivita',      'Elenco Attività', <IconClipboard />)}
-          {navBtn('team-pm',       'Team PM',        <IconUsers />)}
-          {navBtn('team-account',  'Team Account',   <IconAccount />)}
+          {navBtn('timeline',      'Gantt',           <IconTimeline />)}
+          {navBtn('team-pm',       'Team PM',         <IconUsers />)}
+          {navBtn('team-account',  'Team Account',    <IconAccount />)}
+          {navBtn('clienti',       'Clienti',         <IconBuilding />)}
+          {navBtn('progetti',      'Progetti',        <IconFolder />)}
         </div>
 
         <div className="db-sidebar-foot">
@@ -295,10 +323,12 @@ export default function App() {
         </header>
 
         {/* Content */}
+        {page === 'clienti'      && <ClientiPage           token={token} />}
+        {page === 'progetti'     && <ProgettiPage          token={token} />}
         {page === 'team-pm'      && <TeamPage              token={token} />}
         {page === 'team-account' && <TeamAccountPage       token={token} />}
         {page === 'attivita'     && <ElencoAttivitaPage    token={token} />}
-        {page !== 'dashboard' && page !== 'team-pm' && page !== 'team-account' && page !== 'attivita' && (
+        {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'team-pm' && page !== 'team-account' && page !== 'attivita' && (
           <PlaceholderPage page={page} />
         )}
         <main className="db-content" style={page !== 'dashboard' ? { display: 'none' } : undefined}>
