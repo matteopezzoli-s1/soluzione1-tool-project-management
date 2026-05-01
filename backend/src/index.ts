@@ -682,6 +682,126 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
   }
 })
 
+// POST /api/attivita
+app.post('/api/attivita', requireAuth, async (req, res) => {
+  const {
+    cliente, progetto, attivita, risorseCoinvolte, account, projectManager,
+    giornateVendute, giornateConsuntivate, riferimentoOrdineVendita,
+    stato, inizio, deadline, note,
+  } = req.body as {
+    cliente?: string; progetto?: string; attivita?: string
+    risorseCoinvolte?: string; account?: string; projectManager?: string
+    giornateVendute?: number | null; giornateConsuntivate?: number | null
+    riferimentoOrdineVendita?: string; stato?: string
+    inizio?: string | null; deadline?: string | null; note?: string
+  }
+
+  if (!cliente?.trim() || !progetto?.trim() || !attivita?.trim()) {
+    res.status(400).json({ error: 'cliente, progetto e attivita sono obbligatori' })
+    return
+  }
+
+  const STATI = ['IN_CORSO','COMPLETATO','DA_INIZIARE','IN_APPROVAZIONE','ANALISI','FERMI','RIFIUTATO']
+  const statoVal = (stato?.trim() ?? 'IN_CORSO')
+  if (!STATI.includes(statoVal)) {
+    res.status(400).json({ error: 'Stato non valido' }); return
+  }
+
+  try {
+    const row = await prisma.attivita.create({
+      data: {
+        cliente:                  cliente.trim(),
+        progetto:                 progetto.trim(),
+        attivita:                 attivita.trim(),
+        risorseCoinvolte:         risorseCoinvolte?.trim() ?? '',
+        account:                  account?.trim() ?? '',
+        projectManager:           projectManager?.trim() ?? '',
+        giornateVendute:          giornateVendute != null ? giornateVendute : null,
+        giornateConsuntivate:     giornateConsuntivate != null ? giornateConsuntivate : null,
+        riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
+        stato:                    statoVal as 'IN_CORSO' | 'COMPLETATO' | 'DA_INIZIARE' | 'IN_APPROVAZIONE' | 'ANALISI' | 'FERMI' | 'RIFIUTATO',
+        inizio:                   inizio   ? new Date(inizio)   : null,
+        deadline:                 deadline ? new Date(deadline) : null,
+        note:                     note?.trim() || null,
+      },
+    })
+    res.status(201).json(row)
+  } catch (err) {
+    console.error('[attivita] POST error:', err)
+    res.status(500).json({ error: 'Errore nella creazione dell\'attività' })
+  }
+})
+
+// PUT /api/attivita/:id
+app.put('/api/attivita/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  const {
+    cliente, progetto, attivita, risorseCoinvolte, account, projectManager,
+    giornateVendute, giornateConsuntivate, riferimentoOrdineVendita,
+    stato, inizio, deadline, note,
+  } = req.body as {
+    cliente?: string; progetto?: string; attivita?: string
+    risorseCoinvolte?: string; account?: string; projectManager?: string
+    giornateVendute?: number | null; giornateConsuntivate?: number | null
+    riferimentoOrdineVendita?: string; stato?: string
+    inizio?: string | null; deadline?: string | null; note?: string
+  }
+
+  if (!cliente?.trim() || !progetto?.trim() || !attivita?.trim()) {
+    res.status(400).json({ error: 'cliente, progetto e attivita sono obbligatori' })
+    return
+  }
+
+  const STATI = ['IN_CORSO','COMPLETATO','DA_INIZIARE','IN_APPROVAZIONE','ANALISI','FERMI','RIFIUTATO']
+  const statoVal = stato?.trim() ?? 'IN_CORSO'
+  if (!STATI.includes(statoVal)) {
+    res.status(400).json({ error: 'Stato non valido' }); return
+  }
+
+  try {
+    const row = await prisma.attivita.update({
+      where: { id },
+      data: {
+        cliente:                  cliente.trim(),
+        progetto:                 progetto.trim(),
+        attivita:                 attivita.trim(),
+        risorseCoinvolte:         risorseCoinvolte?.trim() ?? '',
+        account:                  account?.trim() ?? '',
+        projectManager:           projectManager?.trim() ?? '',
+        giornateVendute:          giornateVendute != null ? giornateVendute : null,
+        giornateConsuntivate:     giornateConsuntivate != null ? giornateConsuntivate : null,
+        riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
+        stato:                    statoVal as 'IN_CORSO' | 'COMPLETATO' | 'DA_INIZIARE' | 'IN_APPROVAZIONE' | 'ANALISI' | 'FERMI' | 'RIFIUTATO',
+        inizio:                   inizio   ? new Date(inizio)   : null,
+        deadline:                 deadline ? new Date(deadline) : null,
+        note:                     note?.trim() || null,
+      },
+    })
+    res.json(row)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Attività non trovata' }); return
+    }
+    console.error('[attivita] PUT error:', err)
+    res.status(500).json({ error: 'Errore nell\'aggiornamento dell\'attività' })
+  }
+})
+
+// DELETE /api/attivita/:id
+app.delete('/api/attivita/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  try {
+    await prisma.attivita.delete({ where: { id } })
+    res.status(204).send()
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Attività non trovata' }); return
+    }
+    console.error('[attivita] DELETE error:', err)
+    res.status(500).json({ error: 'Errore nella cancellazione dell\'attività' })
+  }
+})
+
 // ── Start ─────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[s1-gantt] Backend → http://localhost:${PORT}`)
