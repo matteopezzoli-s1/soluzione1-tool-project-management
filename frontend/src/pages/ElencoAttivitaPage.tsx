@@ -78,11 +78,15 @@ const STATO_TO_ENUM: Record<StatoAttivita, string> = {
 
 interface PMOption      { id: string; firstName: string; lastName: string }
 interface AccountOption { id: string; firstName: string; lastName: string }
-interface ClienteOption { id: string; nome: string }
+interface ClienteOption {
+  id: string; nome: string
+  account: { firstName: string; lastName: string } | null
+}
+interface ProgettoOption { id: string; nome: string; clienteNome: string | null }
 
 type AttivitaFormData = {
   cliente: string; progetto: string; attivita: string
-  risorseCoinvolte: string; account: string; projectManager: string
+  risorseCoinvolte: string; account: string; projectManager: string[]
   stato: StatoAttivita
   giornateVendute: string; giornateConsuntivate: string
   riferimentoOrdineVendita: string
@@ -91,7 +95,7 @@ type AttivitaFormData = {
 
 const EMPTY_FORM: AttivitaFormData = {
   cliente: '', progetto: '', attivita: '', risorseCoinvolte: '',
-  account: '', projectManager: '', stato: 'In corso',
+  account: '', projectManager: [], stato: 'In corso',
   giornateVendute: '', giornateConsuntivate: '',
   riferimentoOrdineVendita: '', inizio: '', deadline: '', note: '',
 }
@@ -696,23 +700,106 @@ function exportCSV(gruppi: GruppoAttivita[]) {
 
 // ─── Attività Modal ───────────────────────────────────────────────────────────
 
+// ─── PM multi-select ─────────────────────────────────────────────────────────
+
+function PMMultiSelect({ pms, value, onChange }: {
+  pms: PMOption[]; value: string[]; onChange: (v: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function outside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [])
+
+  const toggle = (name: string) =>
+    onChange(value.includes(name) ? value.filter(v => v !== name) : [...value, name])
+
+  const label = value.length === 0
+    ? '— Nessun PM —'
+    : value.length === 1
+      ? value[0]
+      : `${value.length} PM selezionati`
+
+  return (
+    <div className="ea-pm-wrap" ref={ref}>
+      <button
+        type="button"
+        className={`ea-form-input ea-pm-btn${open ? ' ea-pm-btn--open' : ''}`}
+        onClick={() => setOpen(o => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={value.length > 0 ? 'ea-pm-btn-active' : 'ea-pm-btn-placeholder'}>{label}</span>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
+          width="14" height="14" aria-hidden="true">
+          <path d="M5 7.5l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="ea-pm-dropdown" role="listbox" aria-multiselectable="true">
+          {pms.length === 0 && (
+            <span className="ea-pm-empty">Nessun PM disponibile</span>
+          )}
+          {pms.map(p => {
+            const name = `${p.firstName} ${p.lastName}`
+            const checked = value.includes(name)
+            return (
+              <label key={p.id} className={`ea-pm-item${checked ? ' ea-pm-item--checked' : ''}`}>
+                <input type="checkbox" checked={checked} onChange={() => toggle(name)} />
+                <span>{name}</span>
+              </label>
+            )
+          })}
+          {value.length > 0 && (
+            <button type="button" className="ea-pm-clear" onClick={() => { onChange([]); setOpen(false) }}>
+              Rimuovi selezione
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Attività Modal ───────────────────────────────────────────────────────────
+
 interface AttivitaModalProps {
   title: string
   form: AttivitaFormData
   loading: boolean
   apiError: string | null
   clienti: ClienteOption[]
-  accounts: AccountOption[]
+  progetti: ProgettoOption[]
   pms: PMOption[]
   onChange: (f: AttivitaFormData) => void
   onSave: () => void
   onClose: () => void
 }
 
-function AttivitaModal({ title, form, loading, apiError, clienti, accounts, pms, onChange, onSave, onClose }: AttivitaModalProps) {
+function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms, onChange, onSave, onClose }: AttivitaModalProps) {
   const set = (key: keyof AttivitaFormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
+
+  // Progetti filtered by the selected cliente
+  const progettiCliente = useMemo(
+    () => progetti.filter(p => p.clienteNome === form.cliente),
+    [progetti, form.cliente]
+  )
+
+  // When cliente changes: auto-populate account and reset progetto
+  const handleClienteChange = (nomeCliente: string) => {
+    const found = clienti.find(c => c.nome === nomeCliente)
+    const accountName = found?.account
+      ? `${found.account.firstName} ${found.account.lastName}`
+      : ''
+    onChange({ ...form, cliente: nomeCliente, account: accountName, progetto: '' })
+  }
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -740,15 +827,23 @@ function AttivitaModal({ title, form, loading, apiError, clienti, accounts, pms,
             <div className="ea-form-field">
               <label htmlFor="ea-f-cliente" className="ea-form-label">Cliente <span aria-hidden="true">*</span></label>
               <select id="ea-f-cliente" className="ea-form-input ea-form-select"
-                value={form.cliente} onChange={set('cliente')}>
+                value={form.cliente} onChange={e => handleClienteChange(e.target.value)}>
                 <option value="">— Seleziona cliente —</option>
                 {clienti.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
               </select>
             </div>
             <div className="ea-form-field">
               <label htmlFor="ea-f-progetto" className="ea-form-label">Progetto <span aria-hidden="true">*</span></label>
-              <input id="ea-f-progetto" className="ea-form-input" type="text"
-                value={form.progetto} onChange={set('progetto')} placeholder="es. Rebranding 2024" />
+              <select id="ea-f-progetto" className="ea-form-input ea-form-select"
+                value={form.progetto} onChange={set('progetto')}
+                disabled={!form.cliente}>
+                <option value="">
+                  {form.cliente
+                    ? progettiCliente.length === 0 ? '— Nessun progetto —' : '— Seleziona progetto —'
+                    : '— Seleziona prima il cliente —'}
+                </option>
+                {progettiCliente.map(p => <option key={p.id} value={p.nome}>{p.nome}</option>)}
+              </select>
             </div>
           </div>
 
@@ -759,29 +854,20 @@ function AttivitaModal({ title, form, loading, apiError, clienti, accounts, pms,
               value={form.attivita} onChange={set('attivita')} placeholder="es. Design UI screens" />
           </div>
 
-          {/* Row 3: account + PM */}
+          {/* Row 3: account (auto) + PM (multi) */}
           <div className="ea-form-row">
             <div className="ea-form-field">
-              <label htmlFor="ea-f-account" className="ea-form-label">Account</label>
-              <select id="ea-f-account" className="ea-form-input ea-form-select"
-                value={form.account} onChange={set('account')}>
-                <option value="">— Nessun account —</option>
-                {accounts.map(a => {
-                  const name = `${a.firstName} ${a.lastName}`
-                  return <option key={a.id} value={name}>{name}</option>
-                })}
-              </select>
+              <label className="ea-form-label">Account</label>
+              {form.account
+                ? <span className="ea-account-chip">{form.account}</span>
+                : <span className="ea-account-empty">
+                    {form.cliente ? 'Nessun account associato' : 'Seleziona prima il cliente'}
+                  </span>}
             </div>
             <div className="ea-form-field">
-              <label htmlFor="ea-f-pm" className="ea-form-label">Project Manager</label>
-              <select id="ea-f-pm" className="ea-form-input ea-form-select"
-                value={form.projectManager} onChange={set('projectManager')}>
-                <option value="">— Nessun PM —</option>
-                {pms.map(p => {
-                  const name = `${p.firstName} ${p.lastName}`
-                  return <option key={p.id} value={name}>{name}</option>
-                })}
-              </select>
+              <label className="ea-form-label">Project Manager</label>
+              <PMMultiSelect pms={pms} value={form.projectManager}
+                onChange={v => onChange({ ...form, projectManager: v })} />
             </div>
           </div>
 
@@ -917,6 +1003,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const [clientiOpts,  setClientiOpts]  = useState<ClienteOption[]>([])
   const [accountsOpts, setAccountsOpts] = useState<AccountOption[]>([])
   const [pmsOpts,      setPmsOpts]      = useState<PMOption[]>([])
+  const [progettiOpts, setProgettiOpts] = useState<ProgettoOption[]>([])
 
   // CRUD state
   const [modal,     setModal]     = useState<'add' | 'edit' | null>(null)
@@ -931,23 +1018,32 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     setLoading(true)
     setError(null)
     try {
-      const [res, rC, rA, rP] = await Promise.all([
+      const [res, rC, rA, rP, rPr] = await Promise.all([
         fetch(`${API_URL}/api/attivita`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/clienti`,      { headers: authHeaders(token) }),
         fetch(`${API_URL}/accounts`,     { headers: authHeaders(token) }),
         fetch(`${API_URL}/pm`,           { headers: authHeaders(token) }),
+        fetch(`${API_URL}/progetti`,     { headers: authHeaders(token) }),
       ])
       if (!res.ok) throw new Error(`Errore ${res.status}`)
-      const [json, clienti, accounts, pms] = await Promise.all([
+      const [json, clienti, accounts, pms, progettiRaw] = await Promise.all([
         res.json() as Promise<AttivitaResponse>,
         rC.ok ? rC.json() : Promise.resolve([]),
         rA.ok ? rA.json() : Promise.resolve([]),
         rP.ok ? rP.json() : Promise.resolve([]),
+        rPr.ok ? rPr.json() : Promise.resolve([]),
       ])
       setData(json)
       setClientiOpts(clienti)
       setAccountsOpts(accounts)
       setPmsOpts(pms)
+      // Normalize progetti: extract clienteNome from nested .cliente
+      setProgettiOpts(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (progettiRaw as any[]).map((p: any) => ({
+          id: p.id, nome: p.nome, clienteNome: p.cliente?.nome ?? null,
+        }))
+      )
       // Auto-expand sforamento groups on first load
       const sfora = new Set(
         json.gruppi.filter((g: GruppoAttivita) => g.inSforamento).map((g: GruppoAttivita) => `${g.cliente}|||${g.progetto}`)
@@ -974,7 +1070,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       attivita:                 item.attivita,
       risorseCoinvolte:         item.risorseCoinvolte,
       account:                  item.account,
-      projectManager:           item.projectManager,
+      projectManager:           item.projectManager ? item.projectManager.split(', ').filter(Boolean) : [],
       stato:                    item.stato,
       giornateVendute:          item.giornateVendute  != null ? String(item.giornateVendute)  : '',
       giornateConsuntivate:     item.giornateConsuntivate != null ? String(item.giornateConsuntivate) : '',
@@ -1002,7 +1098,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         attivita:                 form.attivita.trim(),
         risorseCoinvolte:         form.risorseCoinvolte.trim(),
         account:                  form.account.trim(),
-        projectManager:           form.projectManager.trim(),
+        projectManager:           form.projectManager.join(', '),
         stato:                    STATO_TO_ENUM[form.stato],
         giornateVendute:          form.giornateVendute          !== '' ? parseFloat(form.giornateVendute)          : null,
         giornateConsuntivate:     form.giornateConsuntivate     !== '' ? parseFloat(form.giornateConsuntivate)     : null,
@@ -1287,7 +1383,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           loading={saving}
           apiError={formErr}
           clienti={clientiOpts}
-          accounts={accountsOpts}
+          progetti={progettiOpts}
           pms={pmsOpts}
           onChange={setForm}
           onSave={handleSave}
