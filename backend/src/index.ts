@@ -954,6 +954,98 @@ app.delete('/api/attivita/:id', requireAuth, async (req, res) => {
   }
 })
 
+// ── Gantt: PATCH date attività ────────────────────────────────
+app.patch('/api/attivita/:id/dates', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  const { inizio, deadline } = req.body as { inizio?: string | null; deadline?: string | null }
+  try {
+    const row = await prisma.attivita.update({
+      where: { id },
+      data: {
+        inizio:   inizio   !== undefined ? (inizio   ? new Date(inizio)   : null) : undefined,
+        deadline: deadline !== undefined ? (deadline ? new Date(deadline) : null) : undefined,
+      },
+    })
+    res.json(row)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Attività non trovata' }); return
+    }
+    res.status(500).json({ error: 'Errore aggiornamento date' })
+  }
+})
+
+// ── Gantt Milestones ──────────────────────────────────────────
+
+// GET /api/gantt/milestones — tutti (filtro opzionale ?activityId=)
+app.get('/api/gantt/milestones', requireAuth, async (req, res) => {
+  const activityId = req.query['activityId'] as string | undefined
+  const rows = await prisma.ganttMilestone.findMany({
+    where: activityId ? { activityId } : undefined,
+    orderBy: { date: 'asc' },
+  })
+  res.json(rows)
+})
+
+// POST /api/gantt/milestones
+app.post('/api/gantt/milestones', requireAuth, async (req, res) => {
+  const { activityId, title, date, color, icon } = req.body as {
+    activityId?: string; title?: string; date?: string; color?: string; icon?: string
+  }
+  if (!activityId?.trim() || !title?.trim() || !date) {
+    res.status(400).json({ error: 'activityId, title e date sono obbligatori' }); return
+  }
+  const row = await prisma.ganttMilestone.create({
+    data: {
+      activityId: activityId.trim(),
+      title:      title.trim(),
+      date:       new Date(date),
+      color:      color?.trim() || '#F59E0B',
+      icon:       icon?.trim() || null,
+    },
+  })
+  res.status(201).json(row)
+})
+
+// PUT /api/gantt/milestones/:id
+app.put('/api/gantt/milestones/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  const { title, date, color, icon } = req.body as {
+    title?: string; date?: string; color?: string; icon?: string
+  }
+  try {
+    const row = await prisma.ganttMilestone.update({
+      where: { id },
+      data: {
+        title: title?.trim(),
+        date:  date ? new Date(date) : undefined,
+        color: color?.trim(),
+        icon:  icon !== undefined ? (icon?.trim() || null) : undefined,
+      },
+    })
+    res.json(row)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Milestone non trovata' }); return
+    }
+    res.status(500).json({ error: 'Errore aggiornamento milestone' })
+  }
+})
+
+// DELETE /api/gantt/milestones/:id
+app.delete('/api/gantt/milestones/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  try {
+    await prisma.ganttMilestone.delete({ where: { id } })
+    res.status(204).send()
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Milestone non trovata' }); return
+    }
+    res.status(500).json({ error: 'Errore cancellazione milestone' })
+  }
+})
+
 // ── Start ─────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[s1-gantt] Backend → http://localhost:${PORT}`)

@@ -138,31 +138,6 @@ function getStatoPrevValente(attivita: AttivitaItem[], statiMap: Map<string, Sta
   })[0]
 }
 
-// ISO week number (Mon=1)
-function getISOWeek(date: Date): { week: number; year: number } {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
-  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
-  return { week, year: d.getUTCFullYear() }
-}
-
-function getWorkWeekLabel(): string {
-  const today = new Date()
-  const { week } = getISOWeek(today)
-  const day = today.getDay()
-  const diffToMon = day === 0 ? -6 : 1 - day
-  const mon = new Date(today)
-  mon.setDate(today.getDate() + diffToMon)
-  const fri = new Date(mon)
-  fri.setDate(mon.getDate() + 4)
-
-  const MONTHS_SHORT = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic']
-  const fmtD = (d: Date) => `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
-
-  return `Settimana ${week} — ${fmtD(mon)} / ${fmtD(fri)} ${fri.getFullYear()}`
-}
-
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatoBadge({ stato }: { stato: StatoAttivita }) {
@@ -996,7 +971,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const [filtroAcc,   setFiltroAcc]   = useState('')
   const [filtroPM,    setFiltroPM]    = useState('')
   const [filtroStato, setFiltroStato] = useState<string[]>([])
-  const [soloAttivi,  setSoloAttivi]  = useState(false)
+  const [soloAttivi,  setSoloAttivi]  = useState(true)
   const [expanded,    setExpanded]    = useState<Set<string>>(new Set())
   const [selected,    setSelected]    = useState<AttivitaItem | null>(null)
 
@@ -1209,7 +1184,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const expandAll  = () => setExpanded(new Set(filteredGruppi.map(groupKey)))
   const collapseAll = () => setExpanded(new Set())
 
-  const hasFilters = filtroAcc || filtroPM || filtroStato.length > 0 || soloAttivi
+  const hasFilters = !!(filtroAcc || filtroPM || filtroStato.length > 0 || !soloAttivi)
 
   return (
     <StatiCtx.Provider value={statiMap}>
@@ -1219,7 +1194,6 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       <div className="ea-topbar">
         <div className="ea-topbar-left">
           <h1 className="ea-title">Elenco Attività</h1>
-          <p className="ea-week-label">{getWorkWeekLabel()}</p>
         </div>
         <div className="ea-topbar-right">
           <button type="button" className="ea-btn ea-btn--primary" onClick={openAdd}>
@@ -1294,7 +1268,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           getOptionLabel={key => statiMap.get(key)?.label ?? key}
         />
         <Toggle
-          label="Solo attivi"
+          label={soloAttivi ? 'Solo attivi' : 'Tutti i progetti'}
           checked={soloAttivi}
           onChange={v => {
             setSoloAttivi(v)
@@ -1306,7 +1280,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         />
         {hasFilters && (
           <button type="button" className="ea-filters-reset" onClick={() => {
-            setFiltroAcc(''); setFiltroPM(''); setFiltroStato([]); setSoloAttivi(false)
+            setFiltroAcc(''); setFiltroPM(''); setFiltroStato([]); setSoloAttivi(true)
           }}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75"
               width="13" height="13" aria-hidden="true">
@@ -1361,7 +1335,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           </p>
           {hasFilters && (
             <button type="button" className="ea-btn ea-btn--ghost"
-              onClick={() => { setFiltroAcc(''); setFiltroPM(''); setFiltroStato([]); setSoloAttivi(false) }}>
+              onClick={() => { setFiltroAcc(''); setFiltroPM(''); setFiltroStato([]); setSoloAttivi(true) }}>
               Rimuovi filtri
             </button>
           )}

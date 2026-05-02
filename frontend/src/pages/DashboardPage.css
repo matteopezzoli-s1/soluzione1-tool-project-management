@@ -1,0 +1,366 @@
+/* =============================================================
+   DashboardPage — Panoramica attività e scadenze
+   Prefix: dash-
+   Design: light surface, Plus Jakarta Sans, design tokens da index.css
+   ============================================================= */
+
+@keyframes dash-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dash-shimmer {
+  from { background-position: -600px 0; }
+  to   { background-position:  600px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-page { animation: none !important; }
+  .dash-skeleton { animation: none !important; background: #E2E8F0 !important; }
+}
+
+/* ── Page layout ───────────────────────────────────────────── */
+
+.dash-page {
+  flex: 1;
+  padding: 24px 24px 40px;
+  max-width: 1300px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: #f8fafc;
+  animation: dash-fade-up 0.3s ease both;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+/* ── Header ────────────────────────────────────────────────── */
+
+.dash-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.dash-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 2px;
+  letter-spacing: -0.3px;
+}
+
+.dash-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* ── Section header ────────────────────────────────────────── */
+
+.dash-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #64748b;
+}
+
+.dash-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.dash-section-count {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+
+.dash-section-count--amber {
+  background: #FEF3C7;
+  color: #D97706;
+}
+
+.dash-section-count--red {
+  background: #FEE2E2;
+  color: #DC2626;
+}
+
+.dash-shortcuts-header {
+  margin-bottom: -8px;
+}
+
+/* ── KPI grid ──────────────────────────────────────────────── */
+
+.dash-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.dash-kpi-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: box-shadow 180ms ease, transform 180ms ease;
+}
+
+.dash-kpi-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.dash-kpi-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dash-kpi-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dash-kpi-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.dash-kpi-value {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+
+/* ── Lists grid ────────────────────────────────────────────── */
+
+.dash-lists-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.dash-list-section {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.dash-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── Activity row ──────────────────────────────────────────── */
+
+.dash-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  transition: box-shadow 150ms ease;
+}
+
+.dash-activity-row:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.dash-state-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dash-activity-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.dash-activity-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dash-activity-meta {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dash-activity-deadline {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Empty state ───────────────────────────────────────────── */
+
+.dash-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 14px;
+  border: 1px dashed #d1fae5;
+  background: #f0fdf4;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #16a34a;
+  font-weight: 500;
+}
+
+/* ── Skeleton ──────────────────────────────────────────────── */
+
+.dash-skeleton {
+  background: linear-gradient(
+    90deg,
+    #e2e8f0 0%,
+    #f1f5f9 50%,
+    #e2e8f0 100%
+  );
+  background-size: 600px 100%;
+  animation: dash-shimmer 1.4s ease infinite;
+}
+
+.dash-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+/* ── Shortcut cards ────────────────────────────────────────── */
+
+.dash-shortcuts-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.dash-shortcut-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px 18px;
+  cursor: pointer;
+  text-align: left;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  transition: background 180ms ease, box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
+}
+
+.dash-shortcut-card:hover {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.1);
+  transform: translateY(-1px);
+}
+
+.dash-shortcut-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #f0fdfa;
+  color: #0d9488;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 180ms ease;
+}
+
+.dash-shortcut-card:hover .dash-shortcut-icon {
+  background: #ccfbf1;
+}
+
+.dash-shortcut-label {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.dash-shortcut-arrow {
+  color: #94a3b8;
+  flex-shrink: 0;
+  transition: color 180ms ease, transform 180ms ease;
+}
+
+.dash-shortcut-card:hover .dash-shortcut-arrow {
+  color: #0d9488;
+  transform: translateX(2px);
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .dash-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dash-shortcuts-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .dash-lists-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .dash-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dash-shortcuts-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dash-page {
+    padding: 16px 16px 32px;
+  }
+}

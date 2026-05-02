@@ -6,6 +6,8 @@ import ElencoAttivitaPage    from './pages/ElencoAttivitaPage'
 import ClientiPage           from './pages/ClientiPage'
 import ProgettiPage          from './pages/ProgettiPage'
 import ImpostazioniPage      from './pages/ImpostazioniPage'
+import GanttPage             from './pages/GanttPage'
+import DashboardPage         from './pages/DashboardPage'
 import './App.css'
 
 // ─── Sidebar icons ──────────────────────────────────────────────────────────
@@ -324,89 +326,17 @@ export default function App() {
         </header>
 
         {/* Content */}
+        {page === 'dashboard'     && <DashboardPage         token={token} onNavigate={(p) => setPage(p as NavPage)} />}
         {page === 'clienti'       && <ClientiPage           token={token} />}
         {page === 'progetti'      && <ProgettiPage          token={token} />}
         {page === 'team-pm'       && <TeamPage              token={token} />}
         {page === 'team-account'  && <TeamAccountPage       token={token} />}
         {page === 'attivita'      && <ElencoAttivitaPage    token={token} />}
         {page === 'impostazioni'  && <ImpostazioniPage      token={token} />}
-        {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'team-pm' && page !== 'team-account' && page !== 'attivita' && page !== 'impostazioni' && (
+        {page === 'timeline'      && <GanttPage             token={token} />}
+        {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'team-pm' && page !== 'team-account' && page !== 'attivita' && page !== 'impostazioni' && page !== 'timeline' && (
           <PlaceholderPage page={page} />
         )}
-        <main className="db-content" style={page !== 'dashboard' ? { display: 'none' } : undefined}>
-
-          {/* Hero card */}
-          <div className="db-hero">
-            <div className="db-hero-text">
-              <span className="db-hero-badge">In arrivo</span>
-              <h1 className="db-hero-title">
-                La tua vista Gantt<br />
-                <span className="db-hero-title--accent">sta arrivando</span>
-              </h1>
-              <p className="db-hero-desc">
-                Timeline interattive, milestone e collaborazione in tempo reale — tutto in un unico posto.
-              </p>
-              <ul className="db-features" aria-label="Funzionalità in arrivo">
-                <li className="db-feature">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75"
-                    width="14" height="14" aria-hidden="true">
-                    <rect x="1" y="4"  width="8"  height="2.5" rx="1.25" />
-                    <rect x="4" y="8"  width="10" height="2.5" rx="1.25" />
-                    <rect x="2" y="12" width="9"  height="2.5" rx="1.25" />
-                  </svg>
-                  Timeline Gantt
-                </li>
-                <li className="db-feature">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75"
-                    width="14" height="14" aria-hidden="true">
-                    <circle cx="8" cy="8" r="6.5" />
-                    <path d="M8 5v3l2 1.5" strokeLinecap="round" />
-                  </svg>
-                  Milestones
-                </li>
-                <li className="db-feature">
-                  <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true">
-                    <path d="M5.5 7a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zm5.5.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM1.42 13.14A.96.96 0 0 1 .97 12.22a5 5 0 0 1 9.94 0c.048.39-.144.766-.474.977A8.3 8.3 0 0 1 5.5 14a8.3 8.3 0 0 1-4.08-1.86zM12 13h-.088c.058-.248.073-.51.04-.777a6.23 6.23 0 0 0-1.324-3.13 3.75 3.75 0 0 1 4.895 3.813.667.667 0 0 1-.3.611A6.255 6.255 0 0 1 12 13.5V13z" />
-                  </svg>
-                  Team & Collaborazione
-                </li>
-              </ul>
-            </div>
-
-            <div className="db-hero-preview" aria-hidden="true">
-              <GanttPreview />
-            </div>
-          </div>
-
-          {/* KPI cards */}
-          <div className="db-kpis" aria-label="Metriche principali">
-            <div className="db-kpi">
-              <div className="db-kpi-label">Progetti Attivi</div>
-              <div className="db-kpi-val db-kpi-val--teal">—</div>
-              <div className="db-kpi-sub">Dati non ancora disponibili</div>
-              <div className="db-kpi-bar db-kpi-bar--teal" />
-            </div>
-            <div className="db-kpi">
-              <div className="db-kpi-label">Task Completate</div>
-              <div className="db-kpi-val db-kpi-val--amber">—</div>
-              <div className="db-kpi-sub">Dati non ancora disponibili</div>
-              <div className="db-kpi-bar db-kpi-bar--amber" />
-            </div>
-            <div className="db-kpi">
-              <div className="db-kpi-label">In Ritardo</div>
-              <div className="db-kpi-val db-kpi-val--indigo">—</div>
-              <div className="db-kpi-sub">Dati non ancora disponibili</div>
-              <div className="db-kpi-bar db-kpi-bar--indigo" />
-            </div>
-            <div className="db-kpi">
-              <div className="db-kpi-label">Membri Team</div>
-              <div className="db-kpi-val db-kpi-val--sky">—</div>
-              <div className="db-kpi-sub">Dati non ancora disponibili</div>
-              <div className="db-kpi-bar db-kpi-bar--sky" />
-            </div>
-          </div>
-
-        </main>
       </div>
     </div>
   )

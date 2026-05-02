@@ -318,9 +318,29 @@ model Attivita {
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
+  milestones               GanttMilestone[]
+
   @@index([cliente, progetto])
   @@index([stato])
   @@map("attivita")
+}
+
+// ── Gantt Milestones ──────────────────────────────────────────
+
+model GanttMilestone {
+  id         String   @id @default(cuid())
+  activityId String   @map("activity_id")
+  title      String
+  date       DateTime
+  color      String   @default("#F59E0B")
+  icon       String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  activity   Attivita @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
+  @@map("gantt_milestones")
 }
 
 // ── Configurazione stati ──────────────────────────────────────
