@@ -5,7 +5,12 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type StatoProgetto = 'ATTIVO' | 'IN_PAUSA' | 'COMPLETATO' | 'ANNULLATO'
+type StatoProgetto = string  // chiave DB, es. "ATTIVO"
+
+interface StatoProgettoConfig {
+  id: string; chiave: string; label: string
+  colore: string; isArchiviato: boolean; ordine: number
+}
 
 interface ClienteRef { id: string; nome: string }
 
@@ -25,10 +30,6 @@ const EMPTY_FORM: FormData = {
   nome: '', descrizione: '', stato: 'ATTIVO', clienteId: '', dataInizio: '', dataFine: ''
 }
 
-const STATO_LABEL: Record<StatoProgetto, string> = {
-  ATTIVO: 'Attivo', IN_PAUSA: 'In pausa', COMPLETATO: 'Completato', ANNULLATO: 'Annullato',
-}
-
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 }
@@ -45,10 +46,20 @@ function toInputDate(iso: string | null) {
 
 // ─── Stato badge ─────────────────────────────────────────────────────────────
 
-function StatoBadge({ stato }: { stato: StatoProgetto }) {
+function StatoBadge({ stato, statiMap }: { stato: StatoProgetto; statiMap: Map<string, StatoProgettoConfig> }) {
+  const cfg    = statiMap.get(stato)
+  const label  = cfg?.label  ?? stato
+  const colore = cfg?.colore ?? '#94a3b8'
   return (
-    <span className={`pr-badge pr-badge--${stato.toLowerCase().replace('_', '-')}`}>
-      {STATO_LABEL[stato]}
+    <span
+      className="pr-badge"
+      style={{
+        backgroundColor: colore + '22',
+        color:           colore,
+        border:          `1px solid ${colore}55`,
+      }}
+    >
+      {label}
     </span>
   )
 }
@@ -57,11 +68,11 @@ function StatoBadge({ stato }: { stato: StatoProgetto }) {
 
 interface ModalProps {
   title: string; form: FormData; loading: boolean; apiError: string | null
-  clienti: ClienteOption[]
+  clienti: ClienteOption[]; statiList: StatoProgettoConfig[]
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
-function Modal({ title, form, loading, apiError, clienti, onChange, onSave, onClose }: ModalProps) {
+function Modal({ title, form, loading, apiError, clienti, statiList, onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
@@ -101,8 +112,8 @@ function Modal({ title, form, loading, apiError, clienti, onChange, onSave, onCl
               <label htmlFor="pr-stato" className="pr-label">Stato</label>
               <select id="pr-stato" className="pr-input pr-select"
                 value={form.stato} onChange={set('stato')}>
-                {(Object.keys(STATO_LABEL) as StatoProgetto[]).map(s => (
-                  <option key={s} value={s}>{STATO_LABEL[s]}</option>
+                {statiList.map(s => (
+                  <option key={s.chiave} value={s.chiave}>{s.label}</option>
                 ))}
               </select>
             </div>
@@ -178,28 +189,33 @@ function ConfirmDelete({ progetto, loading, onConfirm, onClose }: {
 interface ProgettiPageProps { token: string }
 
 export default function ProgettiPage({ token }: ProgettiPageProps) {
-  const [progetti,  setProgetti]  = useState<Progetto[]>([])
-  const [clienti,   setClienti]   = useState<ClienteOption[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [apiError,  setApiError]  = useState<string | null>(null)
-  const [modal,     setModal]     = useState<'add' | 'edit' | null>(null)
-  const [editing,   setEditing]   = useState<Progetto | null>(null)
-  const [form,      setForm]      = useState<FormData>(EMPTY_FORM)
-  const [saving,    setSaving]    = useState(false)
-  const [formErr,   setFormErr]   = useState<string | null>(null)
-  const [delTarget, setDelTarget] = useState<Progetto | null>(null)
-  const [deleting,  setDeleting]  = useState(false)
+  const [progetti,    setProgetti]    = useState<Progetto[]>([])
+  const [clienti,     setClienti]     = useState<ClienteOption[]>([])
+  const [statiConfig, setStatiConfig] = useState<StatoProgettoConfig[]>([])
+  const [loading,     setLoading]     = useState(true)
+  const [apiError,    setApiError]    = useState<string | null>(null)
+  const [modal,       setModal]       = useState<'add' | 'edit' | null>(null)
+  const [editing,     setEditing]     = useState<Progetto | null>(null)
+  const [form,        setForm]        = useState<FormData>(EMPTY_FORM)
+  const [saving,      setSaving]      = useState(false)
+  const [formErr,     setFormErr]     = useState<string | null>(null)
+  const [delTarget,   setDelTarget]   = useState<Progetto | null>(null)
+  const [deleting,    setDeleting]    = useState(false)
+
+  const statiMap  = new Map(statiConfig.map(s => [s.chiave, s]))
+  const statiList = [...statiConfig].sort((a, b) => a.ordine - b.ordine)
 
   const fetchAll = useCallback(async () => {
     setLoading(true); setApiError(null)
     try {
-      const [rP, rC] = await Promise.all([
-        fetch(`${API_URL}/progetti`, { headers: authHeaders(token) }),
-        fetch(`${API_URL}/clienti`,  { headers: authHeaders(token) }),
+      const [rP, rC, rS] = await Promise.all([
+        fetch(`${API_URL}/progetti`,          { headers: authHeaders(token) }),
+        fetch(`${API_URL}/clienti`,           { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/stati-progetto`, { headers: authHeaders(token) }),
       ])
       if (!rP.ok || !rC.ok) throw new Error()
-      const [p, c] = await Promise.all([rP.json(), rC.json()])
-      setProgetti(p); setClienti(c)
+      const [p, c, s] = await Promise.all([rP.json(), rC.json(), rS.ok ? rS.json() : Promise.resolve([])])
+      setProgetti(p); setClienti(c); setStatiConfig(s)
     } catch { setApiError('Impossibile caricare i dati.') }
     finally { setLoading(false) }
   }, [token])
@@ -306,7 +322,7 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
                       ? <span className="pr-cliente-tag">{p.cliente.nome}</span>
                       : <span className="pr-empty-cell">—</span>}
                   </td>
-                  <td><StatoBadge stato={p.stato} /></td>
+                  <td><StatoBadge stato={p.stato} statiMap={statiMap} /></td>
                   <td className="pr-cell-text pr-cell-date">
                     {p.dataInizio || p.dataFine ? (
                       <span className="pr-date-range">
@@ -342,6 +358,7 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
         <Modal
           title={modal === 'add' ? 'Aggiungi progetto' : 'Modifica progetto'}
           form={form} loading={saving} apiError={formErr} clienti={clienti}
+          statiList={statiList}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
       )}
       {delTarget && (

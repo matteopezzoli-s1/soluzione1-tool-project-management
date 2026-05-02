@@ -1,0 +1,316 @@
+/* =============================================================
+   ImpostazioniPage — gestione stati attività e progetti
+   ============================================================= */
+
+@keyframes imp-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes imp-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes imp-modal-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .imp-page, .imp-modal { animation: none !important; }
+}
+
+/* ── Page ──────────────────────────────────────────────────── */
+
+.imp-page {
+  flex: 1; padding: 2rem 1.75rem; max-width: 900px; width: 100%; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 1.5rem;
+  animation: imp-fade-up 0.35s ease both;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.imp-topbar { display: flex; flex-direction: column; gap: 0.25rem; }
+.imp-title  { font-size: 1.5rem; font-weight: 800; color: #0F172A; letter-spacing: -0.03em; line-height: 1.2; }
+.imp-subtitle { font-size: 0.8rem; color: #94A3B8; font-weight: 500; }
+
+/* ── Tabs ──────────────────────────────────────────────────── */
+
+.imp-tabs {
+  display: flex; gap: 0.25rem;
+  border-bottom: 2px solid #E2E8F0;
+  padding-bottom: 0;
+}
+
+.imp-tab {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.65rem 1rem; border-radius: 8px 8px 0 0;
+  font-family: inherit; font-size: 0.875rem; font-weight: 600;
+  color: #64748B; background: transparent;
+  border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; transition: color 150ms ease, background 150ms ease;
+  margin-bottom: -2px;
+}
+.imp-tab:hover:not(.imp-tab--active) { color: #334155; background: #F8FAFC; }
+.imp-tab--active { color: #0D9488; border-bottom-color: #0D9488; }
+.imp-tab:focus-visible { outline: 2.5px solid #0D9488; outline-offset: 2px; }
+
+/* ── Sezione ───────────────────────────────────────────────── */
+
+.imp-sezione { display: flex; flex-direction: column; gap: 1rem; padding-top: 0.5rem; }
+
+.imp-sezione-topbar {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem;
+}
+.imp-sezione-sub { font-size: 0.8rem; color: #94A3B8; font-weight: 500; }
+
+/* ── Buttons ───────────────────────────────────────────────── */
+
+.imp-btn {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  padding: 0.6rem 1.1rem; border-radius: 10px; font-family: inherit;
+  font-size: 0.875rem; font-weight: 600; cursor: pointer; border: 1.5px solid transparent;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 100ms ease;
+  white-space: nowrap;
+}
+.imp-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; }
+.imp-btn:focus-visible { outline: 2.5px solid #0D9488; outline-offset: 3px; }
+.imp-btn--primary { background: #0D9488; color: #fff; border-color: #0D9488; }
+.imp-btn--primary:hover:not(:disabled) { background: #0F766E; box-shadow: 0 4px 14px rgba(13,148,136,.3); transform: translateY(-1px); }
+.imp-btn--ghost { background: transparent; color: #475569; border-color: #E2E8F0; }
+.imp-btn--ghost:hover:not(:disabled) { background: #F8FAFC; border-color: #CBD5E1; }
+.imp-btn--danger { background: #DC2626; color: #fff; border-color: #DC2626; }
+.imp-btn--danger:hover:not(:disabled) { background: #B91C1C; box-shadow: 0 4px 14px rgba(220,38,38,.25); transform: translateY(-1px); }
+
+/* ── Icon buttons ──────────────────────────────────────────── */
+
+.imp-icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px; border: none;
+  background: transparent; color: #94A3B8; cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.imp-icon-btn:hover { background: #F1F5F9; color: #475569; }
+.imp-icon-btn--danger:hover { background: #FEF2F2; color: #DC2626; }
+.imp-icon-btn:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+
+/* ── Table ─────────────────────────────────────────────────── */
+
+.imp-table-wrap {
+  background: #fff; border: 1px solid #E2E8F0; border-radius: 14px;
+  overflow: hidden;
+}
+
+.imp-table {
+  width: 100%; border-collapse: collapse; font-size: 0.875rem;
+}
+
+.imp-th {
+  padding: 0.65rem 1rem; text-align: left;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+  color: #94A3B8; text-transform: uppercase;
+  background: #F8FAFC; border-bottom: 1px solid #E2E8F0;
+}
+.imp-th--chiave  { width: 14rem; }
+.imp-th--tipo    { width: 9rem; }
+.imp-th--ordine  { width: 6rem; }
+.imp-th--actions { width: 5rem; }
+
+.imp-row { border-bottom: 1px solid #F1F5F9; }
+.imp-row:last-child { border-bottom: none; }
+.imp-row:hover { background: #F8FAFC; }
+
+.imp-cell { padding: 0.75rem 1rem; color: #334155; }
+.imp-cell--stato { display: flex; align-items: center; gap: 0.6rem; }
+.imp-cell--chiave { font-size: 0.8rem; }
+.imp-cell--ordine { color: #94A3B8; font-size: 0.825rem; }
+.imp-cell--actions {
+  padding: 0.5rem 0.75rem;
+  display: flex; align-items: center; gap: 0.25rem;
+}
+
+/* ── Color dot ─────────────────────────────────────────────── */
+
+.imp-color-dot {
+  display: inline-block; width: 12px; height: 12px;
+  border-radius: 50%; flex-shrink: 0;
+}
+
+/* ── Badge ─────────────────────────────────────────────────── */
+
+.imp-badge {
+  display: inline-flex; align-items: center;
+  padding: 0.2rem 0.65rem; border-radius: 999px;
+  font-size: 0.75rem; font-weight: 600; border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* ── Tipo tag ──────────────────────────────────────────────── */
+
+.imp-tipo-tag {
+  display: inline-flex; align-items: center;
+  padding: 0.15rem 0.55rem; border-radius: 6px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+}
+.imp-tipo-tag--active { background: #ECFDF5; color: #059669; }
+.imp-tipo-tag--arch   { background: #F1F5F9; color: #64748B; }
+
+/* ── Code ──────────────────────────────────────────────────── */
+
+.imp-code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.78rem; color: #64748B; background: #F1F5F9;
+  padding: 0.15rem 0.4rem; border-radius: 4px;
+}
+
+/* ── Skeleton ──────────────────────────────────────────────── */
+
+.imp-skeleton-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.imp-skeleton {
+  height: 52px; border-radius: 10px;
+  background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Empty ─────────────────────────────────────────────────── */
+
+.imp-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.75rem; padding: 3rem 2rem;
+  background: #fff; border: 1px solid #E2E8F0; border-radius: 14px; text-align: center;
+}
+.imp-empty-text { font-size: 0.875rem; color: #94A3B8; }
+
+/* ── Error ─────────────────────────────────────────────────── */
+
+.imp-page-error {
+  font-size: 0.875rem; color: #991B1B; background: #FEF2F2;
+  border: 1px solid #FECACA; border-radius: 10px; padding: 0.75rem 1rem;
+}
+
+/* ── Modal overlay ─────────────────────────────────────────── */
+
+.imp-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+  animation: imp-overlay-in 200ms ease both;
+}
+
+.imp-modal {
+  background: #fff; border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.18);
+  width: 100%; max-width: 480px; max-height: 90vh;
+  display: flex; flex-direction: column;
+  animation: imp-modal-in 220ms cubic-bezier(0.34,1.36,0.64,1) both;
+  overflow: hidden;
+}
+.imp-modal--sm { max-width: 400px; }
+
+.imp-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.25rem 1.5rem; border-bottom: 1px solid #F1F5F9; flex-shrink: 0;
+}
+.imp-modal-title { font-size: 1.05rem; font-weight: 700; color: #0F172A; }
+.imp-modal-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px;
+  border: none; background: transparent; color: #94A3B8; cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.imp-modal-close:hover { background: #F1F5F9; color: #475569; }
+
+.imp-modal-body {
+  padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1;
+  display: flex; flex-direction: column; gap: 1.1rem;
+}
+
+.imp-modal-footer {
+  display: flex; justify-content: flex-end; gap: 0.75rem;
+  padding: 1rem 1.5rem; border-top: 1px solid #F1F5F9; flex-shrink: 0;
+}
+
+/* ── Form fields ───────────────────────────────────────────── */
+
+.imp-field { display: flex; flex-direction: column; gap: 0.4rem; }
+.imp-field--half { max-width: 200px; }
+
+.imp-label {
+  font-size: 0.8rem; font-weight: 700; color: #475569;
+  letter-spacing: 0.03em;
+}
+
+.imp-input {
+  padding: 0.6rem 0.8rem; border-radius: 8px;
+  border: 1.5px solid #E2E8F0; font-family: inherit; font-size: 0.875rem;
+  color: #0F172A; background: #fff;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+  outline: none;
+}
+.imp-input:focus { border-color: #0D9488; box-shadow: 0 0 0 3px rgba(13,148,136,0.12); }
+.imp-input--hex  { max-width: 120px; font-family: monospace; font-size: 0.85rem; }
+
+.imp-chiave-preview {
+  font-size: 0.75rem; color: #94A3B8;
+}
+.imp-chiave-preview code {
+  font-family: monospace; font-size: 0.8rem;
+  background: #F1F5F9; padding: 0.1rem 0.35rem; border-radius: 4px; color: #475569;
+}
+
+.imp-field-hint { font-size: 0.75rem; color: #94A3B8; }
+
+/* ── Color row ─────────────────────────────────────────────── */
+
+.imp-color-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+
+.imp-color-input {
+  width: 42px; height: 42px; border: none; border-radius: 8px;
+  padding: 2px; cursor: pointer; background: transparent;
+  flex-shrink: 0;
+}
+.imp-color-input::-webkit-color-swatch-wrapper { padding: 0; }
+.imp-color-input::-webkit-color-swatch { border-radius: 6px; border: 1.5px solid #E2E8F0; }
+
+/* ── Toggle ────────────────────────────────────────────────── */
+
+.imp-toggle-wrap {
+  display: flex; align-items: center; gap: 0.75rem; cursor: pointer;
+  padding: 0.6rem 0.75rem; border-radius: 10px; border: 1.5px solid #E2E8F0;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+.imp-toggle-wrap:hover { background: #F8FAFC; border-color: #CBD5E1; }
+
+.imp-toggle-input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.imp-toggle-track {
+  position: relative; display: inline-flex; align-items: center;
+  width: 36px; height: 20px; border-radius: 999px;
+  background: #CBD5E1; flex-shrink: 0;
+  transition: background 200ms ease;
+}
+.imp-toggle-track[data-checked="true"] { background: #0D9488; }
+
+.imp-toggle-thumb {
+  position: absolute; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  transition: left 200ms ease;
+}
+.imp-toggle-track[data-checked="true"] .imp-toggle-thumb { left: 18px; }
+
+.imp-toggle-label { font-size: 0.84rem; color: #475569; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+
+/* ── Error banner ──────────────────────────────────────────── */
+
+.imp-error-banner {
+  font-size: 0.84rem; color: #991B1B; background: #FEF2F2;
+  border: 1px solid #FECACA; border-radius: 8px; padding: 0.65rem 0.875rem;
+}
+
+/* ── Confirm text ──────────────────────────────────────────── */
+
+.imp-confirm-text {
+  font-size: 0.9rem; color: #334155; line-height: 1.7;
+}
+.imp-confirm-sub { font-size: 0.8rem; color: #94A3B8; }

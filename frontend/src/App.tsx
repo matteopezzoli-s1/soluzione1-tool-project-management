@@ -5,6 +5,7 @@ import TeamAccountPage       from './pages/TeamAccountPage'
 import ElencoAttivitaPage    from './pages/ElencoAttivitaPage'
 import ClientiPage           from './pages/ClientiPage'
 import ProgettiPage          from './pages/ProgettiPage'
+import ImpostazioniPage      from './pages/ImpostazioniPage'
 import './App.css'
 
 // ─── Sidebar icons ──────────────────────────────────────────────────────────
@@ -323,12 +324,13 @@ export default function App() {
         </header>
 
         {/* Content */}
-        {page === 'clienti'      && <ClientiPage           token={token} />}
-        {page === 'progetti'     && <ProgettiPage          token={token} />}
-        {page === 'team-pm'      && <TeamPage              token={token} />}
-        {page === 'team-account' && <TeamAccountPage       token={token} />}
-        {page === 'attivita'     && <ElencoAttivitaPage    token={token} />}
-        {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'team-pm' && page !== 'team-account' && page !== 'attivita' && (
+        {page === 'clienti'       && <ClientiPage           token={token} />}
+        {page === 'progetti'      && <ProgettiPage          token={token} />}
+        {page === 'team-pm'       && <TeamPage              token={token} />}
+        {page === 'team-account'  && <TeamAccountPage       token={token} />}
+        {page === 'attivita'      && <ElencoAttivitaPage    token={token} />}
+        {page === 'impostazioni'  && <ImpostazioniPage      token={token} />}
+        {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'team-pm' && page !== 'team-account' && page !== 'attivita' && page !== 'impostazioni' && (
           <PlaceholderPage page={page} />
         )}
         <main className="db-content" style={page !== 'dashboard' ? { display: 'none' } : undefined}>

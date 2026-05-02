@@ -1,4 +1,4 @@
-// v0.4.0 — Google OAuth + JWT + PM CRUD + Account CRUD
+// v0.5.0 — stati configurabili (attività e progetti)
 import express, { Request, Response, NextFunction } from 'express'
 import cors    from 'cors'
 import { PrismaClient } from '@prisma/client'
@@ -30,7 +30,6 @@ app.use(cors({
   origin: IS_PROD
     ? FRONTEND_URL
     : (origin, cb) => {
-        // In dev: accetta qualsiasi localhost (qualsiasi porta) + richieste senza origin (curl/Postman)
         if (!origin || /^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true)
         return cb(null, false)
       },
@@ -54,7 +53,7 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
 
 // ── Health ────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', version: '0.4.0' })
+  res.json({ status: 'ok', version: '0.5.0' })
 })
 
 // ── Auth: Step 1 — redirect a Google ─────────────────────────
@@ -118,7 +117,6 @@ app.get('/auth/me', (req, res) => {
 
 // ── PM CRUD ───────────────────────────────────────────────────
 
-// GET /pm — lista tutti i PM
 app.get('/pm', requireAuth, async (_req, res) => {
   try {
     const pms = await prisma.projectManager.findMany({
@@ -131,7 +129,6 @@ app.get('/pm', requireAuth, async (_req, res) => {
   }
 })
 
-// POST /pm — crea PM
 app.post('/pm', requireAuth, async (req, res) => {
   const { firstName, lastName, email } = req.body as {
     firstName?: string; lastName?: string; email?: string
@@ -166,7 +163,6 @@ app.post('/pm', requireAuth, async (req, res) => {
   }
 })
 
-// PUT /pm/:id — aggiorna PM
 app.put('/pm/:id', requireAuth, async (req, res) => {
   const id = req.params['id'] as string
   const { firstName, lastName, email } = req.body as {
@@ -207,7 +203,6 @@ app.put('/pm/:id', requireAuth, async (req, res) => {
   }
 })
 
-// DELETE /pm/:id — elimina PM
 app.delete('/pm/:id', requireAuth, async (req, res) => {
   const id = req.params['id'] as string
   try {
@@ -225,7 +220,6 @@ app.delete('/pm/:id', requireAuth, async (req, res) => {
 
 // ── Account CRUD ──────────────────────────────────────────────
 
-// GET /accounts
 app.get('/accounts', requireAuth, async (_req, res) => {
   try {
     const accounts = await prisma.account.findMany({
@@ -238,7 +232,6 @@ app.get('/accounts', requireAuth, async (_req, res) => {
   }
 })
 
-// POST /accounts
 app.post('/accounts', requireAuth, async (req, res) => {
   const { firstName, lastName, email } = req.body as {
     firstName?: string; lastName?: string; email?: string
@@ -273,7 +266,6 @@ app.post('/accounts', requireAuth, async (req, res) => {
   }
 })
 
-// PUT /accounts/:id
 app.put('/accounts/:id', requireAuth, async (req, res) => {
   const id = req.params['id'] as string
   const { firstName, lastName, email } = req.body as {
@@ -314,7 +306,6 @@ app.put('/accounts/:id', requireAuth, async (req, res) => {
   }
 })
 
-// DELETE /accounts/:id
 app.delete('/accounts/:id', requireAuth, async (req, res) => {
   const id = req.params['id'] as string
   try {
@@ -332,15 +323,16 @@ app.delete('/accounts/:id', requireAuth, async (req, res) => {
 
 // ── Clienti CRUD ─────────────────────────────────────────────
 
-// GET /clienti
+const CLIENTI_INCLUDE = {
+  _count: { select: { progetti: true } },
+  account: { select: { id: true, firstName: true, lastName: true } },
+} as const
+
 app.get('/clienti', requireAuth, async (_req, res) => {
   try {
     const clienti = await prisma.cliente.findMany({
       orderBy: { nome: 'asc' },
-      include: {
-        _count: { select: { progetti: true } },
-        account: { select: { id: true, firstName: true, lastName: true } },
-      },
+      include: CLIENTI_INCLUDE,
     })
     res.json(clienti)
   } catch (err) {
@@ -349,12 +341,6 @@ app.get('/clienti', requireAuth, async (_req, res) => {
   }
 })
 
-const CLIENTI_INCLUDE = {
-  _count: { select: { progetti: true } },
-  account: { select: { id: true, firstName: true, lastName: true } },
-} as const
-
-// POST /clienti
 app.post('/clienti', requireAuth, async (req, res) => {
   const { nome, referente, email, telefono, note, accountId } = req.body as {
     nome?: string; referente?: string; email?: string; telefono?: string; note?: string; accountId?: string
@@ -382,7 +368,6 @@ app.post('/clienti', requireAuth, async (req, res) => {
   }
 })
 
-// PUT /clienti/:id
 app.put('/clienti/:id', requireAuth, async (req, res) => {
   const id = req.params['id'] as string
   const { nome, referente, email, telefono, note, accountId } = req.body as {
@@ -413,7 +398,6 @@ app.put('/clienti/:id', requireAuth, async (req, res) => {
   }
 })
 
-// DELETE /clienti/:id
 app.delete('/clienti/:id', requireAuth, async (req, res) => {
   const id = req.params['id'] as string
   try {
@@ -428,10 +412,6 @@ app.delete('/clienti/:id', requireAuth, async (req, res) => {
 
 // ── Progetti CRUD ─────────────────────────────────────────────
 
-const STATI_PROGETTO = ['ATTIVO', 'IN_PAUSA', 'COMPLETATO', 'ANNULLATO'] as const
-type StatoProgetto = typeof STATI_PROGETTO[number]
-
-// GET /progetti
 app.get('/progetti', requireAuth, async (_req, res) => {
   try {
     const progetti = await prisma.progetto.findMany({
@@ -445,15 +425,17 @@ app.get('/progetti', requireAuth, async (_req, res) => {
   }
 })
 
-// POST /progetti
 app.post('/progetti', requireAuth, async (req, res) => {
   const { nome, descrizione, stato, clienteId, dataInizio, dataFine } = req.body as {
     nome?: string; descrizione?: string; stato?: string
     clienteId?: string; dataInizio?: string; dataFine?: string
   }
   if (!nome?.trim()) { res.status(400).json({ error: 'Il nome è obbligatorio' }); return }
-  const statoVal = (stato?.trim() ?? 'ATTIVO') as StatoProgetto
-  if (!STATI_PROGETTO.includes(statoVal)) { res.status(400).json({ error: 'Stato non valido' }); return }
+  const statoVal = stato?.trim() ?? 'ATTIVO'
+  const statiValidi = await prisma.statoProgettoConfig.findMany({ select: { chiave: true } })
+  if (!statiValidi.some(s => s.chiave === statoVal)) {
+    res.status(400).json({ error: 'Stato non valido' }); return
+  }
   try {
     const progetto = await prisma.progetto.create({
       data: {
@@ -474,7 +456,6 @@ app.post('/progetti', requireAuth, async (req, res) => {
   }
 })
 
-// PUT /progetti/:id
 app.put('/progetti/:id', requireAuth, async (req, res) => {
   const id = req.params['id'] as string
   const { nome, descrizione, stato, clienteId, dataInizio, dataFine } = req.body as {
@@ -482,8 +463,11 @@ app.put('/progetti/:id', requireAuth, async (req, res) => {
     clienteId?: string; dataInizio?: string; dataFine?: string
   }
   if (!nome?.trim()) { res.status(400).json({ error: 'Il nome è obbligatorio' }); return }
-  const statoVal = (stato?.trim() ?? 'ATTIVO') as StatoProgetto
-  if (!STATI_PROGETTO.includes(statoVal)) { res.status(400).json({ error: 'Stato non valido' }); return }
+  const statoVal = stato?.trim() ?? 'ATTIVO'
+  const statiValidi = await prisma.statoProgettoConfig.findMany({ select: { chiave: true } })
+  if (!statiValidi.some(s => s.chiave === statoVal)) {
+    res.status(400).json({ error: 'Stato non valido' }); return
+  }
   try {
     const progetto = await prisma.progetto.update({
       where: { id },
@@ -505,7 +489,6 @@ app.put('/progetti/:id', requireAuth, async (req, res) => {
   }
 })
 
-// DELETE /progetti/:id
 app.delete('/progetti/:id', requireAuth, async (req, res) => {
   const id = req.params['id'] as string
   try {
@@ -518,21 +501,193 @@ app.delete('/progetti/:id', requireAuth, async (req, res) => {
   }
 })
 
-// ── Attività ──────────────────────────────────────────────────
+// ── Stati Attività Config CRUD ────────────────────────────────
 
-const STATO_LABEL: Record<string, string> = {
-  IN_CORSO:        'In corso',
-  COMPLETATO:      'Completato',
-  DA_INIZIARE:     'Da iniziare',
-  IN_APPROVAZIONE: 'In approvazione',
-  ANALISI:         'Analisi',
-  FERMI:           'Fermi',
-  RIFIUTATO:       'Rifiutato',
-}
+app.get('/api/stati-attivita', requireAuth, async (_req, res) => {
+  try {
+    const stati = await prisma.statoAttivitaConfig.findMany({
+      orderBy: [{ ordine: 'asc' }, { label: 'asc' }],
+    })
+    res.json(stati)
+  } catch (err) {
+    console.error('[stati-attivita] GET error:', err)
+    res.status(500).json({ error: 'Errore nel recupero degli stati' })
+  }
+})
 
-const STATO_FROM_LABEL: Record<string, string> = Object.fromEntries(
-  Object.entries(STATO_LABEL).map(([k, v]) => [v, k])
-)
+app.post('/api/stati-attivita', requireAuth, async (req, res) => {
+  const { label, colore, isArchiviato, ordine } = req.body as {
+    label?: string; colore?: string; isArchiviato?: boolean; ordine?: number
+  }
+  if (!label?.trim()) {
+    res.status(400).json({ error: 'label è obbligatorio' }); return
+  }
+  if (colore && !/^#[0-9a-fA-F]{3,8}$/.test(colore)) {
+    res.status(400).json({ error: 'Colore non valido (usa formato hex, es. #3b82f6)' }); return
+  }
+  const chiave = label.trim().toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '') || 'STATO'
+  try {
+    const stato = await prisma.statoAttivitaConfig.create({
+      data: {
+        chiave,
+        label:        label.trim(),
+        colore:       colore?.trim() ?? '#94a3b8',
+        isArchiviato: isArchiviato ?? false,
+        ordine:       ordine ?? 99,
+      },
+    })
+    res.status(201).json(stato)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2002') {
+      res.status(409).json({ error: `Esiste già uno stato con chiave "${chiave}"` }); return
+    }
+    console.error('[stati-attivita] POST error:', err)
+    res.status(500).json({ error: 'Errore nella creazione dello stato' })
+  }
+})
+
+app.put('/api/stati-attivita/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  const { label, colore, isArchiviato, ordine } = req.body as {
+    label?: string; colore?: string; isArchiviato?: boolean; ordine?: number
+  }
+  if (!label?.trim()) {
+    res.status(400).json({ error: 'label è obbligatorio' }); return
+  }
+  if (colore && !/^#[0-9a-fA-F]{3,8}$/.test(colore)) {
+    res.status(400).json({ error: 'Colore non valido' }); return
+  }
+  try {
+    const stato = await prisma.statoAttivitaConfig.update({
+      where: { id },
+      data: {
+        label:        label.trim(),
+        colore:       colore?.trim() ?? '#94a3b8',
+        isArchiviato: isArchiviato ?? false,
+        ordine:       ordine ?? 99,
+      },
+    })
+    res.json(stato)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Stato non trovato' }); return
+    }
+    console.error('[stati-attivita] PUT error:', err)
+    res.status(500).json({ error: 'Errore nell\'aggiornamento dello stato' })
+  }
+})
+
+app.delete('/api/stati-attivita/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  try {
+    const stato = await prisma.statoAttivitaConfig.findUnique({ where: { id } })
+    if (!stato) { res.status(404).json({ error: 'Stato non trovato' }); return }
+    const inUso = await prisma.attivita.count({ where: { stato: stato.chiave } })
+    if (inUso > 0) {
+      res.status(409).json({ error: `Stato in uso da ${inUso} attività — riassegna prima le attività` }); return
+    }
+    await prisma.statoAttivitaConfig.delete({ where: { id } })
+    res.status(204).send()
+  } catch (err: unknown) {
+    console.error('[stati-attivita] DELETE error:', err)
+    res.status(500).json({ error: 'Errore nella cancellazione dello stato' })
+  }
+})
+
+// ── Stati Progetto Config CRUD ────────────────────────────────
+
+app.get('/api/stati-progetto', requireAuth, async (_req, res) => {
+  try {
+    const stati = await prisma.statoProgettoConfig.findMany({
+      orderBy: [{ ordine: 'asc' }, { label: 'asc' }],
+    })
+    res.json(stati)
+  } catch (err) {
+    console.error('[stati-progetto] GET error:', err)
+    res.status(500).json({ error: 'Errore nel recupero degli stati' })
+  }
+})
+
+app.post('/api/stati-progetto', requireAuth, async (req, res) => {
+  const { label, colore, isArchiviato, ordine } = req.body as {
+    label?: string; colore?: string; isArchiviato?: boolean; ordine?: number
+  }
+  if (!label?.trim()) {
+    res.status(400).json({ error: 'label è obbligatorio' }); return
+  }
+  if (colore && !/^#[0-9a-fA-F]{3,8}$/.test(colore)) {
+    res.status(400).json({ error: 'Colore non valido (usa formato hex, es. #10b981)' }); return
+  }
+  const chiave = label.trim().toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '') || 'STATO'
+  try {
+    const stato = await prisma.statoProgettoConfig.create({
+      data: {
+        chiave,
+        label:        label.trim(),
+        colore:       colore?.trim() ?? '#94a3b8',
+        isArchiviato: isArchiviato ?? false,
+        ordine:       ordine ?? 99,
+      },
+    })
+    res.status(201).json(stato)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2002') {
+      res.status(409).json({ error: `Esiste già uno stato con chiave "${chiave}"` }); return
+    }
+    console.error('[stati-progetto] POST error:', err)
+    res.status(500).json({ error: 'Errore nella creazione dello stato' })
+  }
+})
+
+app.put('/api/stati-progetto/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  const { label, colore, isArchiviato, ordine } = req.body as {
+    label?: string; colore?: string; isArchiviato?: boolean; ordine?: number
+  }
+  if (!label?.trim()) {
+    res.status(400).json({ error: 'label è obbligatorio' }); return
+  }
+  if (colore && !/^#[0-9a-fA-F]{3,8}$/.test(colore)) {
+    res.status(400).json({ error: 'Colore non valido' }); return
+  }
+  try {
+    const stato = await prisma.statoProgettoConfig.update({
+      where: { id },
+      data: {
+        label:        label.trim(),
+        colore:       colore?.trim() ?? '#94a3b8',
+        isArchiviato: isArchiviato ?? false,
+        ordine:       ordine ?? 99,
+      },
+    })
+    res.json(stato)
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Stato non trovato' }); return
+    }
+    console.error('[stati-progetto] PUT error:', err)
+    res.status(500).json({ error: 'Errore nell\'aggiornamento dello stato' })
+  }
+})
+
+app.delete('/api/stati-progetto/:id', requireAuth, async (req, res) => {
+  const id = req.params['id'] as string
+  try {
+    const stato = await prisma.statoProgettoConfig.findUnique({ where: { id } })
+    if (!stato) { res.status(404).json({ error: 'Stato non trovato' }); return }
+    const inUso = await prisma.progetto.count({ where: { stato: stato.chiave } })
+    if (inUso > 0) {
+      res.status(409).json({ error: `Stato in uso da ${inUso} progetti — riassegna prima i progetti` }); return
+    }
+    await prisma.statoProgettoConfig.delete({ where: { id } })
+    res.status(204).send()
+  } catch (err: unknown) {
+    console.error('[stati-progetto] DELETE error:', err)
+    res.status(500).json({ error: 'Errore nella cancellazione dello stato' })
+  }
+})
+
+// ── Attività CRUD ─────────────────────────────────────────────
 
 function toNumber(d: unknown): number {
   if (d === null || d === undefined) return 0
@@ -548,27 +703,31 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
       account?: string; pm?: string; stato?: string; soloAttivi?: string
     }
 
-    // Build Prisma where clause
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: Record<string, any> = {}
 
     if (account?.trim()) where['account'] = account.trim()
     if (pm?.trim()) where['projectManager'] = pm.trim()
 
-    const statoAttivi = soloAttivi === 'true'
-      ? ['IN_CORSO', 'DA_INIZIARE', 'IN_APPROVAZIONE', 'ANALISI', 'FERMI']
-      : undefined
+    // Usa la config per determinare gli stati "attivi" (non archiviati)
+    let statoAttiviChiavi: string[] | undefined = undefined
+    if (soloAttivi === 'true') {
+      const statiAttivi = await prisma.statoAttivitaConfig.findMany({
+        where: { isArchiviato: false },
+        select: { chiave: true },
+      })
+      statoAttiviChiavi = statiAttivi.map(s => s.chiave)
+    }
 
     if (stato?.trim()) {
-      const labels = stato.split(',').map(s => s.trim()).filter(Boolean)
-      const dbValues = labels.map(l => STATO_FROM_LABEL[l] ?? l).filter(Boolean)
-      if (dbValues.length > 0) {
-        where['stato'] = { in: statoAttivi
-          ? dbValues.filter(v => statoAttivi.includes(v))
-          : dbValues }
+      const chiavi = stato.split(',').map(s => s.trim()).filter(Boolean)
+      if (chiavi.length > 0) {
+        where['stato'] = { in: statoAttiviChiavi
+          ? chiavi.filter(v => statoAttiviChiavi!.includes(v))
+          : chiavi }
       }
-    } else if (statoAttivi) {
-      where['stato'] = { in: statoAttivi }
+    } else if (statoAttiviChiavi) {
+      where['stato'] = { in: statoAttiviChiavi }
     }
 
     const [rows, clientiRows] = await Promise.all([
@@ -581,7 +740,6 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
       }),
     ])
 
-    // Map cliente nome (lowercase) → account full name
     const clienteAccountMap = new Map<string, string>()
     for (const c of clientiRows) {
       if (c.account) {
@@ -592,19 +750,14 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
       }
     }
 
-    // Group by cliente+progetto
     const groupMap = new Map<string, {
-      cliente: string
-      progetto: string
-      account: string
-      projectManager: string
-      attivita: typeof rows
+      cliente: string; progetto: string; account: string
+      projectManager: string; attivita: typeof rows
     }>()
 
     for (const row of rows) {
       const key = `${row.cliente}|||${row.progetto}`
       if (!groupMap.has(key)) {
-        // Account: prefer the one linked to the Cliente record, fallback to the activity field
         const clienteAccount = clienteAccountMap.get(row.cliente.toLowerCase()) ?? ''
         groupMap.set(key, {
           cliente:        row.cliente,
@@ -629,7 +782,7 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
         giornateVendute:          a.giornateVendute !== null ? toNumber(a.giornateVendute) : null,
         giornateConsuntivate:     a.giornateConsuntivate !== null ? toNumber(a.giornateConsuntivate) : null,
         riferimentoOrdineVendita: a.riferimentoOrdineVendita,
-        stato:                    STATO_LABEL[a.stato] ?? a.stato,
+        stato:                    a.stato,  // chiave diretta, senza traduzione
         inizio:                   a.inizio?.toISOString().split('T')[0] ?? null,
         deadline:                 a.deadline?.toISOString().split('T')[0] ?? null,
         note:                     a.note,
@@ -656,7 +809,6 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
       }
     })
 
-    // Sforamento groups first, then alphabetically
     gruppi.sort((a, b) => {
       if (a.inSforamento !== b.inSforamento) return a.inSforamento ? -1 : 1
       return `${a.cliente}${a.progetto}`.localeCompare(`${b.cliente}${b.progetto}`, 'it')
@@ -664,14 +816,14 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
 
     const allAttivita = gruppi.flatMap(g => g.attivita)
     const riepilogo = {
-      totaleProgetti:           gruppi.length,
-      totaleAttivita:           allAttivita.length,
-      attivitaInSforamento:     allAttivita.filter(a =>
+      totaleProgetti:             gruppi.length,
+      totaleAttivita:             allAttivita.length,
+      attivitaInSforamento:       allAttivita.filter(a =>
         (a.giornateConsuntivate ?? 0) > 0 &&
         (a.giornateVendute === null || (a.giornateConsuntivate ?? 0) > (a.giornateVendute ?? 0))
       ).length,
-      attivitaInApprovazione:   allAttivita.filter(a => a.stato === 'In approvazione').length,
-      totaleGiornateVendute:    Math.round(allAttivita.reduce((s, a) => s + (a.giornateVendute ?? 0), 0) * 100) / 100,
+      attivitaInApprovazione:     allAttivita.filter(a => a.stato === 'IN_APPROVAZIONE').length,
+      totaleGiornateVendute:      Math.round(allAttivita.reduce((s, a) => s + (a.giornateVendute ?? 0), 0) * 100) / 100,
       totaleGiornateConsuntivate: Math.round(allAttivita.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0) * 100) / 100,
     }
 
@@ -701,9 +853,9 @@ app.post('/api/attivita', requireAuth, async (req, res) => {
     return
   }
 
-  const STATI = ['IN_CORSO','COMPLETATO','DA_INIZIARE','IN_APPROVAZIONE','ANALISI','FERMI','RIFIUTATO']
-  const statoVal = (stato?.trim() ?? 'IN_CORSO')
-  if (!STATI.includes(statoVal)) {
+  const statoVal = stato?.trim() ?? 'IN_CORSO'
+  const statiValidi = await prisma.statoAttivitaConfig.findMany({ select: { chiave: true } })
+  if (!statiValidi.some(s => s.chiave === statoVal)) {
     res.status(400).json({ error: 'Stato non valido' }); return
   }
 
@@ -719,7 +871,7 @@ app.post('/api/attivita', requireAuth, async (req, res) => {
         giornateVendute:          giornateVendute != null ? giornateVendute : null,
         giornateConsuntivate:     giornateConsuntivate != null ? giornateConsuntivate : null,
         riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
-        stato:                    statoVal as 'IN_CORSO' | 'COMPLETATO' | 'DA_INIZIARE' | 'IN_APPROVAZIONE' | 'ANALISI' | 'FERMI' | 'RIFIUTATO',
+        stato:                    statoVal,
         inizio:                   inizio   ? new Date(inizio)   : null,
         deadline:                 deadline ? new Date(deadline) : null,
         note:                     note?.trim() || null,
@@ -752,9 +904,9 @@ app.put('/api/attivita/:id', requireAuth, async (req, res) => {
     return
   }
 
-  const STATI = ['IN_CORSO','COMPLETATO','DA_INIZIARE','IN_APPROVAZIONE','ANALISI','FERMI','RIFIUTATO']
   const statoVal = stato?.trim() ?? 'IN_CORSO'
-  if (!STATI.includes(statoVal)) {
+  const statiValidi = await prisma.statoAttivitaConfig.findMany({ select: { chiave: true } })
+  if (!statiValidi.some(s => s.chiave === statoVal)) {
     res.status(400).json({ error: 'Stato non valido' }); return
   }
 
@@ -771,7 +923,7 @@ app.put('/api/attivita/:id', requireAuth, async (req, res) => {
         giornateVendute:          giornateVendute != null ? giornateVendute : null,
         giornateConsuntivate:     giornateConsuntivate != null ? giornateConsuntivate : null,
         riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
-        stato:                    statoVal as 'IN_CORSO' | 'COMPLETATO' | 'DA_INIZIARE' | 'IN_APPROVAZIONE' | 'ANALISI' | 'FERMI' | 'RIFIUTATO',
+        stato:                    statoVal,
         inizio:                   inizio   ? new Date(inizio)   : null,
         deadline:                 deadline ? new Date(deadline) : null,
         note:                     note?.trim() || null,
