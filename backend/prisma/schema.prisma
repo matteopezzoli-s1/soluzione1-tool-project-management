@@ -281,22 +281,15 @@ model Cliente {
 
 // ── Progetti ──────────────────────────────────────────────────
 
-enum StatoProgetto {
-  ATTIVO
-  IN_PAUSA
-  COMPLETATO
-  ANNULLATO
-}
-
 model Progetto {
-  id          String        @id @default(cuid())
+  id          String    @id @default(cuid())
   nome        String
   descrizione String?
-  stato       StatoProgetto @default(ATTIVO)
-  dataInizio  DateTime?     @map("data_inizio")
-  dataFine    DateTime?     @map("data_fine")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
+  stato       String    @default("ATTIVO")
+  dataInizio  DateTime? @map("data_inizio")
+  dataFine    DateTime? @map("data_fine")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   clienteId   String?   @map("cliente_id")
   cliente     Cliente?  @relation(fields: [clienteId], references: [id], onDelete: SetNull)
@@ -307,35 +300,53 @@ model Progetto {
 
 // ── Elenco Attività ───────────────────────────────────────────
 
-enum StatoAttivita {
-  IN_CORSO
-  COMPLETATO
-  DA_INIZIARE
-  IN_APPROVAZIONE
-  ANALISI
-  FERMI
-  RIFIUTATO
-}
-
 model Attivita {
-  id                       String        @id @default(cuid())
+  id                       String   @id @default(cuid())
   cliente                  String
   progetto                 String
   attivita                 String
-  risorseCoinvolte         String        @default("") @map("risorse_coinvolte")
-  account                  String        @default("")
-  projectManager           String        @default("") @map("project_manager")
-  giornateVendute          Decimal?      @map("giornate_vendute") @db.Decimal(10, 2)
-  giornateConsuntivate     Decimal?      @map("giornate_consuntivate") @db.Decimal(10, 2)
-  riferimentoOrdineVendita String?       @map("riferimento_ordine_vendita")
-  stato                    StatoAttivita @default(IN_CORSO)
+  risorseCoinvolte         String   @default("") @map("risorse_coinvolte")
+  account                  String   @default("")
+  projectManager           String   @default("") @map("project_manager")
+  giornateVendute          Decimal? @map("giornate_vendute") @db.Decimal(10, 2)
+  giornateConsuntivate     Decimal? @map("giornate_consuntivate") @db.Decimal(10, 2)
+  riferimentoOrdineVendita String?  @map("riferimento_ordine_vendita")
+  stato                    String   @default("IN_CORSO")
   inizio                   DateTime?
   deadline                 DateTime?
   note                     String?
-  createdAt                DateTime      @default(now()) @map("created_at")
-  updatedAt                DateTime      @updatedAt @map("updated_at")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
 
   @@index([cliente, progetto])
   @@index([stato])
   @@map("attivita")
+}
+
+// ── Configurazione stati ──────────────────────────────────────
+
+model StatoAttivitaConfig {
+  id           String   @id @default(cuid())
+  chiave       String   @unique
+  label        String
+  colore       String   @default("#94a3b8")
+  isArchiviato Boolean  @default(false) @map("is_archiviato")
+  ordine       Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("stato_attivita_config")
+}
+
+model StatoProgettoConfig {
+  id           String   @id @default(cuid())
+  chiave       String   @unique
+  label        String
+  colore       String   @default("#94a3b8")
+  isArchiviato Boolean  @default(false) @map("is_archiviato")
+  ordine       Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("stato_progetto_config")
 }

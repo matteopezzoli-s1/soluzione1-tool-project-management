@@ -1,26 +1,19 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from 'react'
 import './ElencoAttivitaPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type StatoAttivita =
-  | 'In corso'
-  | 'Completato'
-  | 'Da iniziare'
-  | 'In approvazione'
-  | 'Analisi'
-  | 'Fermi'
-  | 'Rifiutato'
+type StatoAttivita = string  // chiave DB, es. "IN_CORSO"
 
-const TUTTI_GLI_STATI: StatoAttivita[] = [
-  'In corso', 'Completato', 'Da iniziare', 'In approvazione', 'Analisi', 'Fermi', 'Rifiutato',
-]
+interface StatoConfigItem {
+  id: string; chiave: string; label: string
+  colore: string; isArchiviato: boolean; ordine: number
+}
 
-const STATI_ATTIVI: StatoAttivita[] = [
-  'In corso', 'Da iniziare', 'In approvazione', 'Analisi', 'Fermi',
-]
+// Context per la mappa chiave→config (evita prop-drilling nei subcomponenti)
+const StatiCtx = createContext<Map<string, StatoConfigItem>>(new Map())
 
 interface AttivitaItem {
   id: string
@@ -66,16 +59,6 @@ interface AttivitaResponse {
 
 // ─── CRUD types ───────────────────────────────────────────────────────────────
 
-const STATO_TO_ENUM: Record<StatoAttivita, string> = {
-  'In corso':        'IN_CORSO',
-  'Completato':      'COMPLETATO',
-  'Da iniziare':     'DA_INIZIARE',
-  'In approvazione': 'IN_APPROVAZIONE',
-  'Analisi':         'ANALISI',
-  'Fermi':           'FERMI',
-  'Rifiutato':       'RIFIUTATO',
-}
-
 interface PMOption      { id: string; firstName: string; lastName: string }
 interface AccountOption { id: string; firstName: string; lastName: string }
 interface ClienteOption {
@@ -95,7 +78,7 @@ type AttivitaFormData = {
 
 const EMPTY_FORM: AttivitaFormData = {
   cliente: '', progetto: '', attivita: '', risorseCoinvolte: '',
-  account: '', projectManager: [], stato: 'In corso',
+  account: '', projectManager: [], stato: 'IN_CORSO',
   giornateVendute: '', giornateConsuntivate: '',
   riferimentoOrdineVendita: '', inizio: '', deadline: '', note: '',
 }
@@ -141,14 +124,18 @@ function getProgressPct(vendute: number, consuntivate: number): number {
   return Math.min(Math.round((consuntivate / vendute) * 100), 100)
 }
 
-function getStatoPrevValente(attivita: AttivitaItem[]): StatoAttivita {
-  const priority: StatoAttivita[] = [
-    'In corso', 'In approvazione', 'Analisi', 'Fermi', 'Da iniziare', 'Completato', 'Rifiutato',
-  ]
-  for (const s of priority) {
-    if (attivita.some(a => a.stato === s)) return s
-  }
-  return attivita[0]?.stato ?? 'Da iniziare'
+function getStatoPrevValente(attivita: AttivitaItem[], statiMap: Map<string, StatoConfigItem>): StatoAttivita {
+  const chiavi = [...new Set(attivita.map(a => a.stato))]
+  if (chiavi.length === 0) return 'IN_CORSO'
+  // Priorità: stati attivi per ordine, poi archiviati per ordine
+  return chiavi.sort((a, b) => {
+    const ca = statiMap.get(a)
+    const cb = statiMap.get(b)
+    const archA = ca?.isArchiviato ?? false
+    const archB = cb?.isArchiviato ?? false
+    if (archA !== archB) return archA ? 1 : -1
+    return (ca?.ordine ?? 99) - (cb?.ordine ?? 99)
+  })[0]
 }
 
 // ISO week number (Mon=1)
@@ -178,18 +165,24 @@ function getWorkWeekLabel(): string {
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
-const STATO_CLASS: Record<StatoAttivita, string> = {
-  'In corso':        'ea-badge--teal',
-  'Completato':      'ea-badge--green',
-  'Da iniziare':     'ea-badge--gray',
-  'In approvazione': 'ea-badge--amber',
-  'Analisi':         'ea-badge--violet',
-  'Fermi':           'ea-badge--orange',
-  'Rifiutato':       'ea-badge--red',
-}
-
 function StatoBadge({ stato }: { stato: StatoAttivita }) {
-  return <span className={`ea-badge ${STATO_CLASS[stato] ?? ''}`}>{stato}</span>
+  const statiMap = useContext(StatiCtx)
+  const cfg = statiMap.get(stato)
+  const label  = cfg?.label  ?? stato
+  const colore = cfg?.colore ?? '#94a3b8'
+  return (
+    <span
+      className="ea-badge"
+      style={{
+        backgroundColor: colore + '22',
+        color:           colore,
+        borderColor:     colore + '55',
+        border:          '1px solid',
+      }}
+    >
+      {label}
+    </span>
+  )
 }
 
 // ─── Multi-select dropdown ────────────────────────────────────────────────────
@@ -200,9 +193,10 @@ interface MultiSelectProps {
   value: string[]
   onChange: (v: string[]) => void
   disabled?: boolean
+  getOptionLabel?: (opt: string) => string
 }
 
-function MultiSelect({ label, options, value, onChange, disabled }: MultiSelectProps) {
+function MultiSelect({ label, options, value, onChange, disabled, getOptionLabel }: MultiSelectProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -218,10 +212,11 @@ function MultiSelect({ label, options, value, onChange, disabled }: MultiSelectP
     onChange(value.includes(opt) ? value.filter(v => v !== opt) : [...value, opt])
   }
 
+  const getLabel = getOptionLabel ?? ((s: string) => s)
   const displayLabel = value.length === 0
     ? label
     : value.length === 1
-      ? value[0]
+      ? getLabel(value[0])
       : `${value.length} selezionati`
 
   return (
@@ -252,7 +247,7 @@ function MultiSelect({ label, options, value, onChange, disabled }: MultiSelectP
             <label key={opt} className="ea-dropdown-item">
               <input type="checkbox" checked={value.includes(opt)}
                 onChange={() => toggle(opt)} />
-              <StatoBadge stato={opt as StatoAttivita} />
+              <StatoBadge stato={opt} />
             </label>
           ))}
         </div>
@@ -493,7 +488,8 @@ interface GroupCardProps {
 }
 
 function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem }: GroupCardProps) {
-  const statoPrev = getStatoPrevValente(group.attivita)
+  const statiMap  = useContext(StatiCtx)
+  const statoPrev = getStatoPrevValente(group.attivita, statiMap)
   const delta = group.totaleVendute - group.totaleConsuntivate
 
   return (
@@ -782,6 +778,9 @@ interface AttivitaModalProps {
 }
 
 function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms, onChange, onSave, onClose }: AttivitaModalProps) {
+  const statiMap   = useContext(StatiCtx)
+  const statiList  = [...statiMap.values()].sort((a, b) => a.ordine - b.ordine)
+
   const set = (key: keyof AttivitaFormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
@@ -883,7 +882,9 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
               <label htmlFor="ea-f-stato" className="ea-form-label">Stato</label>
               <select id="ea-f-stato" className="ea-form-input ea-form-select"
                 value={form.stato} onChange={set('stato')}>
-                {TUTTI_GLI_STATI.map(s => <option key={s} value={s}>{s}</option>)}
+                {statiList.map(s => (
+                  <option key={s.chiave} value={s.chiave}>{s.label}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -999,6 +1000,13 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const [expanded,    setExpanded]    = useState<Set<string>>(new Set())
   const [selected,    setSelected]    = useState<AttivitaItem | null>(null)
 
+  // Config stati attività
+  const [statiConfig, setStatiConfig] = useState<StatoConfigItem[]>([])
+  const statiMap = useMemo(
+    () => new Map(statiConfig.map(s => [s.chiave, s])),
+    [statiConfig]
+  )
+
   // Options for dropdowns
   const [clientiOpts,  setClientiOpts]  = useState<ClienteOption[]>([])
   const [accountsOpts, setAccountsOpts] = useState<AccountOption[]>([])
@@ -1018,33 +1026,34 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     setLoading(true)
     setError(null)
     try {
-      const [res, rC, rA, rP, rPr] = await Promise.all([
-        fetch(`${API_URL}/api/attivita`, { headers: authHeaders(token) }),
-        fetch(`${API_URL}/clienti`,      { headers: authHeaders(token) }),
-        fetch(`${API_URL}/accounts`,     { headers: authHeaders(token) }),
-        fetch(`${API_URL}/pm`,           { headers: authHeaders(token) }),
-        fetch(`${API_URL}/progetti`,     { headers: authHeaders(token) }),
+      const [res, rC, rA, rP, rPr, rSt] = await Promise.all([
+        fetch(`${API_URL}/api/attivita`,       { headers: authHeaders(token) }),
+        fetch(`${API_URL}/clienti`,            { headers: authHeaders(token) }),
+        fetch(`${API_URL}/accounts`,           { headers: authHeaders(token) }),
+        fetch(`${API_URL}/pm`,                 { headers: authHeaders(token) }),
+        fetch(`${API_URL}/progetti`,           { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/stati-attivita`, { headers: authHeaders(token) }),
       ])
       if (!res.ok) throw new Error(`Errore ${res.status}`)
-      const [json, clienti, accounts, pms, progettiRaw] = await Promise.all([
+      const [json, clienti, accounts, pms, progettiRaw, stati] = await Promise.all([
         res.json() as Promise<AttivitaResponse>,
-        rC.ok ? rC.json() : Promise.resolve([]),
-        rA.ok ? rA.json() : Promise.resolve([]),
-        rP.ok ? rP.json() : Promise.resolve([]),
+        rC.ok  ? rC.json()  : Promise.resolve([]),
+        rA.ok  ? rA.json()  : Promise.resolve([]),
+        rP.ok  ? rP.json()  : Promise.resolve([]),
         rPr.ok ? rPr.json() : Promise.resolve([]),
+        rSt.ok ? rSt.json() : Promise.resolve([]),
       ])
       setData(json)
       setClientiOpts(clienti)
       setAccountsOpts(accounts)
       setPmsOpts(pms)
-      // Normalize progetti: extract clienteNome from nested .cliente
+      setStatiConfig(stati)
       setProgettiOpts(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (progettiRaw as any[]).map((p: any) => ({
           id: p.id, nome: p.nome, clienteNome: p.cliente?.nome ?? null,
         }))
       )
-      // Auto-expand sforamento groups on first load
       const sfora = new Set(
         json.gruppi.filter((g: GruppoAttivita) => g.inSforamento).map((g: GruppoAttivita) => `${g.cliente}|||${g.progetto}`)
       )
@@ -1099,7 +1108,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         risorseCoinvolte:         form.risorseCoinvolte.trim(),
         account:                  form.account.trim(),
         projectManager:           form.projectManager.join(', '),
-        stato:                    STATO_TO_ENUM[form.stato],
+        stato:                    form.stato,
         giornateVendute:          form.giornateVendute          !== '' ? parseFloat(form.giornateVendute)          : null,
         giornateConsuntivate:     form.giornateConsuntivate     !== '' ? parseFloat(form.giornateConsuntivate)     : null,
         riferimentoOrdineVendita: form.riferimentoOrdineVendita.trim() || null,
@@ -1151,10 +1160,13 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     return [...new Set(data.gruppi.map(g => g.projectManager).filter(Boolean))].sort()
   }, [data])
 
-  // Effective stato options (soloAttivi restricts what's shown)
+  // chiavi di tutti gli stati (o solo attivi se toggle attivo)
   const statoOptions = useMemo(
-    () => soloAttivi ? STATI_ATTIVI : TUTTI_GLI_STATI,
-    [soloAttivi]
+    () => statiConfig
+      .filter(s => !soloAttivi || !s.isArchiviato)
+      .sort((a, b) => a.ordine - b.ordine)
+      .map(s => s.chiave),
+    [statiConfig, soloAttivi]
   )
 
   // Client-side filtering
@@ -1166,11 +1178,11 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         if (filtroAcc)          att = att.filter(a => a.account === filtroAcc)
         if (filtroPM)           att = att.filter(a => a.projectManager === filtroPM)
         if (filtroStato.length) att = att.filter(a => filtroStato.includes(a.stato))
-        if (soloAttivi)         att = att.filter(a => (STATI_ATTIVI as string[]).includes(a.stato))
+        if (soloAttivi)         att = att.filter(a => !(statiMap.get(a.stato)?.isArchiviato ?? false))
         return { ...g, attivita: att }
       })
       .filter(g => g.attivita.length > 0)
-  }, [data, filtroAcc, filtroPM, filtroStato, soloAttivi])
+  }, [data, filtroAcc, filtroPM, filtroStato, soloAttivi, statiMap])
 
   // Recompute riepilogo from filtered data
   const filteredRiepilogo = useMemo((): Riepilogo => {
@@ -1179,7 +1191,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       totaleProgetti:             filteredGruppi.length,
       totaleAttivita:             all.length,
       attivitaInSforamento:       all.filter(isSforamento).length,
-      attivitaInApprovazione:     all.filter(a => a.stato === 'In approvazione').length,
+      attivitaInApprovazione:     all.filter(a => a.stato === 'IN_APPROVAZIONE').length,
       totaleGiornateVendute:      all.reduce((s, a) => s + (a.giornateVendute ?? 0), 0),
       totaleGiornateConsuntivate: all.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0),
     }
@@ -1200,6 +1212,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const hasFilters = filtroAcc || filtroPM || filtroStato.length > 0 || soloAttivi
 
   return (
+    <StatiCtx.Provider value={statiMap}>
     <div className="ea-page">
 
       {/* ── Top bar ── */}
@@ -1275,16 +1288,20 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           options={statoOptions}
           value={filtroStato}
           onChange={v => {
-            const valid = v.filter(s => (statoOptions as string[]).includes(s))
+            const valid = v.filter(s => statoOptions.includes(s))
             setFiltroStato(valid)
           }}
+          getOptionLabel={key => statiMap.get(key)?.label ?? key}
         />
         <Toggle
           label="Solo attivi"
           checked={soloAttivi}
           onChange={v => {
             setSoloAttivi(v)
-            if (v) setFiltroStato(prev => prev.filter(s => (STATI_ATTIVI as string[]).includes(s)))
+            if (v) {
+              const attiviChiavi = statiConfig.filter(s => !s.isArchiviato).map(s => s.chiave)
+              setFiltroStato(prev => prev.filter(s => attiviChiavi.includes(s)))
+            }
           }}
         />
         {hasFilters && (
@@ -1401,5 +1418,6 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         />
       )}
     </div>
+    </StatiCtx.Provider>
   )
 }
