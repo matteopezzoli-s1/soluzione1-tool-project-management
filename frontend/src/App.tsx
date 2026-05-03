@@ -228,12 +228,12 @@ type NavPage = 'dashboard' | 'clienti' | 'progetti' | 'timeline' | 'attivita' | 
 
 const PAGE_LABELS: Record<NavPage, string> = {
   dashboard:      'Dashboard',
-  clienti:        'Clienti',
-  progetti:       'Progetti',
-  timeline:       'Gantt',
+  clienti:        'Anagrafica Clienti',
+  progetti:       'Anagrafica Progetti',
+  timeline:       'Gantt Attività',
   attivita:       'Elenco Attività',
-  'team-pm':      'Team PM',
-  'team-account': 'Team Account',
+  'team-pm':      'Anagrafica PM',
+  'team-account': 'Anagrafica Account',
   impostazioni:   'Impostazioni',
 }
 
@@ -287,18 +287,18 @@ export default function App() {
 
       {/* ── Sidebar ── */}
       <nav className="db-sidebar" aria-label="Navigazione principale">
-        <div className="db-sidebar-brand" aria-label="s1 Gantt">
+        <div className="db-sidebar-brand" aria-label="s1 Progetti">
           <BrandMark />
         </div>
 
         <div className="db-sidebar-nav">
-          {navBtn('dashboard',     'Dashboard',       <IconGrid />)}
-          {navBtn('attivita',      'Elenco Attività', <IconClipboard />)}
-          {navBtn('timeline',      'Gantt',           <IconTimeline />)}
-          {navBtn('team-pm',       'Team PM',         <IconUsers />)}
-          {navBtn('team-account',  'Team Account',    <IconAccount />)}
-          {navBtn('clienti',       'Clienti',         <IconBuilding />)}
-          {navBtn('progetti',      'Progetti',        <IconFolder />)}
+          {navBtn('dashboard',     'Dashboard',            <IconGrid />)}
+          {navBtn('attivita',      'Elenco Attività',      <IconClipboard />)}
+          {navBtn('timeline',      'Gantt Attività',       <IconTimeline />)}
+          {navBtn('team-pm',       'Anagrafica PM',        <IconUsers />)}
+          {navBtn('team-account',  'Anagrafica Account',   <IconAccount />)}
+          {navBtn('clienti',       'Anagrafica Clienti',   <IconBuilding />)}
+          {navBtn('progetti',      'Anagrafica Progetti',  <IconFolder />)}
         </div>
 
         <div className="db-sidebar-foot">
@@ -316,7 +316,7 @@ export default function App() {
         {/* Top bar */}
         <header className="db-header">
           <div className="db-header-left">
-            <span className="db-header-app">s1 Gantt</span>
+            <span className="db-header-app">s1 Progetti</span>
             <span className="db-header-divider" aria-hidden="true">/</span>
             <span className="db-header-page">{PAGE_LABELS[page]}</span>
           </div>

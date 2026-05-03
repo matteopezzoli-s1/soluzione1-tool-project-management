@@ -440,7 +440,7 @@ export default function DashboardPage({ token, onNavigate }: DashboardPageProps)
         </div>
       </div>
 
-      {/* Shortcuts */}
+      {/* Shortcuts principali */}
       <div className="dash-shortcuts-header">
         <span className="dash-section-title">Scorciatoie</span>
       </div>
@@ -451,17 +451,24 @@ export default function DashboardPage({ token, onNavigate }: DashboardPageProps)
           onClick={() => onNavigate('attivita')}
         />
         <ShortcutCard
-          label="Gantt"
+          label="Gantt Attività"
           icon={<IconGantt />}
           onClick={() => onNavigate('timeline')}
         />
+      </div>
+
+      {/* Anagrafiche */}
+      <div className="dash-shortcuts-header">
+        <span className="dash-section-title">Anagrafiche</span>
+      </div>
+      <div className="dash-shortcuts-grid">
         <ShortcutCard
-          label="Progetti"
+          label="Anagrafica Progetti"
           icon={<IconFolder />}
           onClick={() => onNavigate('progetti')}
         />
         <ShortcutCard
-          label="Clienti"
+          label="Anagrafica Clienti"
           icon={<IconBuilding />}
           onClick={() => onNavigate('clienti')}
         />
