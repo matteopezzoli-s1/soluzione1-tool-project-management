@@ -1010,7 +1010,7 @@ export default function GanttPage({ token }: GanttPageProps) {
       {/* ── Toolbar ── */}
       <div className="gp-toolbar">
         <div className="gp-toolbar-left">
-          <h1 className="gp-title">Gantt</h1>
+          <h1 className="gp-title">Gantt Attività</h1>
           <div className="gp-zoom-group">
             {ZOOMS.map(z => (
               <button

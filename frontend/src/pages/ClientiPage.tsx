@@ -235,7 +235,7 @@ export default function ClientiPage({ token }: ClientiPageProps) {
     <div className="cl-page">
       <div className="cl-topbar">
         <div>
-          <h1 className="cl-title">Clienti</h1>
+          <h1 className="cl-title">Anagrafica Clienti</h1>
           <p className="cl-subtitle">{loading ? '' : `${clienti.length} client${clienti.length !== 1 ? 'i' : 'e'}`}</p>
         </div>
         <button className="cl-btn cl-btn--primary" type="button" onClick={openAdd}>

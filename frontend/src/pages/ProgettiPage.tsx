@@ -267,7 +267,7 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
     <div className="pr-page">
       <div className="pr-topbar">
         <div>
-          <h1 className="pr-title">Progetti</h1>
+          <h1 className="pr-title">Anagrafica Progetti</h1>
           <p className="pr-subtitle">
             {loading ? '' : `${progetti.length} progett${progetti.length !== 1 ? 'i' : 'o'}`}
             {!loading && attivi > 0     && ` · ${attivi} attiv${attivi !== 1 ? 'i' : 'o'}`}

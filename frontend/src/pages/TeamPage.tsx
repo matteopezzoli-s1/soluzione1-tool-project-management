@@ -253,7 +253,7 @@ export default function TeamPage({ token }: TeamPageProps) {
 
       <div className="tm-topbar">
         <div>
-          <h1 className="tm-title">Team PM</h1>
+          <h1 className="tm-title">Anagrafica PM</h1>
           <p className="tm-subtitle">
             {loading ? '' : `${pms.length} Project Manager${pms.length !== 1 ? 's' : ''}`}
           </p>

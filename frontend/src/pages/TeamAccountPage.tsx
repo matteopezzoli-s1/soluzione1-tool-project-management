@@ -245,7 +245,7 @@ export default function TeamAccountPage({ token }: TeamAccountPageProps) {
 
       <div className="ta-topbar">
         <div>
-          <h1 className="ta-title">Team Account</h1>
+          <h1 className="ta-title">Anagrafica Account</h1>
           <p className="ta-subtitle">
             {loading ? '' : `${accounts.length} Account${accounts.length !== 1 ? 's' : ''}`}
           </p>
