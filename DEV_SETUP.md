@@ -45,7 +45,7 @@ Oppure tramite `preview_start` con il server "frontend" da `.claude/launch.json`
 ### `backend/.env`
 ```
 DATABASE_URL="postgresql://gantt:gantt_dev_pwd@localhost:5432/s1-gantt-dev"
-JWT_SECRET="dev_jwt_secret_local"
+JWT_SECRET="dev-local-secret-cambia-in-prod"
 PORT=8080
 
 GOOGLE_CLIENT_ID="<vedi Google Cloud Console>"
@@ -93,4 +93,4 @@ VITE_API_URL=http://localhost:8080
 | `redirect_uri_mismatch` (Google 400) | `BACKEND_URL` punta a porta diversa da quella registrata | Rimettere `BACKEND_URL=http://localhost:8080` in `backend/.env` |
 | Frontend non raggiunge il backend | `VITE_API_URL` errato o mancante | Creare/correggere `frontend/.env.local` con `VITE_API_URL=http://localhost:8080` |
 | DB connection refused | Container Docker non avviato | `docker compose up -d` |
-| Migrations non applicate | Nuovo ambiente / schema cambiato | `cd backend && npx prisma migrate deploy` |
+| Migrations non applicate | Nuovo ambiente / schema cambiato | `cd backend && npx prisma db push && npx prisma generate` |
