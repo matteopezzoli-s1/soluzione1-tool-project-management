@@ -7,9 +7,9 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 
 interface Account {
   id:        string
-  firstName: string
+  firstName: string | null
   lastName:  string
-  email:     string
+  email:     string | null
 }
 
 type FormData = { firstName: string; lastName: string; email: string }
@@ -23,8 +23,8 @@ function authHeaders(token: string) {
 
 // ─── Avatar initials ──────────────────────────────────────────────────────────
 
-function Initials({ first, last }: { first: string; last: string }) {
-  const letters = `${first[0] ?? ''}${last[0] ?? ''}`.toUpperCase()
+function Initials({ first, last }: { first: string | null; last: string }) {
+  const letters = `${(first ?? '')[0] ?? ''}${last[0] ?? ''}`.toUpperCase()
   return <span className="ta-avatar" aria-hidden="true">{letters}</span>
 }
 
@@ -187,7 +187,7 @@ export default function TeamAccountPage({ token }: TeamAccountPageProps) {
 
   const openEdit = (account: Account) => {
     setEditing(account)
-    setForm({ firstName: account.firstName, lastName: account.lastName, email: account.email })
+    setForm({ firstName: account.firstName ?? '', lastName: account.lastName, email: account.email ?? '' })
     setFormErr(null)
     setModal('edit')
   }
