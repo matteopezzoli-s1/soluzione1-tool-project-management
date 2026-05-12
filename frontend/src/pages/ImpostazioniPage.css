@@ -314,3 +314,51 @@
   font-size: 0.9rem; color: #334155; line-height: 1.7;
 }
 .imp-confirm-sub { font-size: 0.8rem; color: #94A3B8; }
+
+/* ── Importazione sezione ──────────────────────────────────── */
+
+.imp-import-info {
+  margin-top: 20px;
+  padding: 18px 20px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.imp-import-info-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  margin: 0 0 10px;
+}
+
+.imp-import-info-list {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 0 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.imp-import-info-list li {
+  font-size: 12.5px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.imp-import-info-list code {
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  background: #e2e8f0;
+  color: #334155;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.imp-import-info-note {
+  font-size: 12px;
+  color: #0d9488;
+  margin: 0;
+  font-weight: 500;
+}

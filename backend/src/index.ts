@@ -1,6 +1,7 @@
-// v0.5.0 — stati configurabili (attività e progetti)
+// v0.6.0 — import CSV
 import express, { Request, Response, NextFunction } from 'express'
 import cors    from 'cors'
+import multer  from 'multer'
 import { PrismaClient } from '@prisma/client'
 import {
   buildGoogleAuthURL,
@@ -8,10 +9,12 @@ import {
   signJWT,
   verifyJWT,
 } from './auth'
+import { importCSV } from './services/importService'
 
 const app    = express()
 const prisma = new PrismaClient()
 const PORT   = process.env.PORT || 8080
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
 
 // ── Env ───────────────────────────────────────────────────────
 const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID     ?? ''
@@ -1043,6 +1046,22 @@ app.delete('/api/gantt/milestones/:id', requireAuth, async (req, res) => {
       res.status(404).json({ error: 'Milestone non trovata' }); return
     }
     res.status(500).json({ error: 'Errore cancellazione milestone' })
+  }
+})
+
+// ── Import CSV ────────────────────────────────────────────────
+
+app.post('/api/import/csv', requireAuth, upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'File mancante' })
+    return
+  }
+  try {
+    const result = await importCSV(req.file.buffer, prisma)
+    res.json({ success: true, result })
+  } catch (err) {
+    console.error('[import] error:', err)
+    res.status(422).json({ error: 'Errore import', detail: String(err) })
   }
 })
 

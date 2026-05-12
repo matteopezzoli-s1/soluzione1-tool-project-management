@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import './ImpostazioniPage.css'
+import ImportCSVModal from '../components/ImportCSVModal'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 
@@ -14,7 +15,7 @@ export interface StatoConfig {
   ordine: number
 }
 
-type Sezione = 'attivita' | 'progetto'
+type Sezione = 'attivita' | 'progetto' | 'importazione'
 
 interface FormState {
   label: string
@@ -564,15 +565,86 @@ export default function ImpostazioniPage({ token }: ImpostazioniPageProps) {
           </svg>
           Stati Progetti
         </button>
+        <button
+          role="tab"
+          type="button"
+          aria-selected={tab === 'importazione'}
+          className={`imp-tab${tab === 'importazione' ? ' imp-tab--active' : ''}`}
+          onClick={() => setTab('importazione')}
+        >
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+            <path d="M10 3v10M6 9l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M3 16h14" strokeLinecap="round" />
+          </svg>
+          Importazione
+        </button>
       </div>
 
       {/* Tab panels */}
       <div
         role="tabpanel"
-        aria-label={tab === 'attivita' ? 'Stati Attività' : 'Stati Progetti'}
+        aria-label={
+          tab === 'attivita' ? 'Stati Attività' :
+          tab === 'progetto' ? 'Stati Progetti' : 'Importazione dati'
+        }
       >
-        <StatiSezione key={tab} token={token} sezione={tab} />
+        {(tab === 'attivita' || tab === 'progetto') && (
+          <StatiSezione key={tab} token={token} sezione={tab} />
+        )}
+        {tab === 'importazione' && (
+          <ImportazioneSezione token={token} />
+        )}
       </div>
+    </div>
+  )
+}
+
+// ─── ImportazioneSezione ──────────────────────────────────────────────────────
+
+function ImportazioneSezione({ token }: { token: string }) {
+  const [showModal, setShowModal] = useState(false)
+
+  return (
+    <div className="imp-sezione">
+      <div className="imp-sezione-topbar">
+        <div>
+          <p className="imp-sezione-sub">
+            Carica un file CSV per popolare clienti, account, PM, progetti e attività
+          </p>
+        </div>
+        <button
+          type="button"
+          className="imp-btn imp-btn--primary"
+          onClick={() => setShowModal(true)}
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" aria-hidden="true">
+            <path d="M8 2v8M4 6l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M2 13h12" strokeLinecap="round" />
+          </svg>
+          Importa CSV
+        </button>
+      </div>
+
+      <div className="imp-import-info">
+        <h3 className="imp-import-info-title">Formato atteso</h3>
+        <ul className="imp-import-info-list">
+          <li>Riga 1: vuota (intestazione non usata)</li>
+          <li>Riga 2: header — <code>CLIENTE, PROGETTO, ATTIVITA, Nome Account, Cognome Account, Mail account, Nome PM, Cognome PM, Mail PM, Stima giornate, Consuntivate giornate, Ordine GO, STATO, INIZIO, DEADLINE, Note</code></li>
+          <li>Separatore: virgola · Encoding: UTF-8</li>
+          <li>Date nel formato <code>DD/MM/YYYY</code> o <code>YYYY-MM-DD</code></li>
+          <li>Numeri decimali con virgola (es. <code>10,5</code>)</li>
+        </ul>
+        <p className="imp-import-info-note">
+          L'import è idempotente: rieseguire lo stesso file non crea duplicati.
+        </p>
+      </div>
+
+      {showModal && (
+        <ImportCSVModal
+          token={token}
+          onClose={() => setShowModal(false)}
+        />
+      )}
     </div>
   )
 }
