@@ -311,9 +311,6 @@ model Attivita {
   cliente                  String
   progetto                 String
   attivita                 String
-  risorseCoinvolte         String   @default("") @map("risorse_coinvolte")
-  account                  String   @default("")
-  projectManager           String   @default("") @map("project_manager")
   giornateVendute          Decimal? @map("giornate_vendute") @db.Decimal(10, 2)
   giornateConsuntivate     Decimal? @map("giornate_consuntivate") @db.Decimal(10, 2)
   riferimentoOrdineVendita String?  @map("riferimento_ordine_vendita")

@@ -702,15 +702,12 @@ function toNumber(d: unknown): number {
 // GET /api/attivita — lista raggruppata per cliente+progetto
 app.get('/api/attivita', requireAuth, async (req, res) => {
   try {
-    const { account, pm, stato, soloAttivi } = req.query as {
-      account?: string; pm?: string; stato?: string; soloAttivi?: string
+    const { stato, soloAttivi } = req.query as {
+      stato?: string; soloAttivi?: string
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: Record<string, any> = {}
-
-    if (account?.trim()) where['account'] = account.trim()
-    if (pm?.trim()) where['projectManager'] = pm.trim()
 
     // Usa la config per determinare gli stati "attivi" (non archiviati)
     let statoAttiviChiavi: string[] | undefined = undefined
@@ -758,10 +755,8 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
       if (!groupMap.has(key)) {
         const accountName = row.clienteRel?.account
           ? resolvedName(row.clienteRel.account.firstName, row.clienteRel.account.lastName)
-          : row.account
-        const pmName = row.pms.length > 0
-          ? row.pms.map(p => resolvedName(p.pm.firstName, p.pm.lastName)).join(', ')
-          : row.projectManager
+          : ''
+        const pmName = row.pms.map(p => resolvedName(p.pm.firstName, p.pm.lastName)).join(', ')
         groupMap.set(key, {
           cliente:        clienteNome,
           progetto:       progettoNome,
@@ -779,10 +774,8 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
         const progettoNome = a.progettoRel?.nome ?? a.progetto
         const accountName  = a.clienteRel?.account
           ? resolvedName(a.clienteRel.account.firstName, a.clienteRel.account.lastName)
-          : a.account
-        const pmNames = a.pms.length > 0
-          ? a.pms.map(p => resolvedName(p.pm.firstName, p.pm.lastName)).join(', ')
-          : a.projectManager
+          : ''
+        const pmNames = a.pms.map(p => resolvedName(p.pm.firstName, p.pm.lastName)).join(', ')
         return {
           id:                       a.id,
           cliente:                  clienteNome,
@@ -899,9 +892,7 @@ app.post('/api/attivita', requireAuth, async (req, res) => {
         clienteId:                clienteId.trim(),
         progetto:                 linkedProgetto.nome,
         progettoId:               progettoId.trim(),
-        account:                  accountName,
         accountId:                linkedCliente.accountId ?? null,
-        projectManager:           '',
         attivita:                 attivita.trim(),
         giornateVendute:          giornateVendute != null ? giornateVendute : null,
         giornateConsuntivate:     giornateConsuntivate != null ? giornateConsuntivate : null,
@@ -973,9 +964,7 @@ app.put('/api/attivita/:id', requireAuth, async (req, res) => {
         clienteId:                clienteId.trim(),
         progetto:                 linkedProgetto.nome,
         progettoId:               progettoId.trim(),
-        account:                  accountName,
         accountId:                linkedCliente.accountId ?? null,
-        projectManager:           '',
         attivita:                 attivita.trim(),
         giornateVendute:          giornateVendute != null ? giornateVendute : null,
         giornateConsuntivate:     giornateConsuntivate != null ? giornateConsuntivate : null,
