@@ -30,12 +30,12 @@ app.use(express.json())
 const IS_PROD = process.env.NODE_ENV === 'production'
 
 app.use(cors({
-  origin: IS_PROD
-    ? FRONTEND_URL
-    : (origin, cb) => {
-        if (!origin || /^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true)
-        return cb(null, false)
-      },
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true)
+    if (origin === FRONTEND_URL) return cb(null, true)
+    if (!IS_PROD && /^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true)
+    return cb(null, false)
+  },
   credentials: true,
 }))
 
