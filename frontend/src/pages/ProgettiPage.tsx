@@ -215,7 +215,10 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
       ])
       if (!rP.ok || !rC.ok) throw new Error()
       const [p, c, s] = await Promise.all([rP.json(), rC.json(), rS.ok ? rS.json() : Promise.resolve([])])
-      setProgetti(p); setClienti(c); setStatiConfig(s)
+      setProgetti((p as Progetto[]).sort((a, b) =>
+        (a.cliente?.nome ?? '').localeCompare(b.cliente?.nome ?? '', 'it') ||
+        a.nome.localeCompare(b.nome, 'it')
+      )); setClienti(c); setStatiConfig(s)
     } catch { setApiError('Impossibile caricare i dati.') }
     finally { setLoading(false) }
   }, [token])

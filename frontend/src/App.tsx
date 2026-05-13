@@ -24,16 +24,6 @@ function IconGrid() {
   )
 }
 
-function IconBars() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
-      width="20" height="20" aria-hidden="true">
-      <rect x="2" y="4"  width="10" height="3" rx="1.5" />
-      <rect x="5" y="9"  width="13" height="3" rx="1.5" />
-      <rect x="3" y="14" width="11" height="3" rx="1.5" />
-    </svg>
-  )
-}
 
 function IconTimeline() {
   return (
@@ -123,101 +113,6 @@ function BrandMark() {
       <rect x="2" y="5"  width="16" height="4" rx="2" fill="#F59E0B" />
       <rect x="7" y="12" width="14" height="4" rx="2" fill="#14B8A6" />
       <rect x="4" y="19" width="18" height="4" rx="2" fill="#F59E0B" opacity="0.7" />
-    </svg>
-  )
-}
-
-// ─── Mini Gantt preview (light-background version) ──────────────────────────
-
-function GanttPreview() {
-  const LABEL_W = 78
-  const COL_W   = 52
-  const ROW_H   = 30
-  const TOP     = 34
-
-  type TaskEntry = [label: string, startCol: number, spanCols: number, color: 0 | 1 | 2]
-  const TASKS: TaskEntry[] = [
-    ['E-Commerce', 0.0, 2.2, 0],
-    ['App Mobile', 0.5, 1.8, 1],
-    ['CRM Interno', 1.2, 2.4, 0],
-    ['Portal HR',   1.8, 1.6, 2],
-    ['API Gateway', 2.2, 2.0, 1],
-  ]
-  const MONTHS = ['GEN', 'FEB', 'MAR', 'APR', 'MAG', 'GIU']
-  const COLORS = [
-    { base: '#F59E0B', dim: 'rgba(245,158,11,0.2)' },
-    { base: '#0D9488', dim: 'rgba(13,148,136,0.2)'  },
-    { base: '#6366F1', dim: 'rgba(99,102,241,0.2)'  },
-  ]
-  const PROGRESS = [0.8, 0.6, 0.7, 0.5, 0.45]
-  const SVG_W = LABEL_W + COL_W * 6 + 12
-  const SVG_H = TOP + TASKS.length * ROW_H + 22
-
-  return (
-    <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="db-gantt-svg" aria-hidden="true">
-      {TASKS.map((_, i) => (
-        <rect key={i} x={0} y={TOP + i * ROW_H} width={SVG_W} height={ROW_H}
-          fill={i % 2 === 0 ? 'rgba(13,148,136,0.05)' : 'transparent'} />
-      ))}
-
-      {Array.from({ length: 7 }, (_, i) => (
-        <line key={i}
-          x1={LABEL_W + i * COL_W} y1={TOP - 6}
-          x2={LABEL_W + i * COL_W} y2={SVG_H - 4}
-          stroke="rgba(0,0,0,0.07)" strokeWidth="1" />
-      ))}
-
-      {MONTHS.map((m, i) => (
-        <text key={m}
-          x={LABEL_W + i * COL_W + COL_W / 2} y={TOP - 12}
-          textAnchor="middle" fill="rgba(71,85,105,0.55)"
-          fontSize="8" fontFamily="system-ui" letterSpacing="0.1em" fontWeight="600">
-          {m}
-        </text>
-      ))}
-
-      <line x1={LABEL_W} y1={TOP - 3} x2={SVG_W - 5} y2={TOP - 3}
-        stroke="rgba(0,0,0,0.08)" strokeWidth="1" />
-
-      {(() => {
-        const tx = LABEL_W + 3.1 * COL_W
-        return (
-          <g>
-            <line x1={tx} y1={TOP - 3} x2={tx} y2={SVG_H - 4}
-              stroke="#0D9488" strokeWidth="1.5" opacity="0.65" />
-            <polygon points={`${tx - 4},${TOP - 9} ${tx + 4},${TOP - 9} ${tx},${TOP - 3}`}
-              fill="#0D9488" opacity="0.65" />
-          </g>
-        )
-      })()}
-
-      {TASKS.map(([label, startCol, spanCols, colorIdx], i) => {
-        const c     = COLORS[colorIdx]
-        const barX  = LABEL_W + startCol * COL_W + 3
-        const barY  = TOP + i * ROW_H + 7
-        const barW  = spanCols * COL_W - 6
-        const barH  = ROW_H - 14
-        const r     = barH / 2
-        const progW = barW * PROGRESS[i]
-        return (
-          <g key={label}>
-            <text x={LABEL_W - 7} y={TOP + i * ROW_H + ROW_H / 2 + 3.5}
-              textAnchor="end" fill="rgba(30,41,59,0.6)"
-              fontSize="8.5" fontFamily="system-ui">
-              {label}
-            </text>
-            <rect x={barX} y={barY} width={barW} height={barH} rx={r} fill={c.dim} />
-            {progW > 0 && (
-              <>
-                <rect x={barX} y={barY} width={progW} height={barH} rx={r} fill={c.base} />
-                <rect x={barX + 2} y={barY + 1}
-                  width={Math.max(progW - 4, 0)} height={barH / 2 - 1}
-                  rx={r / 2} fill="rgba(255,255,255,0.25)" />
-              </>
-            )}
-          </g>
-        )
-      })}
     </svg>
   )
 }

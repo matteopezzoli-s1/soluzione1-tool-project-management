@@ -733,25 +733,18 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
       where['stato'] = { in: statoAttiviChiavi }
     }
 
-    const [rows, clientiRows] = await Promise.all([
-      prisma.attivita.findMany({
-        where,
-        orderBy: [{ cliente: 'asc' }, { progetto: 'asc' }, { attivita: 'asc' }],
-      }),
-      prisma.cliente.findMany({
-        select: { nome: true, account: { select: { firstName: true, lastName: true } } },
-      }),
-    ])
+    const rows = await prisma.attivita.findMany({
+      where,
+      orderBy: [{ cliente: 'asc' }, { progetto: 'asc' }, { attivita: 'asc' }],
+      include: {
+        clienteRel:  { select: { id: true, nome: true, accountId: true, account: { select: { id: true, firstName: true, lastName: true } } } },
+        progettoRel: { select: { id: true, nome: true } },
+        pms:         { include: { pm: { select: { id: true, firstName: true, lastName: true } } } },
+      },
+    })
 
-    const clienteAccountMap = new Map<string, string>()
-    for (const c of clientiRows) {
-      if (c.account) {
-        clienteAccountMap.set(
-          c.nome.toLowerCase(),
-          `${c.account.firstName} ${c.account.lastName}`.trim()
-        )
-      }
-    }
+    const resolvedName = (first: string | null, last: string) =>
+      [first, last].filter(Boolean).join(' ')
 
     const groupMap = new Map<string, {
       cliente: string; progetto: string; account: string
@@ -759,14 +752,21 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
     }>()
 
     for (const row of rows) {
-      const key = `${row.cliente}|||${row.progetto}`
+      const clienteNome   = row.clienteRel?.nome  ?? row.cliente
+      const progettoNome  = row.progettoRel?.nome ?? row.progetto
+      const key = `${clienteNome}|||${progettoNome}`
       if (!groupMap.has(key)) {
-        const clienteAccount = clienteAccountMap.get(row.cliente.toLowerCase()) ?? ''
+        const accountName = row.clienteRel?.account
+          ? resolvedName(row.clienteRel.account.firstName, row.clienteRel.account.lastName)
+          : row.account
+        const pmName = row.pms.length > 0
+          ? row.pms.map(p => resolvedName(p.pm.firstName, p.pm.lastName)).join(', ')
+          : row.projectManager
         groupMap.set(key, {
-          cliente:        row.cliente,
-          progetto:       row.progetto,
-          account:        clienteAccount || row.account,
-          projectManager: row.projectManager,
+          cliente:        clienteNome,
+          progetto:       progettoNome,
+          account:        accountName,
+          projectManager: pmName,
           attivita:       [],
         })
       }
@@ -774,22 +774,35 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
     }
 
     const gruppi = Array.from(groupMap.values()).map(g => {
-      const attivitaMapped = g.attivita.map(a => ({
-        id:                       a.id,
-        cliente:                  a.cliente,
-        progetto:                 a.progetto,
-        attivita:                 a.attivita,
-        risorseCoinvolte:         a.risorseCoinvolte,
-        account:                  a.account,
-        projectManager:           a.projectManager,
-        giornateVendute:          a.giornateVendute !== null ? toNumber(a.giornateVendute) : null,
-        giornateConsuntivate:     a.giornateConsuntivate !== null ? toNumber(a.giornateConsuntivate) : null,
-        riferimentoOrdineVendita: a.riferimentoOrdineVendita,
-        stato:                    a.stato,  // chiave diretta, senza traduzione
-        inizio:                   a.inizio?.toISOString().split('T')[0] ?? null,
-        deadline:                 a.deadline?.toISOString().split('T')[0] ?? null,
-        note:                     a.note,
-      }))
+      const attivitaMapped = g.attivita.map(a => {
+        const clienteNome  = a.clienteRel?.nome  ?? a.cliente
+        const progettoNome = a.progettoRel?.nome ?? a.progetto
+        const accountName  = a.clienteRel?.account
+          ? resolvedName(a.clienteRel.account.firstName, a.clienteRel.account.lastName)
+          : a.account
+        const pmNames = a.pms.length > 0
+          ? a.pms.map(p => resolvedName(p.pm.firstName, p.pm.lastName)).join(', ')
+          : a.projectManager
+        return {
+          id:                       a.id,
+          cliente:                  clienteNome,
+          clienteId:                a.clienteId ?? null,
+          progetto:                 progettoNome,
+          progettoId:               a.progettoId ?? null,
+          account:                  accountName,
+          accountId:                a.clienteRel?.accountId ?? null,
+          projectManager:           pmNames,
+          pmIds:                    a.pms.map(p => p.pmId),
+          attivita:                 a.attivita,
+          giornateVendute:          a.giornateVendute !== null ? toNumber(a.giornateVendute) : null,
+          giornateConsuntivate:     a.giornateConsuntivate !== null ? toNumber(a.giornateConsuntivate) : null,
+          riferimentoOrdineVendita: a.riferimentoOrdineVendita,
+          stato:                    a.stato,
+          inizio:                   a.inizio?.toISOString().split('T')[0] ?? null,
+          deadline:                 a.deadline?.toISOString().split('T')[0] ?? null,
+          note:                     a.note,
+        }
+      })
 
       const totaleVendute      = attivitaMapped.reduce((s, a) => s + (a.giornateVendute ?? 0), 0)
       const totaleConsuntivate = attivitaMapped.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0)
@@ -812,10 +825,10 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
       }
     })
 
-    gruppi.sort((a, b) => {
-      if (a.inSforamento !== b.inSforamento) return a.inSforamento ? -1 : 1
-      return `${a.cliente}${a.progetto}`.localeCompare(`${b.cliente}${b.progetto}`, 'it')
-    })
+    gruppi.sort((a, b) =>
+      a.cliente.localeCompare(b.cliente, 'it') ||
+      a.progetto.localeCompare(b.progetto, 'it')
+    )
 
     const allAttivita = gruppi.flatMap(g => g.attivita)
     const riepilogo = {
@@ -840,20 +853,33 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
 // POST /api/attivita
 app.post('/api/attivita', requireAuth, async (req, res) => {
   const {
-    cliente, progetto, attivita, risorseCoinvolte, account, projectManager,
+    clienteId, progettoId, pmIds,
+    attivita,
     giornateVendute, giornateConsuntivate, riferimentoOrdineVendita,
     stato, inizio, deadline, note,
   } = req.body as {
-    cliente?: string; progetto?: string; attivita?: string
-    risorseCoinvolte?: string; account?: string; projectManager?: string
+    clienteId?: string; progettoId?: string; pmIds?: string[]
+    attivita?: string
     giornateVendute?: number | null; giornateConsuntivate?: number | null
     riferimentoOrdineVendita?: string; stato?: string
     inizio?: string | null; deadline?: string | null; note?: string
   }
 
-  if (!cliente?.trim() || !progetto?.trim() || !attivita?.trim()) {
+  if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
     res.status(400).json({ error: 'cliente, progetto e attivita sono obbligatori' })
     return
+  }
+
+  const [linkedCliente, linkedProgetto] = await Promise.all([
+    prisma.cliente.findUnique({
+      where: { id: clienteId.trim() },
+      select: { nome: true, accountId: true, account: { select: { firstName: true, lastName: true } } },
+    }),
+    prisma.progetto.findUnique({ where: { id: progettoId.trim() }, select: { nome: true } }),
+  ])
+
+  if (!linkedCliente || !linkedProgetto) {
+    res.status(400).json({ error: 'cliente o progetto non trovato' }); return
   }
 
   const statoVal = stato?.trim() ?? 'IN_CORSO'
@@ -862,15 +888,21 @@ app.post('/api/attivita', requireAuth, async (req, res) => {
     res.status(400).json({ error: 'Stato non valido' }); return
   }
 
+  const accountName = linkedCliente.account
+    ? [linkedCliente.account.firstName, linkedCliente.account.lastName].filter(Boolean).join(' ')
+    : ''
+
   try {
     const row = await prisma.attivita.create({
       data: {
-        cliente:                  cliente.trim(),
-        progetto:                 progetto.trim(),
+        cliente:                  linkedCliente.nome,
+        clienteId:                clienteId.trim(),
+        progetto:                 linkedProgetto.nome,
+        progettoId:               progettoId.trim(),
+        account:                  accountName,
+        accountId:                linkedCliente.accountId ?? null,
+        projectManager:           '',
         attivita:                 attivita.trim(),
-        risorseCoinvolte:         risorseCoinvolte?.trim() ?? '',
-        account:                  account?.trim() ?? '',
-        projectManager:           projectManager?.trim() ?? '',
         giornateVendute:          giornateVendute != null ? giornateVendute : null,
         giornateConsuntivate:     giornateConsuntivate != null ? giornateConsuntivate : null,
         riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
@@ -878,6 +910,9 @@ app.post('/api/attivita', requireAuth, async (req, res) => {
         inizio:                   inizio   ? new Date(inizio)   : null,
         deadline:                 deadline ? new Date(deadline) : null,
         note:                     note?.trim() || null,
+        pms: pmIds?.length
+          ? { create: pmIds.map(pmId => ({ pmId })) }
+          : undefined,
       },
     })
     res.status(201).json(row)
@@ -891,20 +926,33 @@ app.post('/api/attivita', requireAuth, async (req, res) => {
 app.put('/api/attivita/:id', requireAuth, async (req, res) => {
   const id = req.params['id'] as string
   const {
-    cliente, progetto, attivita, risorseCoinvolte, account, projectManager,
+    clienteId, progettoId, pmIds,
+    attivita,
     giornateVendute, giornateConsuntivate, riferimentoOrdineVendita,
     stato, inizio, deadline, note,
   } = req.body as {
-    cliente?: string; progetto?: string; attivita?: string
-    risorseCoinvolte?: string; account?: string; projectManager?: string
+    clienteId?: string; progettoId?: string; pmIds?: string[]
+    attivita?: string
     giornateVendute?: number | null; giornateConsuntivate?: number | null
     riferimentoOrdineVendita?: string; stato?: string
     inizio?: string | null; deadline?: string | null; note?: string
   }
 
-  if (!cliente?.trim() || !progetto?.trim() || !attivita?.trim()) {
+  if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
     res.status(400).json({ error: 'cliente, progetto e attivita sono obbligatori' })
     return
+  }
+
+  const [linkedCliente, linkedProgetto] = await Promise.all([
+    prisma.cliente.findUnique({
+      where: { id: clienteId.trim() },
+      select: { nome: true, accountId: true, account: { select: { firstName: true, lastName: true } } },
+    }),
+    prisma.progetto.findUnique({ where: { id: progettoId.trim() }, select: { nome: true } }),
+  ])
+
+  if (!linkedCliente || !linkedProgetto) {
+    res.status(400).json({ error: 'cliente o progetto non trovato' }); return
   }
 
   const statoVal = stato?.trim() ?? 'IN_CORSO'
@@ -913,16 +961,22 @@ app.put('/api/attivita/:id', requireAuth, async (req, res) => {
     res.status(400).json({ error: 'Stato non valido' }); return
   }
 
+  const accountName = linkedCliente.account
+    ? [linkedCliente.account.firstName, linkedCliente.account.lastName].filter(Boolean).join(' ')
+    : ''
+
   try {
     const row = await prisma.attivita.update({
       where: { id },
       data: {
-        cliente:                  cliente.trim(),
-        progetto:                 progetto.trim(),
+        cliente:                  linkedCliente.nome,
+        clienteId:                clienteId.trim(),
+        progetto:                 linkedProgetto.nome,
+        progettoId:               progettoId.trim(),
+        account:                  accountName,
+        accountId:                linkedCliente.accountId ?? null,
+        projectManager:           '',
         attivita:                 attivita.trim(),
-        risorseCoinvolte:         risorseCoinvolte?.trim() ?? '',
-        account:                  account?.trim() ?? '',
-        projectManager:           projectManager?.trim() ?? '',
         giornateVendute:          giornateVendute != null ? giornateVendute : null,
         giornateConsuntivate:     giornateConsuntivate != null ? giornateConsuntivate : null,
         riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
@@ -930,6 +984,10 @@ app.put('/api/attivita/:id', requireAuth, async (req, res) => {
         inizio:                   inizio   ? new Date(inizio)   : null,
         deadline:                 deadline ? new Date(deadline) : null,
         note:                     note?.trim() || null,
+        pms: {
+          deleteMany: {},
+          ...(pmIds?.length ? { create: pmIds.map(pmId => ({ pmId })) } : {}),
+        },
       },
     })
     res.json(row)

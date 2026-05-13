@@ -15,6 +15,8 @@ model ProjectManager {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  attivita  AttivitaPM[]
+
   @@map("project_managers")
 }
 
@@ -27,6 +29,7 @@ model Account {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   clienti   Cliente[]
+  attivita  Attivita[]
 
   @@map("accounts")
 }
@@ -274,6 +277,7 @@ model Cliente {
   account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   progetti  Progetto[]
+  attivita  Attivita[]
 
   @@index([accountId])
   @@map("clienti")
@@ -293,6 +297,8 @@ model Progetto {
 
   clienteId   String?   @map("cliente_id")
   cliente     Cliente?  @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+
+  attivita    Attivita[]
 
   @@index([clienteId])
   @@map("progetti")
@@ -318,11 +324,34 @@ model Attivita {
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
+  clienteId                String?         @map("cliente_id")
+  clienteRel               Cliente?        @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+
+  progettoId               String?         @map("progetto_id")
+  progettoRel              Progetto?       @relation(fields: [progettoId], references: [id], onDelete: SetNull)
+
+  accountId                String?         @map("account_id")
+  accountRel               Account?        @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  pms                      AttivitaPM[]
   milestones               GanttMilestone[]
 
   @@index([cliente, progetto])
   @@index([stato])
+  @@index([clienteId])
+  @@index([progettoId])
+  @@index([accountId])
   @@map("attivita")
+}
+
+model AttivitaPM {
+  attivitaId  String         @map("attivita_id")
+  pmId        String         @map("pm_id")
+  attivita    Attivita       @relation(fields: [attivitaId], references: [id], onDelete: Cascade)
+  pm          ProjectManager @relation(fields: [pmId], references: [id], onDelete: Cascade)
+
+  @@id([attivitaId, pmId])
+  @@map("attivita_pms")
 }
 
 // ── Gantt Milestones ──────────────────────────────────────────

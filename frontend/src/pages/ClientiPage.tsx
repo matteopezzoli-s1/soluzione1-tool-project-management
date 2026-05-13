@@ -187,7 +187,11 @@ export default function ClientiPage({ token }: ClientiPageProps) {
       ])
       if (!rC.ok || !rA.ok) throw new Error()
       const [c, a] = await Promise.all([rC.json(), rA.json()])
-      setClienti(c); setAccounts(a)
+      setClienti((c as Cliente[]).sort((a, b) => {
+        const aAcc = a.account?.lastName ?? ''
+        const bAcc = b.account?.lastName ?? ''
+        return aAcc.localeCompare(bAcc, 'it') || a.nome.localeCompare(b.nome, 'it')
+      })); setAccounts(a)
     } catch { setApiError('Impossibile caricare i dati.') }
     finally { setLoading(false) }
   }, [token])

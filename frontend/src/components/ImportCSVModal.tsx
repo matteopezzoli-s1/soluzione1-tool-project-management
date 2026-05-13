@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useEffect, DragEvent } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import type { DragEvent } from 'react'
 import './ImportCSVModal.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from 'react'
+import { createPortal } from 'react-dom'
 import './ElencoAttivitaPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -17,12 +18,11 @@ const StatiCtx = createContext<Map<string, StatoConfigItem>>(new Map())
 
 interface AttivitaItem {
   id: string
-  cliente: string
-  progetto: string
+  cliente: string;        clienteId: string | null
+  progetto: string;       progettoId: string | null
+  account: string;        accountId: string | null
+  projectManager: string; pmIds: string[]
   attivita: string
-  risorseCoinvolte: string
-  account: string
-  projectManager: string
   giornateVendute: number | null
   giornateConsuntivate: number | null
   riferimentoOrdineVendita: string | null
@@ -59,17 +59,17 @@ interface AttivitaResponse {
 
 // ─── CRUD types ───────────────────────────────────────────────────────────────
 
-interface PMOption      { id: string; firstName: string; lastName: string }
-interface AccountOption { id: string; firstName: string; lastName: string }
+interface PMOption      { id: string; firstName: string | null; lastName: string }
+interface AccountOption { id: string; firstName: string | null; lastName: string }
 interface ClienteOption {
-  id: string; nome: string
-  account: { firstName: string; lastName: string } | null
+  id: string; nome: string; accountId: string | null
+  account: { id: string; firstName: string | null; lastName: string } | null
 }
-interface ProgettoOption { id: string; nome: string; clienteNome: string | null }
+interface ProgettoOption { id: string; nome: string; clienteId: string | null; clienteNome: string | null }
 
 type AttivitaFormData = {
-  cliente: string; progetto: string; attivita: string
-  risorseCoinvolte: string; account: string; projectManager: string[]
+  clienteId: string; progettoId: string; pmIds: string[]
+  attivita: string
   stato: StatoAttivita
   giornateVendute: string; giornateConsuntivate: string
   riferimentoOrdineVendita: string
@@ -77,8 +77,8 @@ type AttivitaFormData = {
 }
 
 const EMPTY_FORM: AttivitaFormData = {
-  cliente: '', progetto: '', attivita: '', risorseCoinvolte: '',
-  account: '', projectManager: [], stato: 'IN_CORSO',
+  clienteId: '', progettoId: '', pmIds: [],
+  attivita: '', stato: 'IN_CORSO',
   giornateVendute: '', giornateConsuntivate: '',
   riferimentoOrdineVendita: '', inizio: '', deadline: '', note: '',
 }
@@ -389,9 +389,6 @@ function Drawer({ item, onClose }: { item: AttivitaItem; onClose: () => void }) 
               <div className="ea-drawer-row">
                 <dt>Project Manager</dt><dd>{item.projectManager || '—'}</dd>
               </div>
-              <div className="ea-drawer-row">
-                <dt>Risorse</dt><dd>{item.risorseCoinvolte || '—'}</dd>
-              </div>
               {item.riferimentoOrdineVendita && (
                 <div className="ea-drawer-row">
                   <dt>Ordine vendita</dt><dd>{item.riferimentoOrdineVendita}</dd>
@@ -557,7 +554,6 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
               <thead>
                 <tr>
                   <th scope="col" className="ea-th ea-th--attivita">Attività</th>
-                  <th scope="col" className="ea-th">Risorse</th>
                   <th scope="col" className="ea-th">Stato</th>
                   <th scope="col" className="ea-th ea-th--num">GG Vendute</th>
                   <th scope="col" className="ea-th ea-th--num">GG Consuntivate</th>
@@ -592,7 +588,6 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
                         )}
                         {item.attivita}
                       </td>
-                      <td className="ea-cell ea-cell--risorse">{item.risorseCoinvolte || '—'}</td>
                       <td className="ea-cell"><StatoBadge stato={item.stato} /></td>
                       <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(item.giornateVendute)}</td>
                       <td className={`ea-cell ea-cell--num ea-cell--mono ${sfora ? 'ea-cell--red' : ''}`}>
@@ -641,7 +636,7 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
 
 function exportCSV(gruppi: GruppoAttivita[]) {
   const rows: string[][] = [
-    ['Cliente', 'Progetto', 'Attività', 'Risorse', 'Account', 'PM', 'Stato',
+    ['Cliente', 'Progetto', 'Attività', 'Account', 'PM', 'Stato',
       'GG Vendute', 'GG Consuntivate', 'Delta', 'Inizio', 'Deadline', 'Ordine Vendita', 'Note'],
   ]
   for (const g of gruppi) {
@@ -650,8 +645,7 @@ function exportCSV(gruppi: GruppoAttivita[]) {
         ? (a.giornateVendute - a.giornateConsuntivate).toFixed(1)
         : ''
       rows.push([
-        a.cliente, a.progetto, a.attivita, a.risorseCoinvolte,
-        a.account, a.projectManager, a.stato,
+        a.cliente, a.progetto, a.attivita, a.account, a.projectManager, a.stato,
         a.giornateVendute !== null ? String(a.giornateVendute) : '',
         a.giornateConsuntivate !== null ? String(a.giornateConsuntivate) : '',
         delta, a.inizio ?? '', a.deadline ?? '',
@@ -687,13 +681,15 @@ function PMMultiSelect({ pms, value, onChange }: {
     return () => document.removeEventListener('mousedown', outside)
   }, [])
 
-  const toggle = (name: string) =>
-    onChange(value.includes(name) ? value.filter(v => v !== name) : [...value, name])
+  const toggle = (id: string) =>
+    onChange(value.includes(id) ? value.filter(v => v !== id) : [...value, id])
 
+  const selectedNames = pms.filter(p => value.includes(p.id))
+    .map(p => [p.firstName, p.lastName].filter(Boolean).join(' '))
   const label = value.length === 0
     ? '— Nessun PM —'
     : value.length === 1
-      ? value[0]
+      ? selectedNames[0]
       : `${value.length} PM selezionati`
 
   return (
@@ -717,11 +713,11 @@ function PMMultiSelect({ pms, value, onChange }: {
             <span className="ea-pm-empty">Nessun PM disponibile</span>
           )}
           {pms.map(p => {
-            const name = `${p.firstName} ${p.lastName}`
-            const checked = value.includes(name)
+            const name = [p.firstName, p.lastName].filter(Boolean).join(' ')
+            const checked = value.includes(p.id)
             return (
               <label key={p.id} className={`ea-pm-item${checked ? ' ea-pm-item--checked' : ''}`}>
-                <input type="checkbox" checked={checked} onChange={() => toggle(name)} />
+                <input type="checkbox" checked={checked} onChange={() => toggle(p.id)} />
                 <span>{name}</span>
               </label>
             )
@@ -762,18 +758,21 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
 
   // Progetti filtered by the selected cliente
   const progettiCliente = useMemo(
-    () => progetti.filter(p => p.clienteNome === form.cliente),
-    [progetti, form.cliente]
+    () => progetti.filter(p => p.clienteId === form.clienteId),
+    [progetti, form.clienteId]
   )
 
-  // When cliente changes: auto-populate account and reset progetto
-  const handleClienteChange = (nomeCliente: string) => {
-    const found = clienti.find(c => c.nome === nomeCliente)
-    const accountName = found?.account
-      ? `${found.account.firstName} ${found.account.lastName}`
-      : ''
-    onChange({ ...form, cliente: nomeCliente, account: accountName, progetto: '' })
+  // When cliente changes: reset progetto
+  const handleClienteChange = (clienteId: string) => {
+    onChange({ ...form, clienteId, progettoId: '' })
   }
+
+  // Account read-only: derived from the selected client
+  const selectedAccount = useMemo(() => {
+    const c = clienti.find(cl => cl.id === form.clienteId)
+    if (!c?.account) return null
+    return [c.account.firstName, c.account.lastName].filter(Boolean).join(' ')
+  }, [clienti, form.clienteId])
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -801,22 +800,22 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
             <div className="ea-form-field">
               <label htmlFor="ea-f-cliente" className="ea-form-label">Cliente <span aria-hidden="true">*</span></label>
               <select id="ea-f-cliente" className="ea-form-input ea-form-select"
-                value={form.cliente} onChange={e => handleClienteChange(e.target.value)}>
+                value={form.clienteId} onChange={e => handleClienteChange(e.target.value)}>
                 <option value="">— Seleziona cliente —</option>
-                {clienti.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+                {clienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
               </select>
             </div>
             <div className="ea-form-field">
               <label htmlFor="ea-f-progetto" className="ea-form-label">Progetto <span aria-hidden="true">*</span></label>
               <select id="ea-f-progetto" className="ea-form-input ea-form-select"
-                value={form.progetto} onChange={set('progetto')}
-                disabled={!form.cliente}>
+                value={form.progettoId} onChange={e => onChange({ ...form, progettoId: e.target.value })}
+                disabled={!form.clienteId}>
                 <option value="">
-                  {form.cliente
+                  {form.clienteId
                     ? progettiCliente.length === 0 ? '— Nessun progetto —' : '— Seleziona progetto —'
                     : '— Seleziona prima il cliente —'}
                 </option>
-                {progettiCliente.map(p => <option key={p.id} value={p.nome}>{p.nome}</option>)}
+                {progettiCliente.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
               </select>
             </div>
           </div>
@@ -828,31 +827,25 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
               value={form.attivita} onChange={set('attivita')} placeholder="es. Design UI screens" />
           </div>
 
-          {/* Row 3: account (auto) + PM (multi) */}
+          {/* Row 3: account + PM (multi) */}
           <div className="ea-form-row">
             <div className="ea-form-field">
               <label className="ea-form-label">Account</label>
-              {form.account
-                ? <span className="ea-account-chip">{form.account}</span>
+              {selectedAccount
+                ? <span className="ea-account-chip">{selectedAccount}</span>
                 : <span className="ea-account-empty">
-                    {form.cliente ? 'Nessun account associato' : 'Seleziona prima il cliente'}
+                    {form.clienteId ? 'Nessun account associato al cliente' : 'Seleziona prima il cliente'}
                   </span>}
             </div>
             <div className="ea-form-field">
               <label className="ea-form-label">Project Manager</label>
-              <PMMultiSelect pms={pms} value={form.projectManager}
-                onChange={v => onChange({ ...form, projectManager: v })} />
+              <PMMultiSelect pms={pms} value={form.pmIds}
+                onChange={v => onChange({ ...form, pmIds: v })} />
             </div>
           </div>
 
-          {/* Row 4: risorse + stato */}
+          {/* Row 4: stato (full width) */}
           <div className="ea-form-row">
-            <div className="ea-form-field">
-              <label htmlFor="ea-f-risorse" className="ea-form-label">Risorse coinvolte</label>
-              <input id="ea-f-risorse" className="ea-form-input" type="text"
-                value={form.risorseCoinvolte} onChange={set('risorseCoinvolte')}
-                placeholder="es. Mario, Laura" />
-            </div>
             <div className="ea-form-field">
               <label htmlFor="ea-f-stato" className="ea-form-label">Stato</label>
               <select id="ea-f-stato" className="ea-form-input ea-form-select"
@@ -1026,7 +1019,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       setProgettiOpts(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (progettiRaw as any[]).map((p: any) => ({
-          id: p.id, nome: p.nome, clienteNome: p.cliente?.nome ?? null,
+          id: p.id, nome: p.nome, clienteId: p.clienteId ?? null, clienteNome: p.cliente?.nome ?? null,
         }))
       )
       const sfora = new Set(
@@ -1049,12 +1042,10 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const openEdit = (item: AttivitaItem) => {
     setEditing(item)
     setForm({
-      cliente:                  item.cliente,
-      progetto:                 item.progetto,
+      clienteId:                item.clienteId  ?? '',
+      progettoId:               item.progettoId ?? '',
+      pmIds:                    item.pmIds       ?? [],
       attivita:                 item.attivita,
-      risorseCoinvolte:         item.risorseCoinvolte,
-      account:                  item.account,
-      projectManager:           item.projectManager ? item.projectManager.split(', ').filter(Boolean) : [],
       stato:                    item.stato,
       giornateVendute:          item.giornateVendute  != null ? String(item.giornateVendute)  : '',
       giornateConsuntivate:     item.giornateConsuntivate != null ? String(item.giornateConsuntivate) : '',
@@ -1068,7 +1059,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   }
 
   const handleSave = async () => {
-    if (!form.cliente.trim() || !form.progetto.trim() || !form.attivita.trim()) {
+    if (!form.clienteId || !form.progettoId || !form.attivita.trim()) {
       setFormErr('Cliente, progetto e attività sono obbligatori.')
       return
     }
@@ -1077,12 +1068,10 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       const url    = modal === 'edit' ? `${API_URL}/api/attivita/${editing!.id}` : `${API_URL}/api/attivita`
       const method = modal === 'edit' ? 'PUT' : 'POST'
       const body = {
-        cliente:                  form.cliente.trim(),
-        progetto:                 form.progetto.trim(),
+        clienteId:                form.clienteId,
+        progettoId:               form.progettoId,
+        pmIds:                    form.pmIds,
         attivita:                 form.attivita.trim(),
-        risorseCoinvolte:         form.risorseCoinvolte.trim(),
-        account:                  form.account.trim(),
-        projectManager:           form.projectManager.join(', '),
         stato:                    form.stato,
         giornateVendute:          form.giornateVendute          !== '' ? parseFloat(form.giornateVendute)          : null,
         giornateConsuntivate:     form.giornateConsuntivate     !== '' ? parseFloat(form.giornateConsuntivate)     : null,
@@ -1097,8 +1086,10 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         setFormErr((data as { error?: string }).error ?? `Errore ${res.status}`)
         return
       }
+      const scrollY = window.scrollY
       setModal(null)
       await fetchData()
+      requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }))
     } catch {
       setFormErr('Errore di rete. Riprova.')
     } finally {
@@ -1114,8 +1105,10 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         method: 'DELETE', headers: authHeaders(token),
       })
       if (!res.ok && res.status !== 404) throw new Error()
+      const scrollY = window.scrollY
       setDelTarget(null)
       await fetchData()
+      requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }))
     } catch {
       setDelTarget(null)
       setError('Errore durante l\'eliminazione.')
@@ -1124,16 +1117,22 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     }
   }
 
-  // Unique values for filter dropdowns
-  const uniqueAccounts = useMemo(() => {
-    if (!data) return []
-    return [...new Set(data.gruppi.map(g => g.account).filter(Boolean))].sort()
-  }, [data])
+  // Filter dropdown options from registry (all accounts/PMs, not just those with activities)
+  const uniqueAccounts = useMemo(() =>
+    accountsOpts
+      .map(a => [a.firstName, a.lastName].filter(Boolean).join(' '))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'it')),
+    [accountsOpts]
+  )
 
-  const uniquePMs = useMemo(() => {
-    if (!data) return []
-    return [...new Set(data.gruppi.map(g => g.projectManager).filter(Boolean))].sort()
-  }, [data])
+  const uniquePMs = useMemo(() =>
+    pmsOpts
+      .map(p => [p.firstName, p.lastName].filter(Boolean).join(' '))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'it')),
+    [pmsOpts]
+  )
 
   // chiavi di tutti gli stati (o solo attivi se toggle attivo)
   const statoOptions = useMemo(
@@ -1366,8 +1365,8 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       {/* ── Detail drawer ── */}
       {selected && <Drawer item={selected} onClose={() => setSelected(null)} />}
 
-      {/* ── Add / edit modal ── */}
-      {(modal === 'add' || modal === 'edit') && (
+      {/* ── Add / edit modal (portal: avoids transform containing-block issue) ── */}
+      {(modal === 'add' || modal === 'edit') && createPortal(
         <AttivitaModal
           title={modal === 'add' ? 'Aggiungi attività' : 'Modifica attività'}
           form={form}
@@ -1379,17 +1378,19 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           onChange={setForm}
           onSave={handleSave}
           onClose={() => setModal(null)}
-        />
+        />,
+        document.body
       )}
 
-      {/* ── Confirm delete ── */}
-      {delTarget && (
+      {/* ── Confirm delete (portal: sempre centrato nel viewport) ── */}
+      {delTarget && createPortal(
         <ConfirmDeleteAttivita
           item={delTarget}
           loading={deleting}
           onConfirm={handleDelete}
           onClose={() => setDelTarget(null)}
-        />
+        />,
+        document.body
       )}
     </div>
     </StatiCtx.Provider>
