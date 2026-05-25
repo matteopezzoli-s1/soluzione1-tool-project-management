@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from 'react'
-import { createPortal } from 'react-dom'
+import { SectionModal } from '../components/SectionModal'
 import './ElencoAttivitaPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -7,6 +7,7 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type StatoAttivita = string  // chiave DB, es. "IN_CORSO"
+type GroupBy = 'cliente' | 'progetto'
 
 interface StatoConfigItem {
   id: string; chiave: string; label: string
@@ -37,6 +38,14 @@ interface GruppoAttivita {
   progetto: string
   account: string
   projectManager: string
+  totaleVendute: number
+  totaleConsuntivate: number
+  inSforamento: boolean
+  attivita: AttivitaItem[]
+}
+
+interface GruppoCliente {
+  cliente: string
   totaleVendute: number
   totaleConsuntivate: number
   inSforamento: boolean
@@ -127,7 +136,6 @@ function getProgressPct(vendute: number, consuntivate: number): number {
 function getStatoPrevValente(attivita: AttivitaItem[], statiMap: Map<string, StatoConfigItem>): StatoAttivita {
   const chiavi = [...new Set(attivita.map(a => a.stato))]
   if (chiavi.length === 0) return 'IN_CORSO'
-  // Priorità: stati attivi per ordine, poi archiviati per ordine
   return chiavi.sort((a, b) => {
     const ca = statiMap.get(a)
     const cb = statiMap.get(b)
@@ -448,7 +456,120 @@ function Drawer({ item, onClose }: { item: AttivitaItem; onClose: () => void }) 
   )
 }
 
-// ─── Group card ───────────────────────────────────────────────────────────────
+// ─── Sforamento dot ───────────────────────────────────────────────────────────
+
+function SforamentoDot() {
+  return (
+    <span
+      className="ea-group-sfora-dot"
+      aria-label="In sforamento"
+      title="Una o più attività sono in sforamento"
+    >
+      <svg viewBox="0 0 8 8" fill="currentColor" width="8" height="8" aria-hidden="true">
+        <circle cx="4" cy="4" r="4" />
+      </svg>
+    </span>
+  )
+}
+
+// ─── Activity rows (shared by both group types) ───────────────────────────────
+
+interface ActivityRowsProps {
+  attivita: AttivitaItem[]
+  showProgetto?: boolean
+  onSelectItem: (item: AttivitaItem) => void
+  onEditItem: (item: AttivitaItem) => void
+  onDeleteItem: (item: AttivitaItem) => void
+  tableLabel: string
+}
+
+function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDeleteItem, tableLabel }: ActivityRowsProps) {
+  return (
+    <div className="ea-group-body">
+      <div className="ea-table-wrap">
+        <table className="ea-table" aria-label={tableLabel}>
+          <thead>
+            <tr>
+              <th scope="col" className="ea-th ea-th--attivita">Attività</th>
+              {showProgetto && <th scope="col" className="ea-th ea-th--progetto">Progetto</th>}
+              <th scope="col" className="ea-th">Stato</th>
+              <th scope="col" className="ea-th ea-th--num">GG Vendute</th>
+              <th scope="col" className="ea-th ea-th--num">GG Consuntivate</th>
+              <th scope="col" className="ea-th ea-th--num">Delta</th>
+              <th scope="col" className="ea-th">Deadline</th>
+              <th scope="col" className="ea-th ea-th--ordine">Ord. Vendita</th>
+              <th scope="col" className="ea-th ea-th--actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {attivita.map(item => {
+              const sfora = isSforamento(item)
+              const d = item.giornateVendute !== null && item.giornateConsuntivate !== null
+                ? item.giornateVendute - item.giornateConsuntivate
+                : null
+              return (
+                <tr
+                  key={item.id}
+                  className={`ea-row ${sfora ? 'ea-row--sfora' : ''}`}
+                  onClick={() => onSelectItem(item)}
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectItem(item) } }}
+                  role="button"
+                  aria-label={`Dettaglio attività: ${item.attivita}`}
+                >
+                  <td className="ea-cell ea-cell--attivita">
+                    {sfora && (
+                      <svg className="ea-row-warn" viewBox="0 0 16 16" fill="currentColor"
+                        width="13" height="13" aria-label="Sforamento budget">
+                        <path fillRule="evenodd" d="M6.789 2.074c.534-.927 1.888-.927 2.422 0l5.02 8.7c.534.927-.134 2.086-1.211 2.086H2.98c-1.077 0-1.745-1.159-1.211-2.087l5.02-8.699zM8 5a.6.6 0 0 1 .6.6v2.8a.6.6 0 0 1-1.2 0V5.6A.6.6 0 0 1 8 5zm0 7.2a.8.8 0 1 0 0-1.6.8.8 0 0 0 0 1.6z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                    {item.attivita}
+                  </td>
+                  {showProgetto && <td className="ea-cell ea-cell--progetto">{item.progetto}</td>}
+                  <td className="ea-cell"><StatoBadge stato={item.stato} /></td>
+                  <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(item.giornateVendute)}</td>
+                  <td className={`ea-cell ea-cell--num ea-cell--mono ${sfora ? 'ea-cell--red' : ''}`}>
+                    {fmt(item.giornateConsuntivate)}
+                  </td>
+                  <td className={`ea-cell ea-cell--num ea-cell--mono ${d !== null && d < 0 ? 'ea-cell--red' : d !== null && d > 0 ? 'ea-cell--green' : ''}`}>
+                    {d !== null ? (d >= 0 ? `+${fmt(d)}` : fmt(d)) : '—'}
+                  </td>
+                  <td className="ea-cell">{fmtDate(item.deadline)}</td>
+                  <td className="ea-cell ea-cell--ordine">{item.riferimentoOrdineVendita || '—'}</td>
+                  <td className="ea-cell ea-cell-actions" onClick={e => e.stopPropagation()}>
+                    <button
+                      className="ea-icon-btn"
+                      type="button"
+                      aria-label={`Modifica ${item.attivita}`}
+                      onClick={() => onEditItem(item)}
+                    >
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
+                        <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    <button
+                      className="ea-icon-btn ea-icon-btn--danger"
+                      type="button"
+                      aria-label={`Elimina ${item.attivita}`}
+                      onClick={() => onDeleteItem(item)}
+                    >
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
+                        <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ─── Group card (per progetto) ────────────────────────────────────────────────
 
 interface GroupCardProps {
   group: GruppoAttivita
@@ -465,7 +586,7 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
   const delta = group.totaleVendute - group.totaleConsuntivate
 
   return (
-    <div className={`ea-group ${group.inSforamento ? 'ea-group--sfora' : ''}`}>
+    <div className="ea-group">
       {/* Header */}
       <button
         type="button"
@@ -476,13 +597,7 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
       >
         <div className="ea-group-header-main">
           <div className="ea-group-identity">
-            {group.inSforamento && (
-              <span className="ea-group-sfora-dot" aria-label="In sforamento" title="Gruppo in sforamento">
-                <svg viewBox="0 0 8 8" fill="currentColor" width="8" height="8" aria-hidden="true">
-                  <circle cx="4" cy="4" r="4" />
-                </svg>
-              </span>
-            )}
+            {group.inSforamento && <SforamentoDot />}
             <div>
               <span className="ea-group-cliente">{group.cliente}</span>
               <span className="ea-group-progetto">{group.progetto}</span>
@@ -517,7 +632,7 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
             <span className="ea-group-stat-lbl">Vendute</span>
           </div>
           <div className="ea-group-stat">
-            <span className={`ea-group-stat-val ea-group-stat-val--mono ${group.inSforamento ? 'ea-group-stat-val--red' : ''}`}>
+            <span className="ea-group-stat-val ea-group-stat-val--mono">
               {fmt(group.totaleConsuntivate)}
             </span>
             <span className="ea-group-stat-lbl">Consuntivate</span>
@@ -546,87 +661,91 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
         </div>
       </button>
 
-      {/* Activity table */}
       {expanded && (
-        <div className="ea-group-body">
-          <div className="ea-table-wrap">
-            <table className="ea-table" aria-label={`Attività ${group.progetto}`}>
-              <thead>
-                <tr>
-                  <th scope="col" className="ea-th ea-th--attivita">Attività</th>
-                  <th scope="col" className="ea-th">Stato</th>
-                  <th scope="col" className="ea-th ea-th--num">GG Vendute</th>
-                  <th scope="col" className="ea-th ea-th--num">GG Consuntivate</th>
-                  <th scope="col" className="ea-th ea-th--num">Delta</th>
-                  <th scope="col" className="ea-th">Deadline</th>
-                  <th scope="col" className="ea-th ea-th--ordine">Ord. Vendita</th>
-                  <th scope="col" className="ea-th ea-th--actions"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.attivita.map(item => {
-                  const sfora = isSforamento(item)
-                  const d = item.giornateVendute !== null && item.giornateConsuntivate !== null
-                    ? item.giornateVendute - item.giornateConsuntivate
-                    : null
-                  return (
-                    <tr
-                      key={item.id}
-                      className={`ea-row ${sfora ? 'ea-row--sfora' : ''}`}
-                      onClick={() => onSelectItem(item)}
-                      tabIndex={0}
-                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectItem(item) } }}
-                      role="button"
-                      aria-label={`Dettaglio attività: ${item.attivita}`}
-                    >
-                      <td className="ea-cell ea-cell--attivita">
-                        {sfora && (
-                          <svg className="ea-row-warn" viewBox="0 0 16 16" fill="currentColor"
-                            width="13" height="13" aria-label="Sforamento budget">
-                            <path fillRule="evenodd" d="M6.789 2.074c.534-.927 1.888-.927 2.422 0l5.02 8.7c.534.927-.134 2.086-1.211 2.086H2.98c-1.077 0-1.745-1.159-1.211-2.087l5.02-8.699zM8 5a.6.6 0 0 1 .6.6v2.8a.6.6 0 0 1-1.2 0V5.6A.6.6 0 0 1 8 5zm0 7.2a.8.8 0 1 0 0-1.6.8.8 0 0 0 0 1.6z" clipRule="evenodd" />
-                          </svg>
-                        )}
-                        {item.attivita}
-                      </td>
-                      <td className="ea-cell"><StatoBadge stato={item.stato} /></td>
-                      <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(item.giornateVendute)}</td>
-                      <td className={`ea-cell ea-cell--num ea-cell--mono ${sfora ? 'ea-cell--red' : ''}`}>
-                        {fmt(item.giornateConsuntivate)}
-                      </td>
-                      <td className={`ea-cell ea-cell--num ea-cell--mono ${d !== null && d < 0 ? 'ea-cell--red' : d !== null && d > 0 ? 'ea-cell--green' : ''}`}>
-                        {d !== null ? (d >= 0 ? `+${fmt(d)}` : fmt(d)) : '—'}
-                      </td>
-                      <td className="ea-cell">{fmtDate(item.deadline)}</td>
-                      <td className="ea-cell ea-cell--ordine">{item.riferimentoOrdineVendita || '—'}</td>
-                      <td className="ea-cell ea-cell-actions" onClick={e => e.stopPropagation()}>
-                        <button
-                          className="ea-icon-btn"
-                          type="button"
-                          aria-label={`Modifica ${item.attivita}`}
-                          onClick={() => onEditItem(item)}
-                        >
-                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
-                            <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                        <button
-                          className="ea-icon-btn ea-icon-btn--danger"
-                          type="button"
-                          aria-label={`Elimina ${item.attivita}`}
-                          onClick={() => onDeleteItem(item)}
-                        >
-                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
-                            <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+        <ActivityRows
+          attivita={group.attivita}
+          tableLabel={`Attività ${group.progetto}`}
+          onSelectItem={onSelectItem}
+          onEditItem={onEditItem}
+          onDeleteItem={onDeleteItem}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Cliente group card ────────────────────────────────────────────────────────
+
+interface ClienteGroupCardProps {
+  group: GruppoCliente
+  expanded: boolean
+  onToggle: () => void
+  onSelectItem: (item: AttivitaItem) => void
+  onEditItem: (item: AttivitaItem) => void
+  onDeleteItem: (item: AttivitaItem) => void
+}
+
+function ClienteGroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem }: ClienteGroupCardProps) {
+  const delta = group.totaleVendute - group.totaleConsuntivate
+
+  return (
+    <div className="ea-group ea-group--cliente">
+      <button
+        type="button"
+        className="ea-group-header ea-group-header--sticky"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-label={`${group.cliente}: ${expanded ? 'Collassa' : 'Espandi'}`}
+      >
+        <div className="ea-group-header-main">
+          <div className="ea-group-identity">
+            {group.inSforamento ? <SforamentoDot /> : <span className="ea-group-sfora-dot ea-group-sfora-dot--placeholder" aria-hidden="true" />}
+            <span className="ea-group-cliente ea-group-cliente--large">{group.cliente}</span>
           </div>
         </div>
+
+        <div className="ea-group-header-stats">
+          <div className="ea-group-stat">
+            <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleVendute)}</span>
+            <span className="ea-group-stat-lbl">Vendute</span>
+          </div>
+          <div className="ea-group-stat">
+            <span className="ea-group-stat-val ea-group-stat-val--mono">
+              {fmt(group.totaleConsuntivate)}
+            </span>
+            <span className="ea-group-stat-lbl">Consuntivate</span>
+          </div>
+          <div className="ea-group-stat">
+            <span className={`ea-group-stat-val ea-group-stat-val--mono ${delta < 0 ? 'ea-group-stat-val--red' : delta > 0 ? 'ea-group-stat-val--green' : ''}`}>
+              {delta >= 0 ? `+${fmt(delta)}` : fmt(delta)}
+            </span>
+            <span className="ea-group-stat-lbl">Delta</span>
+          </div>
+
+          <div className="ea-group-progress-wrap">
+            <ProgressBar vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
+          </div>
+
+          <span className="ea-group-count">{group.attivita.length} att.</span>
+
+          <span className={`ea-group-chevron ${expanded ? 'ea-group-chevron--open' : ''}`} aria-hidden="true">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
+              width="16" height="16">
+              <path d="M5 7.5l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </div>
+      </button>
+
+      {expanded && (
+        <ActivityRows
+          attivita={group.attivita}
+          showProgetto
+          tableLabel={`Attività ${group.cliente}`}
+          onSelectItem={onSelectItem}
+          onEditItem={onEditItem}
+          onDeleteItem={onDeleteItem}
+        />
       )}
     </div>
   )
@@ -662,8 +781,6 @@ function exportCSV(gruppi: GruppoAttivita[]) {
   a.click()
   URL.revokeObjectURL(url)
 }
-
-// ─── Attività Modal ───────────────────────────────────────────────────────────
 
 // ─── PM multi-select ─────────────────────────────────────────────────────────
 
@@ -756,33 +873,23 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
 
-  // Progetti filtered by the selected cliente
   const progettiCliente = useMemo(
     () => progetti.filter(p => p.clienteId === form.clienteId),
     [progetti, form.clienteId]
   )
 
-  // When cliente changes: reset progetto
   const handleClienteChange = (clienteId: string) => {
     onChange({ ...form, clienteId, progettoId: '' })
   }
 
-  // Account read-only: derived from the selected client
   const selectedAccount = useMemo(() => {
     const c = clienti.find(cl => cl.id === form.clienteId)
     if (!c?.account) return null
     return [c.account.firstName, c.account.lastName].filter(Boolean).join(' ')
   }, [clienti, form.clienteId])
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [onClose])
-
   return (
-    <div className="ea-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ea-modal-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <SectionModal onClose={onClose} labelledBy="ea-modal-title">
       <div className="ea-modal">
         <div className="ea-modal-header">
           <h2 id="ea-modal-title" className="ea-modal-title">{title}</h2>
@@ -795,7 +902,6 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
         <div className="ea-modal-body">
           {apiError && <p className="ea-field-error ea-field-error--banner" role="alert">{apiError}</p>}
 
-          {/* Row 1: cliente + progetto */}
           <div className="ea-form-row">
             <div className="ea-form-field">
               <label htmlFor="ea-f-cliente" className="ea-form-label">Cliente <span aria-hidden="true">*</span></label>
@@ -820,14 +926,12 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
             </div>
           </div>
 
-          {/* Row 2: attività (full width) */}
           <div className="ea-form-field">
             <label htmlFor="ea-f-attivita" className="ea-form-label">Attività <span aria-hidden="true">*</span></label>
             <input id="ea-f-attivita" className="ea-form-input" type="text" autoFocus
               value={form.attivita} onChange={set('attivita')} placeholder="es. Design UI screens" />
           </div>
 
-          {/* Row 3: account + PM (multi) */}
           <div className="ea-form-row">
             <div className="ea-form-field">
               <label className="ea-form-label">Account</label>
@@ -844,7 +948,6 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
             </div>
           </div>
 
-          {/* Row 4: stato (full width) */}
           <div className="ea-form-row">
             <div className="ea-form-field">
               <label htmlFor="ea-f-stato" className="ea-form-label">Stato</label>
@@ -857,7 +960,6 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
             </div>
           </div>
 
-          {/* Row 5: GG vendute + GG consuntivate */}
           <div className="ea-form-row">
             <div className="ea-form-field">
               <label htmlFor="ea-f-vendute" className="ea-form-label">GG Vendute</label>
@@ -871,7 +973,6 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
             </div>
           </div>
 
-          {/* Row 6: inizio + deadline */}
           <div className="ea-form-row">
             <div className="ea-form-field">
               <label htmlFor="ea-f-inizio" className="ea-form-label">Inizio</label>
@@ -885,7 +986,6 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
             </div>
           </div>
 
-          {/* Ordine vendita */}
           <div className="ea-form-field">
             <label htmlFor="ea-f-ordine" className="ea-form-label">Riferimento ordine vendita</label>
             <input id="ea-f-ordine" className="ea-form-input" type="text"
@@ -893,7 +993,6 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
               placeholder="es. OV-2024-001" />
           </div>
 
-          {/* Note */}
           <div className="ea-form-field">
             <label htmlFor="ea-f-note" className="ea-form-label">Note</label>
             <textarea id="ea-f-note" className="ea-form-input ea-form-textarea"
@@ -908,7 +1007,7 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 
@@ -917,15 +1016,8 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
 function ConfirmDeleteAttivita({ item, loading, onConfirm, onClose }: {
   item: AttivitaItem; loading: boolean; onConfirm: () => void; onClose: () => void
 }) {
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [onClose])
-
   return (
-    <div className="ea-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ea-del-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <SectionModal onClose={onClose} labelledBy="ea-del-title">
       <div className="ea-modal ea-modal--sm">
         <div className="ea-modal-header">
           <h2 id="ea-del-title" className="ea-modal-title">Elimina attività</h2>
@@ -949,7 +1041,7 @@ function ConfirmDeleteAttivita({ item, loading, onConfirm, onClose }: {
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 
@@ -967,6 +1059,18 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const [soloAttivi,  setSoloAttivi]  = useState(true)
   const [expanded,    setExpanded]    = useState<Set<string>>(new Set())
   const [selected,    setSelected]    = useState<AttivitaItem | null>(null)
+
+  // Group-by toggle: persisted in localStorage
+  const [groupBy, setGroupBy] = useState<GroupBy>(() => {
+    const saved = localStorage.getItem('activityGroupBy')
+    return saved === 'progetto' ? 'progetto' : 'cliente'
+  })
+
+  const handleGroupByChange = (byProgetto: boolean) => {
+    const val: GroupBy = byProgetto ? 'progetto' : 'cliente'
+    setGroupBy(val)
+    localStorage.setItem('activityGroupBy', val)
+  }
 
   // Config stati attività
   const [statiConfig, setStatiConfig] = useState<StatoConfigItem[]>([])
@@ -1022,10 +1126,15 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           id: p.id, nome: p.nome, clienteId: p.clienteId ?? null, clienteNome: p.cliente?.nome ?? null,
         }))
       )
-      const sfora = new Set(
-        json.gruppi.filter((g: GruppoAttivita) => g.inSforamento).map((g: GruppoAttivita) => `${g.cliente}|||${g.progetto}`)
-      )
-      setExpanded(sfora)
+      // Auto-expand sforamento groups (both key formats for both view modes)
+      const initialExpanded = new Set<string>()
+      for (const g of json.gruppi as GruppoAttivita[]) {
+        if (g.inSforamento) {
+          initialExpanded.add(`${g.cliente}|||${g.progetto}`)
+          initialExpanded.add(`cliente::${g.cliente}`)
+        }
+      }
+      setExpanded(initialExpanded)
     } catch {
       setError('Impossibile caricare le attività. Verifica la connessione.')
     } finally {
@@ -1117,7 +1226,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     }
   }
 
-  // Filter dropdown options from registry (all accounts/PMs, not just those with activities)
+  // Filter dropdown options from registry
   const uniqueAccounts = useMemo(() =>
     accountsOpts
       .map(a => [a.firstName, a.lastName].filter(Boolean).join(' '))
@@ -1134,7 +1243,6 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     [pmsOpts]
   )
 
-  // chiavi di tutti gli stati (o solo attivi se toggle attivo)
   const statoOptions = useMemo(
     () => statiConfig
       .filter(s => !soloAttivi || !s.isArchiviato)
@@ -1158,6 +1266,25 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       .filter(g => g.attivita.length > 0)
   }, [data, filtroAcc, filtroPM, filtroStato, soloAttivi, statiMap])
 
+  // Derived: group by cliente from filtered data
+  const filteredGruppiCliente = useMemo((): GruppoCliente[] => {
+    const map = new Map<string, GruppoCliente>()
+    for (const g of filteredGruppi) {
+      const key = g.cliente
+      if (!map.has(key)) {
+        map.set(key, { cliente: g.cliente, totaleVendute: 0, totaleConsuntivate: 0, inSforamento: false, attivita: [] })
+      }
+      const entry = map.get(key)!
+      for (const a of g.attivita) {
+        entry.totaleVendute += a.giornateVendute ?? 0
+        entry.totaleConsuntivate += a.giornateConsuntivate ?? 0
+        if (isSforamento(a)) entry.inSforamento = true
+      }
+      entry.attivita.push(...g.attivita)
+    }
+    return [...map.values()].sort((a, b) => a.cliente.localeCompare(b.cliente, 'it'))
+  }, [filteredGruppi])
+
   // Recompute riepilogo from filtered data
   const filteredRiepilogo = useMemo((): Riepilogo => {
     const all = filteredGruppi.flatMap(g => g.attivita)
@@ -1171,7 +1298,8 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     }
   }, [filteredGruppi])
 
-  const groupKey = (g: GruppoAttivita) => `${g.cliente}|||${g.progetto}`
+  const progettoKey  = (g: GruppoAttivita) => `${g.cliente}|||${g.progetto}`
+  const clienteKey   = (g: GruppoCliente)  => `cliente::${g.cliente}`
 
   const toggleGroup = (key: string) =>
     setExpanded(prev => {
@@ -1180,10 +1308,17 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       return next
     })
 
-  const expandAll  = () => setExpanded(new Set(filteredGruppi.map(groupKey)))
+  const expandAll = () => {
+    if (groupBy === 'progetto') {
+      setExpanded(new Set(filteredGruppi.map(progettoKey)))
+    } else {
+      setExpanded(new Set(filteredGruppiCliente.map(clienteKey)))
+    }
+  }
   const collapseAll = () => setExpanded(new Set())
 
   const hasFilters = !!(filtroAcc || filtroPM || filtroStato.length > 0 || !soloAttivi)
+  const isEmpty    = groupBy === 'progetto' ? filteredGruppi.length === 0 : filteredGruppiCliente.length === 0
 
   return (
     <StatiCtx.Provider value={statiMap}>
@@ -1204,11 +1339,11 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           </button>
           <div className="ea-expand-btns">
             <button type="button" className="ea-btn ea-btn--ghost" onClick={expandAll}
-              disabled={loading || filteredGruppi.length === 0}>
+              disabled={loading || isEmpty}>
               Espandi tutto
             </button>
             <button type="button" className="ea-btn ea-btn--ghost" onClick={collapseAll}
-              disabled={loading || filteredGruppi.length === 0}>
+              disabled={loading || isEmpty}>
               Collassa tutto
             </button>
           </div>
@@ -1266,6 +1401,12 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           }}
           getOptionLabel={key => statiMap.get(key)?.label ?? key}
         />
+        <div className="ea-filters-sep" aria-hidden="true" />
+        <Toggle
+          label="Raggruppa per Progetto"
+          checked={groupBy === 'progetto'}
+          onChange={handleGroupByChange}
+        />
         <Toggle
           label={soloAttivi ? 'Solo attivi' : 'Tutti i progetti'}
           checked={soloAttivi}
@@ -1320,7 +1461,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       )}
 
       {/* ── Empty state ── */}
-      {!loading && !error && filteredGruppi.length === 0 && (
+      {!loading && !error && isEmpty && (
         <div className="ea-empty">
           <svg viewBox="0 0 48 48" fill="none" width="48" height="48" aria-hidden="true">
             <rect x="8" y="12" width="32" height="4" rx="2" fill="#CBD5E1" />
@@ -1342,31 +1483,48 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       )}
 
       {/* ── Group list ── */}
-      {!loading && !error && filteredGruppi.length > 0 && (
+      {!loading && !error && !isEmpty && (
         <div className="ea-groups" role="list">
-          {filteredGruppi.map(g => {
-            const key = groupKey(g)
-            return (
-              <div key={key} role="listitem">
-                <GroupCard
-                  group={g}
-                  expanded={expanded.has(key)}
-                  onToggle={() => toggleGroup(key)}
-                  onSelectItem={setSelected}
-                  onEditItem={openEdit}
-                  onDeleteItem={setDelTarget}
-                />
-              </div>
-            )
-          })}
+          {groupBy === 'progetto'
+            ? filteredGruppi.map(g => {
+                const key = progettoKey(g)
+                return (
+                  <div key={key} role="listitem">
+                    <GroupCard
+                      group={g}
+                      expanded={expanded.has(key)}
+                      onToggle={() => toggleGroup(key)}
+                      onSelectItem={setSelected}
+                      onEditItem={openEdit}
+                      onDeleteItem={setDelTarget}
+                    />
+                  </div>
+                )
+              })
+            : filteredGruppiCliente.map(g => {
+                const key = clienteKey(g)
+                return (
+                  <div key={key} role="listitem">
+                    <ClienteGroupCard
+                      group={g}
+                      expanded={expanded.has(key)}
+                      onToggle={() => toggleGroup(key)}
+                      onSelectItem={setSelected}
+                      onEditItem={openEdit}
+                      onDeleteItem={setDelTarget}
+                    />
+                  </div>
+                )
+              })
+          }
         </div>
       )}
 
       {/* ── Detail drawer ── */}
       {selected && <Drawer item={selected} onClose={() => setSelected(null)} />}
 
-      {/* ── Add / edit modal (portal: avoids transform containing-block issue) ── */}
-      {(modal === 'add' || modal === 'edit') && createPortal(
+      {/* ── Add / edit modal ── */}
+      {(modal === 'add' || modal === 'edit') && (
         <AttivitaModal
           title={modal === 'add' ? 'Aggiungi attività' : 'Modifica attività'}
           form={form}
@@ -1378,19 +1536,17 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           onChange={setForm}
           onSave={handleSave}
           onClose={() => setModal(null)}
-        />,
-        document.body
+        />
       )}
 
-      {/* ── Confirm delete (portal: sempre centrato nel viewport) ── */}
-      {delTarget && createPortal(
+      {/* ── Confirm delete ── */}
+      {delTarget && (
         <ConfirmDeleteAttivita
           item={delTarget}
           loading={deleting}
           onConfirm={handleDelete}
           onClose={() => setDelTarget(null)}
-        />,
-        document.body
+        />
       )}
     </div>
     </StatiCtx.Provider>

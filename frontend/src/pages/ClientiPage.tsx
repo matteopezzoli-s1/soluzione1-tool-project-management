@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { SectionModal } from '../components/SectionModal'
 import './ClientiPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -54,9 +55,8 @@ function Modal({ title, form, loading, apiError, accounts, onChange, onSave, onC
       onChange({ ...form, [key]: e.target.value })
 
   return (
-    <div className="cl-overlay" role="dialog" aria-modal="true" aria-labelledby="cl-modal-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="cl-modal" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+    <SectionModal onClose={onClose} labelledBy="cl-modal-title">
+      <div className="cl-modal">
         <div className="cl-modal-header">
           <h2 id="cl-modal-title" className="cl-modal-title">{title}</h2>
           <button className="cl-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
@@ -121,7 +121,7 @@ function Modal({ title, form, loading, apiError, accounts, onChange, onSave, onC
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 
@@ -132,8 +132,7 @@ function ConfirmDelete({ cliente, loading, onConfirm, onClose }: {
 }) {
   const n = cliente._count?.progetti ?? 0
   return (
-    <div className="cl-overlay" role="dialog" aria-modal="true" aria-labelledby="cl-del-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <SectionModal onClose={onClose} labelledBy="cl-del-title">
       <div className="cl-modal cl-modal--sm">
         <div className="cl-modal-header">
           <h2 id="cl-del-title" className="cl-modal-title">Elimina cliente</h2>
@@ -157,7 +156,7 @@ function ConfirmDelete({ cliente, loading, onConfirm, onClose }: {
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 

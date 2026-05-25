@@ -360,6 +360,16 @@
   white-space: nowrap;
 }
 
+/* Filter separator between dropdowns and toggles */
+
+.ea-filters-sep {
+  width: 1px;
+  height: 20px;
+  background: #E2E8F0;
+  flex-shrink: 0;
+  margin: 0 0.1rem;
+}
+
 /* Filter meta */
 
 .ea-filters-reset {
@@ -524,16 +534,60 @@
   box-shadow: 0 2px 10px rgba(0,0,0,0.08);
 }
 
-.ea-group--sfora {
-  border-color: rgba(220,38,38,0.3);
-  box-shadow: 0 0 0 1px rgba(220,38,38,0.12), 0 1px 4px rgba(0,0,0,0.06);
+/* Cliente group variant: no overflow:hidden so sticky header works */
+.ea-group--cliente {
+  overflow: visible;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
 }
 
-.ea-group--sfora:hover {
-  box-shadow: 0 0 0 1px rgba(220,38,38,0.2), 0 3px 12px rgba(0,0,0,0.08);
+.ea-group--cliente > .ea-group-header--sticky {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+.ea-group--cliente > .ea-group-header--sticky:hover {
+  background: #FAFBFC;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
+
+.ea-group--cliente > .ea-group-body {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-top: none;
+  border-radius: 0 0 14px 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  overflow: hidden;
+  margin-top: -0.5rem;
+  padding-top: 0.5rem;
+}
+
+.ea-group--cliente:hover {
+  box-shadow: none;
 }
 
 /* ── Group header (button) ─────────────────────────────────── */
+
+.ea-group-header--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  margin-bottom: 0.5rem;
+  transition: box-shadow 150ms ease;
+}
+
+.ea-group-header--sticky:hover {
+  background: #FAFBFC;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
 
 .ea-group-header {
   width: 100%;
@@ -576,7 +630,15 @@
 }
 
 .ea-group-sfora-dot {
-  color: #DC2626;
+  color: #EF4444;
+  flex-shrink: 0;
+  margin-top: 5px;
+  cursor: default;
+}
+
+.ea-group-sfora-dot--placeholder {
+  display: inline-block;
+  width: 8px;
   flex-shrink: 0;
   margin-top: 5px;
 }
@@ -592,6 +654,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 320px;
+}
+
+.ea-group-cliente--large {
+  font-size: 1.1rem;
+  letter-spacing: -0.025em;
+  max-width: 400px;
 }
 
 .ea-group-progetto {
@@ -716,9 +784,10 @@
   white-space: nowrap;
 }
 
-.ea-th--num    { text-align: right; }
+.ea-th--num      { text-align: right; }
 .ea-th--attivita { min-width: 180px; }
-.ea-th--ordine { max-width: 120px; }
+.ea-th--progetto { min-width: 130px; }
+.ea-th--ordine   { max-width: 120px; }
 
 /* Table rows */
 
@@ -786,6 +855,15 @@
   color: #94A3B8;
   font-size: 0.75rem;
   max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ea-cell--progetto {
+  color: #64748B;
+  font-size: 0.8rem;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

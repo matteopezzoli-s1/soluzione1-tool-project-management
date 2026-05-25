@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { SectionModal } from '../components/SectionModal'
 import './ImpostazioniPage.css'
 import ImportCSVModal from '../components/ImportCSVModal'
 
@@ -87,25 +88,14 @@ interface StatoModalProps {
 function StatoModal({ title, form, chiavePreview, loading, apiError, onChange, onSave, onClose }: StatoModalProps) {
   const firstRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    firstRef.current?.focus()
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', esc)
-    return () => document.removeEventListener('keydown', esc)
-  }, [onClose])
+  useEffect(() => { firstRef.current?.focus() }, [])
 
   const set = (key: keyof FormState) =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
       onChange({ ...form, [key]: key === 'isArchiviato' ? (e.target as HTMLInputElement).checked : e.target.value })
 
   return (
-    <div
-      className="imp-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="imp-modal-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
+    <SectionModal onClose={onClose} labelledBy="imp-modal-title">
       <div className="imp-modal">
         <div className="imp-modal-header">
           <h2 id="imp-modal-title" className="imp-modal-title">{title}</h2>
@@ -219,7 +209,7 @@ function StatoModal({ title, form, chiavePreview, loading, apiError, onChange, o
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 
@@ -228,20 +218,8 @@ function StatoModal({ title, form, chiavePreview, loading, apiError, onChange, o
 function ConfirmDelete({ stato, loading, onConfirm, onClose }: {
   stato: StatoConfig; loading: boolean; onConfirm: () => void; onClose: () => void
 }) {
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', esc)
-    return () => document.removeEventListener('keydown', esc)
-  }, [onClose])
-
   return (
-    <div
-      className="imp-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="imp-del-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
+    <SectionModal onClose={onClose} labelledBy="imp-del-title">
       <div className="imp-modal imp-modal--sm">
         <div className="imp-modal-header">
           <h2 id="imp-del-title" className="imp-modal-title">Elimina stato</h2>
@@ -270,7 +248,7 @@ function ConfirmDelete({ stato, loading, onConfirm, onClose }: {
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 

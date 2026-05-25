@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { SectionModal } from '../components/SectionModal'
 import './TeamPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -50,8 +51,7 @@ function Modal({ title, form, loading, apiError, onChange, onSave, onClose }: Mo
   }
 
   return (
-    <div className="tm-overlay" role="dialog" aria-modal="true" aria-labelledby="tm-modal-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <SectionModal onClose={onClose} labelledBy="tm-modal-title">
       <div className="tm-modal" onKeyDown={handleKey}>
         <div className="tm-modal-header">
           <h2 id="tm-modal-title" className="tm-modal-title">{title}</h2>
@@ -102,7 +102,7 @@ function Modal({ title, form, loading, apiError, onChange, onSave, onClose }: Mo
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 
@@ -112,8 +112,7 @@ function ConfirmDelete({ pm, loading, onConfirm, onClose }: {
   pm: PM; loading: boolean; onConfirm: () => void; onClose: () => void
 }) {
   return (
-    <div className="tm-overlay" role="dialog" aria-modal="true" aria-labelledby="tm-confirm-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <SectionModal onClose={onClose} labelledBy="tm-confirm-title">
       <div className="tm-modal tm-modal--sm">
         <div className="tm-modal-header">
           <h2 id="tm-confirm-title" className="tm-modal-title">Elimina PM</h2>
@@ -141,7 +140,7 @@ function ConfirmDelete({ pm, loading, onConfirm, onClose }: {
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 

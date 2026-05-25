@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { SectionModal } from '../components/SectionModal'
 import './TeamAccountPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -50,8 +51,7 @@ function Modal({ title, form, loading, apiError, onChange, onSave, onClose }: Mo
   }
 
   return (
-    <div className="ta-overlay" role="dialog" aria-modal="true" aria-labelledby="ta-modal-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <SectionModal onClose={onClose} labelledBy="ta-modal-title">
       <div className="ta-modal" onKeyDown={handleKey}>
         <div className="ta-modal-header">
           <h2 id="ta-modal-title" className="ta-modal-title">{title}</h2>
@@ -102,7 +102,7 @@ function Modal({ title, form, loading, apiError, onChange, onSave, onClose }: Mo
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 
@@ -112,8 +112,7 @@ function ConfirmDelete({ account, loading, onConfirm, onClose }: {
   account: Account; loading: boolean; onConfirm: () => void; onClose: () => void
 }) {
   return (
-    <div className="ta-overlay" role="dialog" aria-modal="true" aria-labelledby="ta-confirm-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <SectionModal onClose={onClose} labelledBy="ta-confirm-title">
       <div className="ta-modal ta-modal--sm">
         <div className="ta-modal-header">
           <h2 id="ta-confirm-title" className="ta-modal-title">Elimina Account</h2>
@@ -141,7 +140,7 @@ function ConfirmDelete({ account, loading, onConfirm, onClose }: {
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 

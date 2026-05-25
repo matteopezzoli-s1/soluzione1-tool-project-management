@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { SectionModal } from '../components/SectionModal'
 import './ProgettiPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -78,9 +79,8 @@ function Modal({ title, form, loading, apiError, clienti, statiList, onChange, o
       onChange({ ...form, [key]: e.target.value })
 
   return (
-    <div className="pr-overlay" role="dialog" aria-modal="true" aria-labelledby="pr-modal-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="pr-modal" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+    <SectionModal onClose={onClose} labelledBy="pr-modal-title">
+      <div className="pr-modal">
         <div className="pr-modal-header">
           <h2 id="pr-modal-title" className="pr-modal-title">{title}</h2>
           <button className="pr-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
@@ -146,7 +146,7 @@ function Modal({ title, form, loading, apiError, clienti, statiList, onChange, o
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 
@@ -156,8 +156,7 @@ function ConfirmDelete({ progetto, loading, onConfirm, onClose }: {
   progetto: Progetto; loading: boolean; onConfirm: () => void; onClose: () => void
 }) {
   return (
-    <div className="pr-overlay" role="dialog" aria-modal="true" aria-labelledby="pr-del-title"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <SectionModal onClose={onClose} labelledBy="pr-del-title">
       <div className="pr-modal pr-modal--sm">
         <div className="pr-modal-header">
           <h2 id="pr-del-title" className="pr-modal-title">Elimina progetto</h2>
@@ -180,7 +179,7 @@ function ConfirmDelete({ progetto, loading, onConfirm, onClose }: {
           </button>
         </div>
       </div>
-    </div>
+    </SectionModal>
   )
 }
 
