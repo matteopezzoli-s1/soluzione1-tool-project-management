@@ -1,8 +1,3 @@
--- Drop redundant denormalized columns
-ALTER TABLE "attivita" DROP COLUMN IF EXISTS "risorse_coinvolte";
-ALTER TABLE "attivita" DROP COLUMN IF EXISTS "account";
-ALTER TABLE "attivita" DROP COLUMN IF EXISTS "project_manager";
-
 -- Add FK columns to attivita
 ALTER TABLE "attivita"
   ADD COLUMN IF NOT EXISTS "cliente_id"  TEXT,
