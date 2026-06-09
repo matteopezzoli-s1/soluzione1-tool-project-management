@@ -158,7 +158,8 @@ function StatoModal({ title, form, chiavePreview, loading, apiError, showEscludi
               {form.label && (
                 <StatoBadgePreview stato={{
                   id: '', chiave: chiavePreview, label: form.label || 'Anteprima',
-                  colore: form.colore, isArchiviato: form.isArchiviato, ordine: 0,
+                  colore: form.colore, isArchiviato: form.isArchiviato,
+                  escludiDaConteggio: form.escludiDaConteggio, ordine: 0,
                 }} />
               )}
             </div>
