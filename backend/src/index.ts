@@ -1030,6 +1030,27 @@ app.patch('/api/attivita/:id/dates', requireAuth, async (req, res) => {
   }
 })
 
+// PATCH /api/attivita/bulk-consuntivato — aggiornamento massivo giornateConsuntivate
+app.patch('/api/attivita/bulk-consuntivato', requireAuth, async (req, res) => {
+  const { updates } = req.body as { updates: Array<{ id: string; giornateConsuntivate: number }> }
+  if (!Array.isArray(updates) || updates.length === 0) {
+    res.status(400).json({ error: 'updates deve essere un array non vuoto' }); return
+  }
+  try {
+    await Promise.all(
+      updates.map(({ id, giornateConsuntivate }) =>
+        prisma.attivita.update({ where: { id }, data: { giornateConsuntivate } })
+      )
+    )
+    res.json({ updated: updates.length })
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'P2025') {
+      res.status(404).json({ error: 'Una o più attività non trovate' }); return
+    }
+    res.status(500).json({ error: 'Errore aggiornamento consuntivato' })
+  }
+})
+
 // ── Gantt Milestones ──────────────────────────────────────────
 
 // GET /api/gantt/milestones — tutti (filtro opzionale ?activityId=)

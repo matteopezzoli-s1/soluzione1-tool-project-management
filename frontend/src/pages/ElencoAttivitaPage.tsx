@@ -339,7 +339,7 @@ function MultiSelect({ label, options, value, onChange, disabled, getOptionLabel
             <label key={opt} className="ea-dropdown-item">
               <input type="checkbox" checked={value.includes(opt)}
                 onChange={() => toggle(opt)} />
-              <StatoBadge stato={opt} />
+              {getOptionLabel ? <span>{getLabel(opt)}</span> : <StatoBadge stato={opt} />}
             </label>
           ))}
         </div>
@@ -1171,6 +1171,375 @@ function ConfirmDeleteAttivita({ item, loading, onConfirm, onClose }: {
   )
 }
 
+// ─── CSV parsing helpers ──────────────────────────────────────────────────────
+
+function parseCSVLine(line: string): string[] {
+  const fields: string[] = []
+  let field = ''
+  let inQuotes = false
+  let i = 0
+  while (i < line.length) {
+    const ch = line[i]
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { field += '"'; i += 2 }
+      else if (ch === '"') { inQuotes = false; i++ }
+      else { field += ch; i++ }
+    } else {
+      if (ch === '"') { inQuotes = true; i++ }
+      else if (ch === ',') { fields.push(field); field = ''; i++ }
+      else { field += ch; i++ }
+    }
+  }
+  fields.push(field)
+  return fields
+}
+
+interface TimesheetRow {
+  key: string        // es. "2026-54"
+  fullCode: string   // es. "GO-ORDV-2026-54"
+  totalOre: number      // ore grezze dal CSV
+  totalGiornate: number // ore / 8, da scrivere su giornateConsuntivate
+  attivita: AttivitaItem
+}
+
+function parseTimesheet(csv: string, allAttivita: AttivitaItem[]): {
+  matched: TimesheetRow[]
+  notFound: string[]
+} {
+  const lines = csv.split(/\r?\n/).filter(l => l.trim() !== '')
+  if (lines.length < 2) return { matched: [], notFound: [] }
+
+  const header = parseCSVLine(lines[0])
+  const milestoneIdx = header.findIndex(h => h.trim() === 'milestone')
+  const hoursIdx     = header.findIndex(h => h.trim() === 'Hours(For Calculation)')
+  if (milestoneIdx === -1 || hoursIdx === -1) return { matched: [], notFound: [] }
+
+  const orePerKey     = new Map<string, number>()
+  const fullCodePerKey = new Map<string, string>()
+
+  for (let i = 1; i < lines.length; i++) {
+    const fields    = parseCSVLine(lines[i])
+    const milestone = fields[milestoneIdx]?.trim() ?? ''
+    const hoursStr  = fields[hoursIdx]?.trim() ?? ''
+    const match     = milestone.match(/GO-ORDV-\d{4}-\d+/)
+    if (!match) continue
+    const fullCode = match[0]
+    const key      = fullCode.replace('GO-ORDV-', '')
+    const hours    = parseFloat(hoursStr.replace(',', '.'))
+    if (isNaN(hours)) continue
+    orePerKey.set(key, (orePerKey.get(key) ?? 0) + hours)
+    fullCodePerKey.set(key, fullCode)
+  }
+
+  const attivitaByOrdine = new Map<string, AttivitaItem>()
+  for (const a of allAttivita) {
+    if (a.riferimentoOrdineVendita) {
+      attivitaByOrdine.set(a.riferimentoOrdineVendita.trim(), a)
+    }
+  }
+
+  const matched: TimesheetRow[] = []
+  const notFound: string[] = []
+
+  for (const [key, totalOre] of orePerKey) {
+    const attivita = attivitaByOrdine.get(key)
+    const fullCode = fullCodePerKey.get(key)!
+    if (attivita) {
+      const ore = Math.round(totalOre * 100) / 100
+      matched.push({ key, fullCode, totalOre: ore, totalGiornate: Math.round(ore / 8 * 100) / 100, attivita })
+    } else {
+      notFound.push(fullCode)
+    }
+  }
+
+  matched.sort((a, b) => a.fullCode.localeCompare(b.fullCode))
+  notFound.sort()
+  return { matched, notFound }
+}
+
+// ─── ImportTimesheetModal ────────────────────────────────────────────────────
+
+interface ImportTimesheetModalProps {
+  token: string
+  allAttivita: AttivitaItem[]
+  onClose: () => void
+  onImported: () => void
+}
+
+function ImportTimesheetModal({ token, allAttivita, onClose, onImported }: ImportTimesheetModalProps) {
+  const [step,        setStep]       = useState<'upload' | 'preview'>('upload')
+  const [dragging,    setDragging]   = useState(false)
+  const [matched,       setMatched]      = useState<TimesheetRow[]>([])
+  const [notFound,      setNotFound]     = useState<string[]>([])
+  const [selectedIds,   setSelectedIds]  = useState<Set<string>>(new Set())
+  const [importing,     setImporting]    = useState(false)
+  const [importErr,     setImportErr]    = useState<string | null>(null)
+  const [parseErr,      setParseErr]     = useState<string | null>(null)
+  const [filtroImpAcc,  setFiltroImpAcc] = useState<string[]>([])
+  const [filtroImpPM,   setFiltroImpPM]  = useState<string[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const uniqueImpAccounts = useMemo(() =>
+    [...new Set(matched.map(r => r.attivita.account).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it')),
+    [matched]
+  )
+  const uniqueImpPMs = useMemo(() =>
+    [...new Set(matched.map(r => r.attivita.projectManager).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it')),
+    [matched]
+  )
+  const visibleMatched = useMemo(() => matched.filter(r =>
+    (!filtroImpAcc.length || filtroImpAcc.includes(r.attivita.account)) &&
+    (!filtroImpPM.length  || filtroImpPM.includes(r.attivita.projectManager))
+  ), [matched, filtroImpAcc, filtroImpPM])
+
+  function processFile(file: File) {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setParseErr('Seleziona un file .csv.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = (e.target?.result as string) ?? ''
+      const { matched: m, notFound: nf } = parseTimesheet(text, allAttivita)
+      if (m.length === 0 && nf.length === 0) {
+        setParseErr('Nessun codice GO-ORDV trovato. Verifica che sia l\'export timesheet di Zoho Projects.')
+        return
+      }
+      setMatched(m)
+      setNotFound(nf)
+      setSelectedIds(new Set(m.map(r => r.attivita.id)))
+      setParseErr(null)
+      setStep('preview')
+    }
+    reader.readAsText(file, 'utf-8')
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) processFile(file)
+    e.target.value = ''
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (file) processFile(file)
+  }
+
+  function toggleAll(checked: boolean) {
+    setSelectedIds(checked ? new Set(visibleMatched.map(r => r.attivita.id)) : new Set())
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  async function handleImport() {
+    const updates = matched
+      .filter(r => selectedIds.has(r.attivita.id))
+      .map(r => ({ id: r.attivita.id, giornateConsuntivate: r.totalGiornate }))
+    if (updates.length === 0) return
+    setImporting(true)
+    setImportErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/attivita/bulk-consuntivato`, {
+        method: 'PATCH',
+        headers: authHeadersJson(token),
+        body: JSON.stringify({ updates }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setImportErr((data as { error?: string }).error ?? `Errore ${res.status}`)
+        return
+      }
+      onImported()
+      onClose()
+    } catch {
+      setImportErr('Errore di rete. Riprova.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <SectionModal onClose={onClose}>
+      <div className="ea-modal ea-modal--import">
+        <div className="ea-modal-header">
+          <h2 className="ea-modal-title">Importa consuntivi da Zoho</h2>
+          <button className="ea-modal-close" type="button" onClick={onClose} aria-label="Chiudi">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        {step === 'upload' && (
+          <div className="ea-modal-body">
+            <div
+              className={`ea-import-dropzone${dragging ? ' ea-import-dropzone--over' : ''}`}
+              onDragOver={e => { e.preventDefault(); setDragging(true) }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5"
+                width="40" height="40" aria-hidden="true">
+                <path d="M24 30V14M16 22l8-8 8 8" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M8 36h32" strokeLinecap="round" />
+                <path d="M8 28a8 8 0 0 1 0-16h1M40 28a8 8 0 0 0 0-16h-1" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <p className="ea-import-dropzone-label">
+                {dragging ? 'Rilascia il file qui' : 'Trascina il CSV qui, oppure clicca per selezionarlo'}
+              </p>
+              <span className="ea-import-dropzone-hint">Export timesheet da Zoho Projects (.csv)</span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                className="ea-import-file-input"
+                onChange={handleFileChange}
+              />
+            </div>
+            {parseErr && <p className="ea-import-parse-err">{parseErr}</p>}
+          </div>
+        )}
+
+        {step === 'preview' && (
+          <div className="ea-modal-body">
+            <p className="ea-import-summary-line">
+              <strong>{matched.length}</strong> attività con corrispondenza
+              {notFound.length > 0 && <> · <strong>{notFound.length}</strong> codici non trovati</>}
+            </p>
+
+            {matched.length > 0 && (
+              <div className="ea-import-filters">
+                <MultiSelect
+                  label="Account"
+                  options={uniqueImpAccounts}
+                  value={filtroImpAcc}
+                  onChange={setFiltroImpAcc}
+                  getOptionLabel={o => o}
+                />
+                <MultiSelect
+                  label="Project Manager"
+                  options={uniqueImpPMs}
+                  value={filtroImpPM}
+                  onChange={setFiltroImpPM}
+                  getOptionLabel={o => o}
+                />
+              </div>
+            )}
+
+            {matched.length > 0 && (
+              <div className="ea-import-section">
+                <div className="ea-import-section-hd">
+                  <span className="ea-import-section-title">
+                    Attività da aggiornare
+                    {(filtroImpAcc.length > 0 || filtroImpPM.length > 0) &&
+                      <> ({visibleMatched.length} di {matched.length})</>}
+                  </span>
+                  <label className="ea-import-select-all">
+                    <input
+                      type="checkbox"
+                      checked={visibleMatched.length > 0 && visibleMatched.every(r => selectedIds.has(r.attivita.id))}
+                      onChange={e => toggleAll(e.target.checked)}
+                    />
+                    Seleziona tutti
+                  </label>
+                </div>
+                <div className="ea-import-table-wrap">
+                  <table className="ea-import-table">
+                    <thead>
+                      <tr>
+                        <th className="ea-import-th ea-import-th--chk"></th>
+                        <th className="ea-import-th">Cliente</th>
+                        <th className="ea-import-th">Progetto</th>
+                        <th className="ea-import-th ea-import-th--wide">Attività</th>
+                        <th className="ea-import-th">Codice GO</th>
+                        <th className="ea-import-th ea-import-th--num">Attuale (gg)</th>
+                        <th className="ea-import-th ea-import-th--num">Nuovo (gg)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleMatched.map(r => {
+                        const checked  = selectedIds.has(r.attivita.id)
+                        const curr     = r.attivita.giornateConsuntivate ?? 0
+                        const isUp     = r.totalGiornate > curr
+                        const isDown   = r.totalGiornate < curr
+                        return (
+                          <tr
+                            key={r.attivita.id}
+                            className={`ea-import-row${!checked ? ' ea-import-row--dim' : ''}`}
+                            onClick={() => toggleOne(r.attivita.id)}
+                          >
+                            <td className="ea-import-td ea-import-td--chk">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleOne(r.attivita.id)}
+                                onClick={e => e.stopPropagation()}
+                              />
+                            </td>
+                            <td className="ea-import-td ea-import-td--trunc">{r.attivita.cliente}</td>
+                            <td className="ea-import-td ea-import-td--trunc">{r.attivita.progetto}</td>
+                            <td className="ea-import-td">{r.attivita.attivita}</td>
+                            <td className="ea-import-td ea-import-td--code">{r.fullCode}</td>
+                            <td className="ea-import-td ea-import-td--num">{fmt(r.attivita.giornateConsuntivate)}</td>
+                            <td className={`ea-import-td ea-import-td--num${isUp ? ' ea-import-td--up' : isDown ? ' ea-import-td--down' : ''}`}>
+                              {fmt(r.totalGiornate)}{isUp ? ' ↑' : isDown ? ' ↓' : ''}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {notFound.length > 0 && (
+              <div className="ea-import-section ea-import-notfound">
+                <span className="ea-import-section-title">Codici non trovati nell'applicazione</span>
+                <ul className="ea-import-notfound-list">
+                  {notFound.map(code => <li key={code}>{code}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {importErr && <p className="ea-import-parse-err">{importErr}</p>}
+          </div>
+        )}
+
+        <div className="ea-modal-footer">
+          {step === 'upload' ? (
+            <button className="ea-btn ea-btn--ghost" type="button" onClick={onClose}>Annulla</button>
+          ) : (
+            <>
+              <button className="ea-btn ea-btn--ghost" type="button"
+                onClick={() => setStep('upload')} disabled={importing}>
+                Indietro
+              </button>
+              <button
+                className="ea-btn ea-btn--primary"
+                type="button"
+                disabled={selectedIds.size === 0 || importing}
+                onClick={handleImport}
+              >
+                {importing ? 'Importazione…' : `Importa ${selectedIds.size} attività`}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </SectionModal>
+  )
+}
+
 // ─── ElencoAttivitaPage ───────────────────────────────────────────────────────
 
 interface ElencoAttivitaPageProps { token: string }
@@ -1179,8 +1548,8 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const [data,        setData]        = useState<AttivitaResponse | null>(null)
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState<string | null>(null)
-  const [filtroAcc,   setFiltroAcc]   = useState('')
-  const [filtroPM,    setFiltroPM]    = useState('')
+  const [filtroAcc,   setFiltroAcc]   = useState<string[]>([])
+  const [filtroPM,    setFiltroPM]    = useState<string[]>([])
   const [filtroStato, setFiltroStato] = useState<string[]>([])
   const [soloAttivi,  setSoloAttivi]  = useState(true)
   const [expanded,    setExpanded]    = useState<Set<string>>(new Set())
@@ -1217,8 +1586,9 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const [form,      setForm]      = useState<AttivitaFormData>(EMPTY_FORM)
   const [saving,    setSaving]    = useState(false)
   const [formErr,   setFormErr]   = useState<string | null>(null)
-  const [delTarget, setDelTarget] = useState<AttivitaItem | null>(null)
-  const [deleting,  setDeleting]  = useState(false)
+  const [delTarget,    setDelTarget]    = useState<AttivitaItem | null>(null)
+  const [deleting,     setDeleting]     = useState(false)
+  const [showImport,   setShowImport]   = useState(false)
 
   const fetchData = useCallback(async (opts: { preserveExpanded?: boolean; silent?: boolean } = {}) => {
     if (!opts.silent) setLoading(true)
@@ -1416,8 +1786,8 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     return data.gruppi
       .map(g => {
         let att = g.attivita
-        if (filtroAcc)          att = att.filter(a => a.account === filtroAcc)
-        if (filtroPM)           att = att.filter(a => a.projectManager === filtroPM)
+        if (filtroAcc.length)   att = att.filter(a => filtroAcc.includes(a.account))
+        if (filtroPM.length)    att = att.filter(a => filtroPM.includes(a.projectManager))
         if (filtroStato.length) att = att.filter(a => filtroStato.includes(a.stato))
         if (soloAttivi)         att = att.filter(a => !(statiMap.get(a.stato)?.isArchiviato ?? false))
         return { ...g, attivita: att }
@@ -1480,7 +1850,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   }
   const collapseAll = () => setExpanded(new Set())
 
-  const hasFilters = !!(filtroAcc || filtroPM || filtroStato.length > 0 || !soloAttivi)
+  const hasFilters = !!(filtroAcc.length || filtroPM.length || filtroStato.length > 0 || !soloAttivi)
   const isEmpty    = groupBy === 'progetto' ? filteredGruppi.length === 0 : filteredGruppiCliente.length === 0
 
   return (
@@ -1513,6 +1883,19 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           <button
             type="button"
             className="ea-btn ea-btn--outline"
+            disabled={loading}
+            onClick={() => setShowImport(true)}
+            title="Importa consuntivi da Zoho Projects"
+          >
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+              width="15" height="15" aria-hidden="true">
+              <path d="M10 14V4M6 10l4 4 4-4M4 17h12" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Importa consuntivi
+          </button>
+          <button
+            type="button"
+            className="ea-btn ea-btn--outline"
             disabled={loading || filteredGruppi.length === 0}
             onClick={() => exportCSV(filteredGruppi)}
             title="Esporta come file CSV/Excel"
@@ -1542,17 +1925,19 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
 
       {/* ── Filters ── */}
       <div className="ea-filters" role="search" aria-label="Filtri attività">
-        <SimpleSelect
+        <MultiSelect
           label="Account"
-          value={filtroAcc}
           options={uniqueAccounts}
+          value={filtroAcc}
           onChange={setFiltroAcc}
+          getOptionLabel={o => o}
         />
-        <SimpleSelect
+        <MultiSelect
           label="Project Manager"
-          value={filtroPM}
           options={uniquePMs}
+          value={filtroPM}
           onChange={setFiltroPM}
+          getOptionLabel={o => o}
         />
         <MultiSelect
           label="Stato"
@@ -1583,7 +1968,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         />
         {hasFilters && (
           <button type="button" className="ea-filters-reset" onClick={() => {
-            setFiltroAcc(''); setFiltroPM(''); setFiltroStato([]); setSoloAttivi(true)
+            setFiltroAcc([]); setFiltroPM([]); setFiltroStato([]); setSoloAttivi(true)
           }}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75"
               width="13" height="13" aria-hidden="true">
@@ -1638,7 +2023,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           </p>
           {hasFilters && (
             <button type="button" className="ea-btn ea-btn--ghost"
-              onClick={() => { setFiltroAcc(''); setFiltroPM(''); setFiltroStato([]); setSoloAttivi(true) }}>
+              onClick={() => { setFiltroAcc([]); setFiltroPM([]); setFiltroStato([]); setSoloAttivi(true) }}>
               Rimuovi filtri
             </button>
           )}
@@ -1683,6 +2068,16 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
               })
           }
         </div>
+      )}
+
+      {/* ── Import timesheet modal ── */}
+      {showImport && (
+        <ImportTimesheetModal
+          token={token}
+          allAttivita={data?.gruppi.flatMap(g => g.attivita) ?? []}
+          onClose={() => setShowImport(false)}
+          onImported={() => fetchData({ preserveExpanded: true, silent: true })}
+        />
       )}
 
       {/* ── Detail modal ── */}
