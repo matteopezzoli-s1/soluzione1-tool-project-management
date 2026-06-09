@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from 'react'
+import { createPortal } from 'react-dom'
 import { SectionModal } from '../components/SectionModal'
 import './ElencoAttivitaPage.css'
 
@@ -11,7 +12,7 @@ type GroupBy = 'cliente' | 'progetto'
 
 interface StatoConfigItem {
   id: string; chiave: string; label: string
-  colore: string; isArchiviato: boolean; ordine: number
+  colore: string; isArchiviato: boolean; escludiDaConteggio: boolean; ordine: number
 }
 
 // Context per la mappa chiave→config (evita prop-drilling nei subcomponenti)
@@ -165,6 +166,114 @@ function StatoBadge({ stato }: { stato: StatoAttivita }) {
     >
       {label}
     </span>
+  )
+}
+
+// ─── Inline stato editor ──────────────────────────────────────────────────────
+
+function InlineStatoEdit({ item, onChangeStato }: {
+  item: AttivitaItem
+  onChangeStato: (item: AttivitaItem, newStato: string) => Promise<void>
+}) {
+  const statiMap = useContext(StatiCtx)
+  const [open, setOpen] = useState(false)
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
+  const [saving, setSaving] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const dropRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function outside(e: MouseEvent) {
+      const t = e.target as Node
+      if (!btnRef.current?.contains(t) && !dropRef.current?.contains(t)) setOpen(false)
+    }
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    function updatePos() {
+      if (btnRef.current) {
+        const r = btnRef.current.getBoundingClientRect()
+        setDropPos({ top: r.bottom + 4, left: r.left })
+      }
+    }
+    window.addEventListener('scroll', updatePos, true)
+    window.addEventListener('resize', updatePos)
+    return () => {
+      window.removeEventListener('scroll', updatePos, true)
+      window.removeEventListener('resize', updatePos)
+    }
+  }, [open])
+
+  const statiList = [...statiMap.values()].sort((a, b) => a.ordine - b.ordine)
+
+  const handleOpen = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (saving) return
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setDropPos({ top: r.bottom + 4, left: r.left })
+    }
+    setOpen(o => !o)
+  }
+
+  const handleSelect = async (e: React.MouseEvent, chiave: string) => {
+    e.stopPropagation()
+    if (chiave === item.stato) { setOpen(false); return }
+    setSaving(true)
+    await onChangeStato(item, chiave)
+    setSaving(false)
+    setOpen(false)
+  }
+
+  return (
+    <div className="ea-stato-edit" onClick={e => e.stopPropagation()}>
+      <button
+        ref={btnRef}
+        type="button"
+        className={`ea-stato-edit-btn${saving ? ' ea-stato-edit-btn--saving' : ''}`}
+        onClick={handleOpen}
+        aria-label="Cambia stato"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title="Clicca per cambiare stato"
+      >
+        <StatoBadge stato={item.stato} />
+        <svg className="ea-stato-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+          strokeWidth="2" width="10" height="10" aria-hidden="true">
+          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && createPortal(
+        <div
+          ref={dropRef}
+          className="ea-stato-dropdown"
+          role="listbox"
+          style={{ position: 'fixed', top: dropPos.top, left: dropPos.left }}
+        >
+          {statiList.map(s => (
+            <button
+              key={s.chiave}
+              type="button"
+              role="option"
+              aria-selected={s.chiave === item.stato}
+              className={`ea-stato-dropdown-item${s.chiave === item.stato ? ' ea-stato-dropdown-item--active' : ''}`}
+              onClick={e => handleSelect(e, s.chiave)}
+            >
+              <StatoBadge stato={s.chiave} />
+              {s.chiave === item.stato && (
+                <svg viewBox="0 0 16 16" fill="currentColor" width="11" height="11" aria-hidden="true">
+                  <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.35 2.35 4.492-6.738a.75.75 0 0 1 1.044-.206z" clipRule="evenodd"/>
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </div>
   )
 }
 
@@ -341,36 +450,33 @@ function ProgressBar({ vendute, consuntivate }: { vendute: number; consuntivate:
   )
 }
 
-// ─── Activity detail drawer ───────────────────────────────────────────────────
+// ─── Activity detail modal (read-only) ───────────────────────────────────────
 
-function Drawer({ item, onClose }: { item: AttivitaItem; onClose: () => void }) {
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [onClose])
-
+function AttivitaDetailModal({ item, onClose, onEdit }: {
+  item: AttivitaItem
+  onClose: () => void
+  onEdit: (item: AttivitaItem) => void
+}) {
   const sfora = isSforamento(item)
   const delta = item.giornateVendute !== null && item.giornateConsuntivate !== null
     ? item.giornateVendute - item.giornateConsuntivate
     : null
 
   return (
-    <>
-      <div className="ea-drawer-overlay" onClick={onClose} aria-hidden="true" />
-      <div className="ea-drawer" role="dialog" aria-modal="true" aria-label={`Dettaglio: ${item.attivita}`}>
-        <div className="ea-drawer-header">
-          <div className="ea-drawer-header-top">
+    <SectionModal onClose={onClose} labelledBy="ea-detail-title">
+      <div className="ea-modal ea-modal--detail">
+        <div className="ea-modal-header">
+          <div className="ea-detail-header-top">
             <StatoBadge stato={item.stato} />
-            <button className="ea-drawer-close" onClick={onClose} aria-label="Chiudi dettaglio" type="button">
+            <button className="ea-modal-close" onClick={onClose} aria-label="Chiudi dettaglio" type="button">
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
                 width="18" height="18" aria-hidden="true">
                 <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
               </svg>
             </button>
           </div>
-          <h2 className="ea-drawer-title">{item.attivita}</h2>
-          <p className="ea-drawer-sub">{item.cliente} — {item.progetto}</p>
+          <h2 id="ea-detail-title" className="ea-modal-title">{item.attivita}</h2>
+          <p className="ea-detail-sub">{item.cliente} — {item.progetto}</p>
           {sfora && (
             <div className="ea-drawer-alert" role="alert">
               <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" aria-hidden="true">
@@ -381,7 +487,7 @@ function Drawer({ item, onClose }: { item: AttivitaItem; onClose: () => void }) 
           )}
         </div>
 
-        <div className="ea-drawer-body">
+        <div className="ea-modal-body">
           <section className="ea-drawer-section">
             <h3 className="ea-drawer-section-title">Anagrafica</h3>
             <dl className="ea-drawer-dl">
@@ -451,8 +557,21 @@ function Drawer({ item, onClose }: { item: AttivitaItem; onClose: () => void }) 
             </section>
           )}
         </div>
+
+        <div className="ea-modal-footer">
+          <button className="ea-btn ea-btn--ghost" type="button" onClick={onClose}>Chiudi</button>
+          <button className="ea-btn ea-btn--primary" type="button"
+            onClick={() => { onClose(); onEdit(item) }}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+              width="14" height="14" aria-hidden="true">
+              <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z"
+                strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Modifica
+          </button>
+        </div>
       </div>
-    </>
+    </SectionModal>
   )
 }
 
@@ -480,10 +599,11 @@ interface ActivityRowsProps {
   onSelectItem: (item: AttivitaItem) => void
   onEditItem: (item: AttivitaItem) => void
   onDeleteItem: (item: AttivitaItem) => void
+  onChangeStato: (item: AttivitaItem, newStato: string) => Promise<void>
   tableLabel: string
 }
 
-function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDeleteItem, tableLabel }: ActivityRowsProps) {
+function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDeleteItem, onChangeStato, tableLabel }: ActivityRowsProps) {
   return (
     <div className="ea-group-body">
       <div className="ea-table-wrap">
@@ -527,7 +647,9 @@ function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDele
                     {item.attivita}
                   </td>
                   {showProgetto && <td className="ea-cell ea-cell--progetto">{item.progetto}</td>}
-                  <td className="ea-cell"><StatoBadge stato={item.stato} /></td>
+                  <td className="ea-cell ea-cell--stato" onClick={e => e.stopPropagation()}>
+                    <InlineStatoEdit item={item} onChangeStato={onChangeStato} />
+                  </td>
                   <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(item.giornateVendute)}</td>
                   <td className={`ea-cell ea-cell--num ea-cell--mono ${sfora ? 'ea-cell--red' : ''}`}>
                     {fmt(item.giornateConsuntivate)}
@@ -578,9 +700,10 @@ interface GroupCardProps {
   onSelectItem: (item: AttivitaItem) => void
   onEditItem: (item: AttivitaItem) => void
   onDeleteItem: (item: AttivitaItem) => void
+  onChangeStato: (item: AttivitaItem, newStato: string) => Promise<void>
 }
 
-function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem }: GroupCardProps) {
+function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: GroupCardProps) {
   const statiMap  = useContext(StatiCtx)
   const statoPrev = getStatoPrevValente(group.attivita, statiMap)
   const delta = group.totaleVendute - group.totaleConsuntivate
@@ -668,6 +791,7 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
           onSelectItem={onSelectItem}
           onEditItem={onEditItem}
           onDeleteItem={onDeleteItem}
+          onChangeStato={onChangeStato}
         />
       )}
     </div>
@@ -683,9 +807,10 @@ interface ClienteGroupCardProps {
   onSelectItem: (item: AttivitaItem) => void
   onEditItem: (item: AttivitaItem) => void
   onDeleteItem: (item: AttivitaItem) => void
+  onChangeStato: (item: AttivitaItem, newStato: string) => Promise<void>
 }
 
-function ClienteGroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem }: ClienteGroupCardProps) {
+function ClienteGroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: ClienteGroupCardProps) {
   const delta = group.totaleVendute - group.totaleConsuntivate
 
   return (
@@ -745,6 +870,7 @@ function ClienteGroupCard({ group, expanded, onToggle, onSelectItem, onEditItem,
           onSelectItem={onSelectItem}
           onEditItem={onEditItem}
           onDeleteItem={onDeleteItem}
+          onChangeStato={onChangeStato}
         />
       )}
     </div>
@@ -1094,8 +1220,8 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const [delTarget, setDelTarget] = useState<AttivitaItem | null>(null)
   const [deleting,  setDeleting]  = useState(false)
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  const fetchData = useCallback(async (opts: { preserveExpanded?: boolean; silent?: boolean } = {}) => {
+    if (!opts.silent) setLoading(true)
     setError(null)
     try {
       const [res, rC, rA, rP, rPr, rSt] = await Promise.all([
@@ -1127,14 +1253,18 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         }))
       )
       // Auto-expand sforamento groups (both key formats for both view modes)
-      const initialExpanded = new Set<string>()
+      const sforamentoExpanded = new Set<string>()
       for (const g of json.gruppi as GruppoAttivita[]) {
         if (g.inSforamento) {
-          initialExpanded.add(`${g.cliente}|||${g.progetto}`)
-          initialExpanded.add(`cliente::${g.cliente}`)
+          sforamentoExpanded.add(`${g.cliente}|||${g.progetto}`)
+          sforamentoExpanded.add(`cliente::${g.cliente}`)
         }
       }
-      setExpanded(initialExpanded)
+      if (opts.preserveExpanded) {
+        setExpanded(prev => { const next = new Set(prev); sforamentoExpanded.forEach(k => next.add(k)); return next })
+      } else {
+        setExpanded(sforamentoExpanded)
+      }
     } catch {
       setError('Impossibile caricare le attività. Verifica la connessione.')
     } finally {
@@ -1206,6 +1336,35 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     }
   }
 
+  const handleChangeStato = useCallback(async (item: AttivitaItem, newStato: string) => {
+    try {
+      const body = {
+        clienteId:                item.clienteId,
+        progettoId:               item.progettoId,
+        pmIds:                    item.pmIds ?? [],
+        attivita:                 item.attivita,
+        stato:                    newStato,
+        giornateVendute:          item.giornateVendute,
+        giornateConsuntivate:     item.giornateConsuntivate,
+        riferimentoOrdineVendita: item.riferimentoOrdineVendita,
+        inizio:                   item.inizio,
+        deadline:                 item.deadline,
+        note:                     item.note,
+      }
+      const res = await fetch(`${API_URL}/api/attivita/${item.id}`, {
+        method: 'PUT',
+        headers: authHeadersJson(token),
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error()
+      const scrollY = window.scrollY
+      await fetchData({ preserveExpanded: true, silent: true })
+      requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }))
+    } catch {
+      setError('Errore durante la modifica dello stato.')
+    }
+  }, [token, fetchData])
+
   const handleDelete = async () => {
     if (!delTarget) return
     setDeleting(true)
@@ -1276,27 +1435,31 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       }
       const entry = map.get(key)!
       for (const a of g.attivita) {
-        entry.totaleVendute += a.giornateVendute ?? 0
-        entry.totaleConsuntivate += a.giornateConsuntivate ?? 0
-        if (isSforamento(a)) entry.inSforamento = true
+        const escludi = statiMap.get(a.stato)?.escludiDaConteggio ?? false
+        if (!escludi) {
+          entry.totaleVendute += a.giornateVendute ?? 0
+          entry.totaleConsuntivate += a.giornateConsuntivate ?? 0
+          if (isSforamento(a)) entry.inSforamento = true
+        }
       }
       entry.attivita.push(...g.attivita)
     }
     return [...map.values()].sort((a, b) => a.cliente.localeCompare(b.cliente, 'it'))
-  }, [filteredGruppi])
+  }, [filteredGruppi, statiMap])
 
   // Recompute riepilogo from filtered data
   const filteredRiepilogo = useMemo((): Riepilogo => {
     const all = filteredGruppi.flatMap(g => g.attivita)
+    const contabili = all.filter(a => !(statiMap.get(a.stato)?.escludiDaConteggio ?? false))
     return {
       totaleProgetti:             filteredGruppi.length,
       totaleAttivita:             all.length,
-      attivitaInSforamento:       all.filter(isSforamento).length,
-      attivitaInApprovazione:     all.filter(a => a.stato === 'IN_APPROVAZIONE').length,
-      totaleGiornateVendute:      all.reduce((s, a) => s + (a.giornateVendute ?? 0), 0),
-      totaleGiornateConsuntivate: all.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0),
+      attivitaInSforamento:       contabili.filter(isSforamento).length,
+      attivitaInApprovazione:     all.filter(a => statiMap.get(a.stato)?.escludiDaConteggio ?? false).length,
+      totaleGiornateVendute:      contabili.reduce((s, a) => s + (a.giornateVendute ?? 0), 0),
+      totaleGiornateConsuntivate: contabili.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0),
     }
-  }, [filteredGruppi])
+  }, [filteredGruppi, statiMap])
 
   const progettoKey  = (g: GruppoAttivita) => `${g.cliente}|||${g.progetto}`
   const clienteKey   = (g: GruppoCliente)  => `cliente::${g.cliente}`
@@ -1497,6 +1660,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
                       onSelectItem={setSelected}
                       onEditItem={openEdit}
                       onDeleteItem={setDelTarget}
+                      onChangeStato={handleChangeStato}
                     />
                   </div>
                 )
@@ -1512,6 +1676,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
                       onSelectItem={setSelected}
                       onEditItem={openEdit}
                       onDeleteItem={setDelTarget}
+                      onChangeStato={handleChangeStato}
                     />
                   </div>
                 )
@@ -1520,8 +1685,14 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         </div>
       )}
 
-      {/* ── Detail drawer ── */}
-      {selected && <Drawer item={selected} onClose={() => setSelected(null)} />}
+      {/* ── Detail modal ── */}
+      {selected && (
+        <AttivitaDetailModal
+          item={selected}
+          onClose={() => setSelected(null)}
+          onEdit={openEdit}
+        />
+      )}
 
       {/* ── Add / edit modal ── */}
       {(modal === 'add' || modal === 'edit') && (

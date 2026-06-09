@@ -372,14 +372,15 @@ model GanttMilestone {
 // ── Configurazione stati ──────────────────────────────────────
 
 model StatoAttivitaConfig {
-  id           String   @id @default(cuid())
-  chiave       String   @unique
-  label        String
-  colore       String   @default("#94a3b8")
-  isArchiviato Boolean  @default(false) @map("is_archiviato")
-  ordine       Int      @default(0)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(cuid())
+  chiave             String   @unique
+  label              String
+  colore             String   @default("#94a3b8")
+  isArchiviato       Boolean  @default(false) @map("is_archiviato")
+  escludiDaConteggio Boolean  @default(false) @map("escludi_da_conteggio")
+  ordine             Int      @default(0)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("stato_attivita_config")
 }

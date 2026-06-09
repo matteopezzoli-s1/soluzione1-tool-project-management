@@ -13,6 +13,7 @@ export interface StatoConfig {
   label: string
   colore: string
   isArchiviato: boolean
+  escludiDaConteggio: boolean
   ordine: number
 }
 
@@ -22,6 +23,7 @@ interface FormState {
   label: string
   colore: string
   isArchiviato: boolean
+  escludiDaConteggio: boolean
   ordine: string
 }
 
@@ -29,6 +31,7 @@ const EMPTY_FORM: FormState = {
   label: '',
   colore: '#3b82f6',
   isArchiviato: false,
+  escludiDaConteggio: false,
   ordine: '99',
 }
 
@@ -80,12 +83,13 @@ interface StatoModalProps {
   chiavePreview: string
   loading: boolean
   apiError: string | null
+  showEscludi?: boolean
   onChange: (f: FormState) => void
   onSave: () => void
   onClose: () => void
 }
 
-function StatoModal({ title, form, chiavePreview, loading, apiError, onChange, onSave, onClose }: StatoModalProps) {
+function StatoModal({ title, form, chiavePreview, loading, apiError, showEscludi, onChange, onSave, onClose }: StatoModalProps) {
   const firstRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { firstRef.current?.focus() }, [])
@@ -184,6 +188,32 @@ function StatoModal({ title, form, chiavePreview, loading, apiError, onChange, o
             </label>
           </div>
 
+          {/* Escludi da conteggio — solo per stati attività */}
+          {showEscludi && (
+            <div className="imp-field">
+              <span className="imp-label">Conteggio budget</span>
+              <label className="imp-toggle-wrap">
+                <input
+                  type="checkbox"
+                  className="imp-toggle-input"
+                  checked={form.escludiDaConteggio}
+                  onChange={e => onChange({ ...form, escludiDaConteggio: e.target.checked })}
+                  role="switch"
+                  aria-checked={form.escludiDaConteggio}
+                />
+                <span className="imp-toggle-track" data-checked={form.escludiDaConteggio}>
+                  <span className="imp-toggle-thumb" />
+                </span>
+                <span className="imp-toggle-label">
+                  {form.escludiDaConteggio
+                    ? <><span className="imp-tipo-tag imp-tipo-tag--amber">Escluso</span> — giornate non conteggiate nei totali</>
+                    : <><span className="imp-tipo-tag imp-tipo-tag--active">Incluso</span> — giornate conteggiate nei totali</>
+                  }
+                </span>
+              </label>
+            </div>
+          )}
+
           {/* Ordine */}
           <div className="imp-field imp-field--half">
             <label htmlFor="imp-ordine" className="imp-label">Ordine di visualizzazione</label>
@@ -257,11 +287,12 @@ function ConfirmDelete({ stato, loading, onConfirm, onClose }: {
 interface StatiTableProps {
   stati: StatoConfig[]
   loading: boolean
+  showEscludi?: boolean
   onEdit: (s: StatoConfig) => void
   onDelete: (s: StatoConfig) => void
 }
 
-function StatiTable({ stati, loading, onEdit, onDelete }: StatiTableProps) {
+function StatiTable({ stati, loading, showEscludi, onEdit, onDelete }: StatiTableProps) {
   if (loading) {
     return (
       <div className="imp-skeleton-list">
@@ -291,6 +322,7 @@ function StatiTable({ stati, loading, onEdit, onDelete }: StatiTableProps) {
             <th scope="col" className="imp-th">Stato</th>
             <th scope="col" className="imp-th imp-th--chiave">Chiave</th>
             <th scope="col" className="imp-th imp-th--tipo">Tipo</th>
+            {showEscludi && <th scope="col" className="imp-th imp-th--tipo">Conteggio</th>}
             <th scope="col" className="imp-th imp-th--ordine">Ordine</th>
             <th scope="col" className="imp-th imp-th--actions"></th>
           </tr>
@@ -310,6 +342,14 @@ function StatiTable({ stati, loading, onEdit, onDelete }: StatiTableProps) {
                   {s.isArchiviato ? 'Archiviato' : 'Attivo'}
                 </span>
               </td>
+              {showEscludi && (
+                <td className="imp-cell">
+                  {s.escludiDaConteggio
+                    ? <span className="imp-tipo-tag imp-tipo-tag--amber">Escluso</span>
+                    : <span className="imp-tipo-tag imp-tipo-tag--active">Incluso</span>
+                  }
+                </td>
+              )}
               <td className="imp-cell imp-cell--ordine">{s.ordine}</td>
               <td className="imp-cell imp-cell--actions">
                 <button
@@ -385,7 +425,7 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
 
   const openEdit = (s: StatoConfig) => {
     setEditing(s)
-    setForm({ label: s.label, colore: s.colore, isArchiviato: s.isArchiviato, ordine: String(s.ordine) })
+    setForm({ label: s.label, colore: s.colore, isArchiviato: s.isArchiviato, escludiDaConteggio: s.escludiDaConteggio, ordine: String(s.ordine) })
     setFormErr(null)
     setModal('edit')
   }
@@ -400,10 +440,11 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
       const url    = modal === 'edit' ? `${API_URL}${endpoint}/${editing!.id}` : `${API_URL}${endpoint}`
       const method = modal === 'edit' ? 'PUT' : 'POST'
       const body = {
-        label:        form.label.trim(),
-        colore:       form.colore || '#94a3b8',
-        isArchiviato: form.isArchiviato,
-        ordine:       parseInt(form.ordine) || 99,
+        label:              form.label.trim(),
+        colore:             form.colore || '#94a3b8',
+        isArchiviato:       form.isArchiviato,
+        escludiDaConteggio: sezione === 'attivita' ? form.escludiDaConteggio : false,
+        ordine:             parseInt(form.ordine) || 99,
       }
       const res = await fetch(url, { method, headers: authHeadersJson(token), body: JSON.stringify(body) })
       if (!res.ok) {
@@ -472,6 +513,7 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
       <StatiTable
         stati={stati}
         loading={loading}
+        showEscludi={sezione === 'attivita'}
         onEdit={openEdit}
         onDelete={setDelTarget}
       />
@@ -483,6 +525,7 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
           chiavePreview={chiavePreview}
           loading={saving}
           apiError={formErr}
+          showEscludi={sezione === 'attivita'}
           onChange={setForm}
           onSave={handleSave}
           onClose={() => setModal(null)}

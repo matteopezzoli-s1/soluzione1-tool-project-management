@@ -519,8 +519,8 @@ app.get('/api/stati-attivita', requireAuth, async (_req, res) => {
 })
 
 app.post('/api/stati-attivita', requireAuth, async (req, res) => {
-  const { label, colore, isArchiviato, ordine } = req.body as {
-    label?: string; colore?: string; isArchiviato?: boolean; ordine?: number
+  const { label, colore, isArchiviato, escludiDaConteggio, ordine } = req.body as {
+    label?: string; colore?: string; isArchiviato?: boolean; escludiDaConteggio?: boolean; ordine?: number
   }
   if (!label?.trim()) {
     res.status(400).json({ error: 'label è obbligatorio' }); return
@@ -533,10 +533,11 @@ app.post('/api/stati-attivita', requireAuth, async (req, res) => {
     const stato = await prisma.statoAttivitaConfig.create({
       data: {
         chiave,
-        label:        label.trim(),
-        colore:       colore?.trim() ?? '#94a3b8',
-        isArchiviato: isArchiviato ?? false,
-        ordine:       ordine ?? 99,
+        label:              label.trim(),
+        colore:             colore?.trim() ?? '#94a3b8',
+        isArchiviato:       isArchiviato ?? false,
+        escludiDaConteggio: escludiDaConteggio ?? false,
+        ordine:             ordine ?? 99,
       },
     })
     res.status(201).json(stato)
@@ -551,8 +552,8 @@ app.post('/api/stati-attivita', requireAuth, async (req, res) => {
 
 app.put('/api/stati-attivita/:id', requireAuth, async (req, res) => {
   const id = req.params['id'] as string
-  const { label, colore, isArchiviato, ordine } = req.body as {
-    label?: string; colore?: string; isArchiviato?: boolean; ordine?: number
+  const { label, colore, isArchiviato, escludiDaConteggio, ordine } = req.body as {
+    label?: string; colore?: string; isArchiviato?: boolean; escludiDaConteggio?: boolean; ordine?: number
   }
   if (!label?.trim()) {
     res.status(400).json({ error: 'label è obbligatorio' }); return
@@ -564,10 +565,11 @@ app.put('/api/stati-attivita/:id', requireAuth, async (req, res) => {
     const stato = await prisma.statoAttivitaConfig.update({
       where: { id },
       data: {
-        label:        label.trim(),
-        colore:       colore?.trim() ?? '#94a3b8',
-        isArchiviato: isArchiviato ?? false,
-        ordine:       ordine ?? 99,
+        label:              label.trim(),
+        colore:             colore?.trim() ?? '#94a3b8',
+        isArchiviato:       isArchiviato ?? false,
+        escludiDaConteggio: escludiDaConteggio ?? false,
+        ordine:             ordine ?? 99,
       },
     })
     res.json(stato)
@@ -709,14 +711,15 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: Record<string, any> = {}
 
-    // Usa la config per determinare gli stati "attivi" (non archiviati)
+    // Carica tutta la config stati (serve sia per filtri che per escludiDaConteggio)
+    const tuttiStati = await prisma.statoAttivitaConfig.findMany({
+      select: { chiave: true, isArchiviato: true, escludiDaConteggio: true },
+    })
+    const escludiChiavi = new Set(tuttiStati.filter(s => s.escludiDaConteggio).map(s => s.chiave))
+
     let statoAttiviChiavi: string[] | undefined = undefined
     if (soloAttivi === 'true') {
-      const statiAttivi = await prisma.statoAttivitaConfig.findMany({
-        where: { isArchiviato: false },
-        select: { chiave: true },
-      })
-      statoAttiviChiavi = statiAttivi.map(s => s.chiave)
+      statoAttiviChiavi = tuttiStati.filter(s => !s.isArchiviato).map(s => s.chiave)
     }
 
     if (stato?.trim()) {
@@ -797,11 +800,12 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
         }
       })
 
-      const totaleVendute      = attivitaMapped.reduce((s, a) => s + (a.giornateVendute ?? 0), 0)
-      const totaleConsuntivate = attivitaMapped.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0)
+      const attivitaContabili = attivitaMapped.filter(a => !escludiChiavi.has(a.stato))
+      const totaleVendute      = attivitaContabili.reduce((s, a) => s + (a.giornateVendute ?? 0), 0)
+      const totaleConsuntivate = attivitaContabili.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0)
 
       const inSforamento = totaleConsuntivate > totaleVendute ||
-        attivitaMapped.some(a =>
+        attivitaContabili.some(a =>
           (a.giornateConsuntivate ?? 0) > 0 &&
           (a.giornateVendute === null || (a.giornateConsuntivate ?? 0) > (a.giornateVendute ?? 0))
         )
@@ -824,16 +828,17 @@ app.get('/api/attivita', requireAuth, async (req, res) => {
     )
 
     const allAttivita = gruppi.flatMap(g => g.attivita)
+    const allContabili = allAttivita.filter(a => !escludiChiavi.has(a.stato))
     const riepilogo = {
       totaleProgetti:             gruppi.length,
       totaleAttivita:             allAttivita.length,
-      attivitaInSforamento:       allAttivita.filter(a =>
+      attivitaInSforamento:       allContabili.filter(a =>
         (a.giornateConsuntivate ?? 0) > 0 &&
         (a.giornateVendute === null || (a.giornateConsuntivate ?? 0) > (a.giornateVendute ?? 0))
       ).length,
-      attivitaInApprovazione:     allAttivita.filter(a => a.stato === 'IN_APPROVAZIONE').length,
-      totaleGiornateVendute:      Math.round(allAttivita.reduce((s, a) => s + (a.giornateVendute ?? 0), 0) * 100) / 100,
-      totaleGiornateConsuntivate: Math.round(allAttivita.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0) * 100) / 100,
+      attivitaInApprovazione:     allAttivita.filter(a => escludiChiavi.has(a.stato)).length,
+      totaleGiornateVendute:      Math.round(allContabili.reduce((s, a) => s + (a.giornateVendute ?? 0), 0) * 100) / 100,
+      totaleGiornateConsuntivate: Math.round(allContabili.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0) * 100) / 100,
     }
 
     res.json({ gruppi, riepilogo })
