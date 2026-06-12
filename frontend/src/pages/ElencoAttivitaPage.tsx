@@ -121,17 +121,18 @@ function isSforamento(item: AttivitaItem): boolean {
   return cons > item.giornateVendute
 }
 
-function getProgressColor(vendute: number, consuntivate: number): string {
-  if (vendute === 0) return consuntivate > 0 ? '#DC2626' : '#22C55E'
-  const ratio = consuntivate / vendute
-  if (ratio > 1) return '#DC2626'
-  if (ratio >= 0.8) return '#F59E0B'
-  return '#22C55E'
+function getMargineColor(vendute: number, consuntivate: number): string {
+  if (vendute === 0) return consuntivate > 0 ? '#DC2626' : '#94A3B8'
+  const pct = (vendute - consuntivate) / vendute * 100
+  if (pct < 0)  return '#DC2626'
+  if (pct < 20) return '#F59E0B'
+  return '#16A34A'
 }
 
-function getProgressPct(vendute: number, consuntivate: number): number {
-  if (vendute === 0) return consuntivate > 0 ? 100 : 0
-  return Math.min(Math.round((consuntivate / vendute) * 100), 100)
+function getMargineLabel(vendute: number, consuntivate: number): string {
+  if (vendute === 0) return '—'
+  const pct = Math.round((vendute - consuntivate) / vendute * 100)
+  return pct >= 0 ? `+${pct}%` : `${pct}%`
 }
 
 function getStatoPrevValente(attivita: AttivitaItem[], statiMap: Map<string, StatoConfigItem>): StatoAttivita {
@@ -405,18 +406,15 @@ function RiepilogoBar({ r }: { r: Riepilogo }) {
   )
 }
 
-// ─── Progress bar ─────────────────────────────────────────────────────────────
+// ─── Margine display ──────────────────────────────────────────────────────────
 
-function ProgressBar({ vendute, consuntivate }: { vendute: number; consuntivate: number }) {
-  const color = getProgressColor(vendute, consuntivate)
-  const pct   = getProgressPct(vendute, consuntivate)
+function MargineDisplay({ vendute, consuntivate }: { vendute: number; consuntivate: number }) {
+  const color = getMargineColor(vendute, consuntivate)
+  const label = getMargineLabel(vendute, consuntivate)
   return (
-    <div className="ea-progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
-      aria-label={`${pct}% del budget utilizzato`}>
-      <div className="ea-progress-track">
-        <div className="ea-progress-fill" style={{ width: `${pct}%`, background: color }} />
-      </div>
-      <span className="ea-progress-pct" style={{ color }}>{pct}%</span>
+    <div className="ea-margine">
+      <span className="ea-margine-val" style={{ color }}>{label}</span>
+      <span className="ea-margine-lbl">Margine</span>
     </div>
   )
 }
@@ -504,7 +502,7 @@ function AttivitaDetailModal({ item, onClose, onEdit }: {
             </div>
             {item.giornateVendute !== null && item.giornateConsuntivate !== null && (
               <div className="ea-drawer-progress-wrap">
-                <ProgressBar vendute={item.giornateVendute} consuntivate={item.giornateConsuntivate} />
+                <MargineDisplay vendute={item.giornateVendute} consuntivate={item.giornateConsuntivate} />
               </div>
             )}
           </section>
@@ -739,7 +737,7 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
           </div>
 
           <div className="ea-group-progress-wrap">
-            <ProgressBar vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
+            <MargineDisplay vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
           </div>
 
           <StatoBadge stato={statoPrev} />
@@ -819,7 +817,7 @@ function ClienteGroupCard({ group, expanded, onToggle, onSelectItem, onEditItem,
           </div>
 
           <div className="ea-group-progress-wrap">
-            <ProgressBar vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
+            <MargineDisplay vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
           </div>
 
           <span className="ea-group-count">{group.attivita.length} att.</span>
@@ -965,6 +963,7 @@ interface AttivitaModalProps {
 function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms, onChange, onSave, onClose }: AttivitaModalProps) {
   const statiMap   = useContext(StatiCtx)
   const statiList  = [...statiMap.values()].sort((a, b) => a.ordine - b.ordine)
+  const [oreMode, setOreMode] = useState(false)
 
   const set = (key: keyof AttivitaFormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -1064,9 +1063,34 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
                 value={form.giornateVendute} onChange={set('giornateVendute')} placeholder="0" />
             </div>
             <div className="ea-form-field">
-              <label htmlFor="ea-f-consuntivate" className="ea-form-label">GG Consuntivate</label>
-              <input id="ea-f-consuntivate" className="ea-form-input" type="number" min="0" step="0.5"
-                value={form.giornateConsuntivate} onChange={set('giornateConsuntivate')} placeholder="0" />
+              <div className="ea-form-label-row">
+                <label htmlFor="ea-f-consuntivate" className="ea-form-label">
+                  {oreMode ? 'Ore Consuntivate' : 'GG Consuntivate'}
+                </label>
+                <button
+                  type="button"
+                  className={`ea-ore-toggle${oreMode ? ' ea-ore-toggle--active' : ''}`}
+                  onClick={() => setOreMode(v => !v)}
+                  title={oreMode ? 'Passa a giornate' : 'Inserisci in ore (÷8)'}
+                >
+                  {oreMode ? 'GG' : 'h'}
+                </button>
+              </div>
+              <input
+                id="ea-f-consuntivate"
+                className="ea-form-input"
+                type="number" min="0" step={oreMode ? '1' : '0.5'}
+                value={
+                  oreMode
+                    ? (form.giornateConsuntivate !== '' ? String(Math.round(parseFloat(form.giornateConsuntivate) * 8 * 10) / 10) : '')
+                    : form.giornateConsuntivate
+                }
+                onChange={e => {
+                  const raw = e.target.value
+                  onChange({ ...form, giornateConsuntivate: oreMode && raw !== '' ? String(parseFloat(raw) / 8) : raw })
+                }}
+                placeholder="0"
+              />
             </div>
           </div>
 
@@ -1668,7 +1692,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       }
       const scrollY = window.scrollY
       setModal(null)
-      await fetchData()
+      await fetchData({ preserveExpanded: true })
       requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }))
     } catch {
       setFormErr('Errore di rete. Riprova.')
@@ -1716,7 +1740,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       if (!res.ok && res.status !== 404) throw new Error()
       const scrollY = window.scrollY
       setDelTarget(null)
-      await fetchData()
+      await fetchData({ preserveExpanded: true })
       requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }))
     } catch {
       setDelTarget(null)
