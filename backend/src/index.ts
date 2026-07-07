@@ -2,7 +2,7 @@
 import express, { Request, Response, NextFunction } from 'express'
 import cors    from 'cors'
 import multer  from 'multer'
-import { PrismaClient } from '@prisma/client'
+import { prisma } from './lib/prisma'
 import {
   buildGoogleAuthURL,
   fetchGoogleProfile,
@@ -12,7 +12,6 @@ import {
 import { importCSV } from './services/importService'
 
 const app    = express()
-const prisma = new PrismaClient()
 const PORT   = process.env.PORT || 8080
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
 
