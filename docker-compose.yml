@@ -13,5 +13,18 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  tpm-db:
+    image: postgres:16-alpine
+    container_name: s1-tpm-db
+    environment:
+      POSTGRES_USER: tpm
+      POSTGRES_PASSWORD: tpm_dev_pwd
+      POSTGRES_DB: s1-tpm-dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - tpm_postgres_data:/var/lib/postgresql/data
+
 volumes:
   postgres_data:
+  tpm_postgres_data:
