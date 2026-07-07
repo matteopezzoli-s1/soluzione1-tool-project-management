@@ -182,7 +182,7 @@ export default function App() {
 
       {/* ── Sidebar ── */}
       <nav className="db-sidebar" aria-label="Navigazione principale">
-        <div className="db-sidebar-brand" aria-label="s1 Progetti">
+        <div className="db-sidebar-brand" aria-label="TPM">
           <BrandMark />
         </div>
 
@@ -211,7 +211,7 @@ export default function App() {
         {/* Top bar */}
         <header className="db-header">
           <div className="db-header-left">
-            <span className="db-header-app">s1 Progetti</span>
+            <span className="db-header-app">TPM</span>
             <span className="db-header-divider" aria-hidden="true">/</span>
             <span className="db-header-page">{PAGE_LABELS[page]}</span>
           </div>

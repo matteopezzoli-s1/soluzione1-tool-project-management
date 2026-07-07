@@ -1,4 +1,4 @@
-# Dev Environment — s1 Gantt (Locale)
+# Dev Environment — TPM (Locale)
 
 > Questo file descrive **esclusivamente l'ambiente di sviluppo locale**.  
 > In produzione/staging le porte, gli URL e i redirect URI OAuth cambieranno — sarà necessario aggiornare le variabili d'ambiente del server e aggiungere i nuovi URI autorizzati su Google Cloud Console.
@@ -7,7 +7,7 @@
 
 | Servizio   | Porta |
 |------------|-------|
-| PostgreSQL | 5432  |
+| PostgreSQL | 5433  |
 | Backend    | 8080  |
 | Frontend   | 5173  |
 
@@ -19,7 +19,7 @@
 ```bash
 docker compose up -d
 ```
-Verifica: `docker ps` deve mostrare `s1-gantt-db` in stato `Up`.
+Verifica: `docker ps` deve mostrare `s1-tpm-db` in stato `Up`.
 
 ### 2. Backend
 ```bash
@@ -28,8 +28,8 @@ cd backend && npm run dev
 Il comando usa `dotenv -e .env -- nodemon src/index.ts`.  
 Verifica: il log deve stampare:
 ```
-[s1-gantt] Backend → http://localhost:8080
-[s1-gantt] Callback → http://localhost:8080/auth/google/callback
+[tpm] Backend → http://localhost:8080
+[tpm] Callback → http://localhost:8080/auth/google/callback
 ```
 
 ### 3. Frontend
@@ -44,7 +44,7 @@ Oppure tramite `preview_start` con il server "frontend" da `.claude/launch.json`
 
 ### `backend/.env`
 ```
-DATABASE_URL="postgresql://gantt:gantt_dev_pwd@localhost:5432/s1-gantt-dev"
+DATABASE_URL="postgresql://tpm:tpm_dev_pwd@localhost:5433/s1-tpm-dev"
 JWT_SECRET="dev-local-secret-cambia-in-prod"
 PORT=8080
 
@@ -66,7 +66,7 @@ VITE_API_URL=http://localhost:8080
 ## Checklist avvio
 
 ```
-[ ] docker ps → s1-gantt-db Up
+[ ] docker ps → s1-tpm-db Up
 [ ] curl http://localhost:8080/health → { ok: true }  (o 200)
 [ ] curl -I http://localhost:8080/auth/google → HTTP 302 verso accounts.google.com
 [ ] frontend su http://localhost:5173 → pagina login visibile
