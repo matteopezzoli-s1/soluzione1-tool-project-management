@@ -7,7 +7,7 @@
       "runtimeArgs": ["run", "dev"],
       "port": 5173,
       "autoPort": false,
-      "cwd": "/Users/matteopezzoli/Documents/soluzione1-gantt-progetti/frontend"
+      "cwd": "/Users/matteopezzoli/Documents/soluzione1-tool-project-management/frontend"
     },
     {
       "name": "backend",
@@ -15,7 +15,7 @@
       "runtimeArgs": ["run", "dev"],
       "port": 8080,
       "autoPort": false,
-      "cwd": "/Users/matteopezzoli/Documents/soluzione1-gantt-progetti/backend"
+      "cwd": "/Users/matteopezzoli/Documents/soluzione1-tool-project-management/backend"
     }
   ]
 }
