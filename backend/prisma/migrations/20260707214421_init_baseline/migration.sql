@@ -14,6 +14,30 @@ CREATE TYPE "Priority" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL');
 CREATE TYPE "DependencyType" AS ENUM ('FINISH_TO_START', 'START_TO_START', 'FINISH_TO_FINISH', 'START_TO_FINISH');
 
 -- CreateTable
+CREATE TABLE "project_managers" (
+    "id" TEXT NOT NULL,
+    "first_name" TEXT,
+    "last_name" TEXT NOT NULL,
+    "email" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "project_managers_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "accounts" (
+    "id" TEXT NOT NULL,
+    "first_name" TEXT,
+    "last_name" TEXT NOT NULL,
+    "email" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "accounts_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "users" (
     "id" TEXT NOT NULL,
     "google_id" TEXT NOT NULL,
@@ -146,6 +170,115 @@ CREATE TABLE "activity_logs" (
     CONSTRAINT "activity_logs_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "clienti" (
+    "id" TEXT NOT NULL,
+    "nome" TEXT NOT NULL,
+    "referente" TEXT,
+    "email" TEXT,
+    "telefono" TEXT,
+    "note" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+    "account_id" TEXT,
+
+    CONSTRAINT "clienti_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "progetti" (
+    "id" TEXT NOT NULL,
+    "nome" TEXT NOT NULL,
+    "descrizione" TEXT,
+    "stato" TEXT NOT NULL DEFAULT 'ATTIVO',
+    "data_inizio" TIMESTAMP(3),
+    "data_fine" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+    "cliente_id" TEXT,
+
+    CONSTRAINT "progetti_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "attivita" (
+    "id" TEXT NOT NULL,
+    "cliente" TEXT NOT NULL,
+    "progetto" TEXT NOT NULL,
+    "attivita" TEXT NOT NULL,
+    "giornate_vendute" DECIMAL(10,2),
+    "giornate_consuntivate" DECIMAL(10,2),
+    "riferimento_ordine_vendita" TEXT,
+    "stato" TEXT NOT NULL DEFAULT 'IN_CORSO',
+    "inizio" TIMESTAMP(3),
+    "deadline" TIMESTAMP(3),
+    "note" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+    "cliente_id" TEXT,
+    "progetto_id" TEXT,
+    "account_id" TEXT,
+
+    CONSTRAINT "attivita_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "attivita_pms" (
+    "attivita_id" TEXT NOT NULL,
+    "pm_id" TEXT NOT NULL,
+
+    CONSTRAINT "attivita_pms_pkey" PRIMARY KEY ("attivita_id","pm_id")
+);
+
+-- CreateTable
+CREATE TABLE "gantt_milestones" (
+    "id" TEXT NOT NULL,
+    "activity_id" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL,
+    "color" TEXT NOT NULL DEFAULT '#F59E0B',
+    "icon" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "gantt_milestones_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "stato_attivita_config" (
+    "id" TEXT NOT NULL,
+    "chiave" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "colore" TEXT NOT NULL DEFAULT '#94a3b8',
+    "is_archiviato" BOOLEAN NOT NULL DEFAULT false,
+    "escludi_da_conteggio" BOOLEAN NOT NULL DEFAULT false,
+    "ordine" INTEGER NOT NULL DEFAULT 0,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "stato_attivita_config_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "stato_progetto_config" (
+    "id" TEXT NOT NULL,
+    "chiave" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "colore" TEXT NOT NULL DEFAULT '#94a3b8',
+    "is_archiviato" BOOLEAN NOT NULL DEFAULT false,
+    "ordine" INTEGER NOT NULL DEFAULT 0,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "stato_progetto_config_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "project_managers_email_key" ON "project_managers"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "accounts_email_key" ON "accounts"("email");
+
 -- CreateIndex
 CREATE UNIQUE INDEX "users_google_id_key" ON "users"("google_id");
 
@@ -193,6 +326,36 @@ CREATE INDEX "activity_logs_project_id_idx" ON "activity_logs"("project_id");
 
 -- CreateIndex
 CREATE INDEX "activity_logs_user_id_idx" ON "activity_logs"("user_id");
+
+-- CreateIndex
+CREATE INDEX "clienti_account_id_idx" ON "clienti"("account_id");
+
+-- CreateIndex
+CREATE INDEX "progetti_cliente_id_idx" ON "progetti"("cliente_id");
+
+-- CreateIndex
+CREATE INDEX "attivita_cliente_progetto_idx" ON "attivita"("cliente", "progetto");
+
+-- CreateIndex
+CREATE INDEX "attivita_stato_idx" ON "attivita"("stato");
+
+-- CreateIndex
+CREATE INDEX "attivita_cliente_id_idx" ON "attivita"("cliente_id");
+
+-- CreateIndex
+CREATE INDEX "attivita_progetto_id_idx" ON "attivita"("progetto_id");
+
+-- CreateIndex
+CREATE INDEX "attivita_account_id_idx" ON "attivita"("account_id");
+
+-- CreateIndex
+CREATE INDEX "gantt_milestones_activity_id_idx" ON "gantt_milestones"("activity_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "stato_attivita_config_chiave_key" ON "stato_attivita_config"("chiave");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "stato_progetto_config_chiave_key" ON "stato_progetto_config"("chiave");
 
 -- AddForeignKey
 ALTER TABLE "projects" ADD CONSTRAINT "projects_owner_id_fkey" FOREIGN KEY ("owner_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -247,3 +410,27 @@ ALTER TABLE "activity_logs" ADD CONSTRAINT "activity_logs_project_id_fkey" FOREI
 
 -- AddForeignKey
 ALTER TABLE "activity_logs" ADD CONSTRAINT "activity_logs_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "tasks"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "clienti" ADD CONSTRAINT "clienti_account_id_fkey" FOREIGN KEY ("account_id") REFERENCES "accounts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "progetti" ADD CONSTRAINT "progetti_cliente_id_fkey" FOREIGN KEY ("cliente_id") REFERENCES "clienti"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "attivita" ADD CONSTRAINT "attivita_cliente_id_fkey" FOREIGN KEY ("cliente_id") REFERENCES "clienti"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "attivita" ADD CONSTRAINT "attivita_progetto_id_fkey" FOREIGN KEY ("progetto_id") REFERENCES "progetti"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "attivita" ADD CONSTRAINT "attivita_account_id_fkey" FOREIGN KEY ("account_id") REFERENCES "accounts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "attivita_pms" ADD CONSTRAINT "attivita_pms_attivita_id_fkey" FOREIGN KEY ("attivita_id") REFERENCES "attivita"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "attivita_pms" ADD CONSTRAINT "attivita_pms_pm_id_fkey" FOREIGN KEY ("pm_id") REFERENCES "project_managers"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "gantt_milestones" ADD CONSTRAINT "gantt_milestones_activity_id_fkey" FOREIGN KEY ("activity_id") REFERENCES "attivita"("id") ON DELETE CASCADE ON UPDATE CASCADE;
