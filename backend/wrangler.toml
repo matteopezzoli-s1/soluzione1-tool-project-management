@@ -1,0 +1,21 @@
+name = "tpm-backend"
+main = "src/worker.ts"
+compatibility_date = "2026-07-06"
+compatibility_flags = ["nodejs_compat"]
+
+# `wrangler dev` legge le var non-segrete da qui; i secret (JWT_SECRET,
+# GOOGLE_CLIENT_ID/SECRET, DATABASE_URL locale) vanno in .dev.vars (gitignored)
+# per lo sviluppo locale e via `wrangler secret put` per il deploy.
+[vars]
+FRONTEND_URL = "http://localhost:5173"
+BACKEND_URL = "http://localhost:8787"
+
+# Da creare con `wrangler hyperdrive create tpm-prod --connection-string="<neon-direct-url>"`
+# e poi scommentare con l'id restituito, quando il progetto Neon di produzione
+# (s1-tpm-prod) sarà pronto (vedi MIGRATION_DB_NEON.md).
+# [[hyperdrive]]
+# binding = "HYPERDRIVE"
+# id = "<hyperdrive-id>"
+
+# TODO: prima del deploy di produzione, aggiungere un [env.production] con
+# FRONTEND_URL/BACKEND_URL reali e il proprio binding Hyperdrive verso s1-tpm-prod.
