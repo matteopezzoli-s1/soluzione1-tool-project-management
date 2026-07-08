@@ -150,6 +150,30 @@ function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard' | 'attiv
   )
 }
 
+// ─── Utente loggato (decodificato dal JWT) ──────────────────────────────────
+
+interface JwtUser {
+  name?: string
+  email?: string
+}
+
+function decodeJwtPayload(token: string): JwtUser | null {
+  try {
+    const base64 = token.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/')
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+    return JSON.parse(new TextDecoder().decode(bytes))
+  } catch {
+    return null
+  }
+}
+
+function getInitials(user: JwtUser | null): string {
+  const source = user?.name?.trim() || user?.email?.trim()
+  if (!source) return '?'
+  const parts = source.split(/\s+/).filter(Boolean)
+  return parts.slice(0, 2).map((p) => p[0]!.toUpperCase()).join('') || '?'
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -165,6 +189,8 @@ export default function App() {
   }
 
   if (!token) return <LoginPage onLogin={handleLogin} />
+
+  const user = decodeJwtPayload(token)
 
   const navBtn = (id: NavPage, label: string, icon: ReactNode) => (
     <button
@@ -216,7 +242,9 @@ export default function App() {
             <span className="db-header-page">{PAGE_LABELS[page]}</span>
           </div>
           <div className="db-header-right">
-            <div className="db-avatar" aria-label="Profilo utente">MP</div>
+            <div className="db-avatar" aria-label={user?.name ? `Profilo di ${user.name}` : 'Profilo utente'} title={user?.name ?? user?.email}>
+              {getInitials(user)}
+            </div>
           </div>
         </header>
 
