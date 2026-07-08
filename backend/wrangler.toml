@@ -10,12 +10,13 @@ compatibility_flags = ["nodejs_compat"]
 FRONTEND_URL = "http://localhost:5173"
 BACKEND_URL = "http://localhost:8787"
 
-# Da creare con `wrangler hyperdrive create tpm-prod --connection-string="<neon-direct-url>"`
-# e poi scommentare con l'id restituito, quando il progetto Neon di produzione
-# (s1-tpm-prod) sarà pronto (vedi MIGRATION_DB_NEON.md).
-# [[hyperdrive]]
-# binding = "HYPERDRIVE"
-# id = "<hyperdrive-id>"
+# Config Hyperdrive verso il progetto Neon di produzione (s1-tpm-prod),
+# creata con `wrangler hyperdrive create s1-tpm-prod --connection-string=...`.
+# Vive solo sotto [env.production]: `wrangler dev` in locale non deve mai
+# toccare il DB di produzione.
+[env.production]
+vars = { FRONTEND_URL = "https://tpm-frontend.pages.dev", BACKEND_URL = "https://tpm-backend-production.soluzione1.workers.dev" }
 
-# TODO: prima del deploy di produzione, aggiungere un [env.production] con
-# FRONTEND_URL/BACKEND_URL reali e il proprio binding Hyperdrive verso s1-tpm-prod.
+[[env.production.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "542be3cf52d4415a97ba5f26618c1e43"
