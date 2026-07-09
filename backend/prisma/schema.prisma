@@ -16,7 +16,8 @@ model ProjectManager {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  attivita  AttivitaPM[]
+  attivita     AttivitaPM[]
+  progettiPO   Progetto[]   @relation("ProgettoPO")
 
   @@map("project_managers")
 }
@@ -284,13 +285,20 @@ model Cliente {
   @@map("clienti")
 }
 
-// ── Progetti ──────────────────────────────────────────────────
+// ── Progetti & Prodotti ─────────────────────────────────────────
+// Stessa struttura per progetti clienti e prodotti interni, distinti
+// dal campo `tipo` ("CLIENTE" | "PRODOTTO") — pensata per un futuro
+// import da un'unica fonte esterna (es. Zoho) senza dover mappare
+// due entità diverse. I prodotti non hanno cliente ma un PO
+// (riferimento a ProjectManager) e un colore per la roadmap.
 
 model Progetto {
   id          String    @id @default(cuid())
   nome        String
   descrizione String?
+  tipo        String    @default("CLIENTE") @map("tipo")
   stato       String    @default("ATTIVO")
+  colore      String?
   dataInizio  DateTime? @map("data_inizio")
   dataFine    DateTime? @map("data_fine")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -299,9 +307,14 @@ model Progetto {
   clienteId   String?   @map("cliente_id")
   cliente     Cliente?  @relation(fields: [clienteId], references: [id], onDelete: SetNull)
 
-  attivita    Attivita[]
+  poId        String?         @map("po_id")
+  po          ProjectManager? @relation("ProgettoPO", fields: [poId], references: [id], onDelete: SetNull)
+
+  attivita     Attivita[]
+  roadmapItems RoadmapItem[]
 
   @@index([clienteId])
+  @@index([tipo])
   @@map("progetti")
 }
 
@@ -397,4 +410,46 @@ model StatoProgettoConfig {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("stato_progetto_config")
+}
+
+model StatoRoadmapConfig {
+  id           String   @id @default(cuid())
+  chiave       String   @unique
+  label        String
+  colore       String   @default("#94a3b8")
+  isArchiviato Boolean  @default(false) @map("is_archiviato")
+  ordine       Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("stato_roadmap_config")
+}
+
+// ── Roadmap Prodotti ──────────────────────────────────────────
+// Una riga per iniziativa pianificata su un prodotto (tipo="PRODOTTO"
+// in Progetto), raggruppata per anno+quarter. `ordine` è la priorità
+// drag&drop, scoped a prodotto+quarter (vedi PATCH /:id/posizione).
+
+model RoadmapItem {
+  id           String    @id @default(cuid())
+  progettoId   String    @map("progetto_id")
+  progetto     Progetto  @relation(fields: [progettoId], references: [id], onDelete: Cascade)
+
+  anno         Int
+  quarter      String?   // "Q1".."Q4", null = non pianificato
+  dataDeadline DateTime? @map("data_deadline")
+  titolo       String
+  descrizione  String?
+  stato        String    @default("DA_FARE")
+  analisiUrl   String?   @map("analisi_url")
+  stimaGg      Decimal?  @map("stima_gg") @db.Decimal(10, 2)
+  ordine       Int       @default(0)
+
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([progettoId])
+  @@index([anno, quarter])
+  @@index([stato])
+  @@map("roadmap_items")
 }
