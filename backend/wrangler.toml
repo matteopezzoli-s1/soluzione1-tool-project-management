@@ -4,16 +4,25 @@ compatibility_date = "2026-07-06"
 compatibility_flags = ["nodejs_compat"]
 
 # `wrangler dev` legge le var non-segrete da qui; i secret (JWT_SECRET,
-# GOOGLE_CLIENT_ID/SECRET, DATABASE_URL locale) vanno in .dev.vars (gitignored)
-# per lo sviluppo locale e via `wrangler secret put` per il deploy.
+# GOOGLE_CLIENT_ID/SECRET) vanno in .dev.vars (gitignored) per lo sviluppo
+# locale e via `wrangler secret put` per il deploy.
 [vars]
 FRONTEND_URL = "http://localhost:5173"
 BACKEND_URL = "http://localhost:8787"
 
+# Binding Hyperdrive di default (dev locale): `wrangler dev` (senza --remote)
+# usa SEMPRE `localConnectionString`, mai la vera risorsa Hyperdrive/Neon —
+# punta al Postgres Docker locale (s1-tpm-db). L'`id` è obbligatorio nello
+# schema ma viene ignorato in locale; riusiamo quello di produzione.
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "542be3cf52d4415a97ba5f26618c1e43"
+localConnectionString = "postgresql://tpm:tpm_dev_pwd@localhost:5433/s1-tpm-dev"
+
 # Config Hyperdrive verso il progetto Neon di produzione (s1-tpm-prod),
 # creata con `wrangler hyperdrive create s1-tpm-prod --connection-string=...`.
-# Vive solo sotto [env.production]: `wrangler dev` in locale non deve mai
-# toccare il DB di produzione.
+# Vive solo sotto [env.production]: il deploy di produzione usa la vera
+# risorsa Hyperdrive → Neon, mai il Postgres locale.
 [env.production]
 vars = { FRONTEND_URL = "https://tpm-frontend.pages.dev", BACKEND_URL = "https://tpm-backend-production.soluzione1.workers.dev" }
 

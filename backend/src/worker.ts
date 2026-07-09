@@ -3,8 +3,7 @@ import { createPrismaClient } from './lib/prisma'
 import { registerRoutes, type Vars } from './app'
 
 interface Bindings {
-  HYPERDRIVE?: { connectionString: string }
-  DATABASE_URL?: string
+  HYPERDRIVE: { connectionString: string }
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
   JWT_SECRET?: string
@@ -20,8 +19,7 @@ const app = new Hono<WorkerEnv>()
 // durante una richiesta precedente: il Pool/PrismaClient va creato e chiuso
 // ad ogni richiesta. Hyperdrive gestisce il pooling reale lato edge.
 app.use('*', async (c, next) => {
-  const connStr = c.env.HYPERDRIVE?.connectionString ?? c.env.DATABASE_URL ?? ''
-  const prisma = createPrismaClient(connStr)
+  const prisma = createPrismaClient(c.env.HYPERDRIVE.connectionString)
 
   const backendUrl = c.env.BACKEND_URL ?? new URL(c.req.url).origin
 
