@@ -179,7 +179,9 @@ export default function TeamPage({ token }: TeamPageProps) {
     }
   }, [token])
 
-  useEffect(() => { fetchPMs() }, [fetchPMs])
+  useEffect(() => {
+    queueMicrotask(() => { fetchPMs() })
+  }, [fetchPMs])
 
   // ── Open add ───────────────────────────────────────────────
   const openAdd = () => {

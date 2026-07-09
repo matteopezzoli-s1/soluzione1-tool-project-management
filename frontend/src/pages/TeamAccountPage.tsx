@@ -176,7 +176,9 @@ export default function TeamAccountPage({ token }: TeamAccountPageProps) {
     }
   }, [token])
 
-  useEffect(() => { fetchAccounts() }, [fetchAccounts])
+  useEffect(() => {
+    queueMicrotask(() => { fetchAccounts() })
+  }, [fetchAccounts])
 
   const openAdd = () => {
     setForm(EMPTY_FORM)

@@ -222,7 +222,9 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
     finally { setLoading(false) }
   }, [token])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => {
+    queueMicrotask(() => { fetchAll() })
+  }, [fetchAll])
 
   const openAdd = () => { setForm(EMPTY_FORM); setFormErr(null); setModal('add') }
   const openEdit = (p: Progetto) => {
