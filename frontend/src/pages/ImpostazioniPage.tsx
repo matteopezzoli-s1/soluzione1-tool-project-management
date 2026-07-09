@@ -415,7 +415,9 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
     }
   }, [token, endpoint])
 
-  useEffect(() => { fetchStati() }, [fetchStati])
+  useEffect(() => {
+    queueMicrotask(() => { fetchStati() })
+  }, [fetchStati])
 
   const openAdd = () => {
     setForm({ ...EMPTY_FORM, ordine: String((stati.at(-1)?.ordine ?? 0) + 1) })

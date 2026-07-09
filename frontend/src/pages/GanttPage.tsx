@@ -632,7 +632,9 @@ export default function GanttPage({ token }: GanttPageProps) {
     }
   }, [token])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => {
+    queueMicrotask(() => { fetchAll() })
+  }, [fetchAll])
 
   // ── Filter activities ─────────────────────────────────────────────────────
 
@@ -1200,7 +1202,7 @@ export default function GanttPage({ token }: GanttPageProps) {
                         collapsed={collCliente.has(row.cliente)}
                         onToggle={() => setCollCliente(prev => {
                           const n = new Set(prev)
-                          n.has(row.cliente) ? n.delete(row.cliente) : n.add(row.cliente)
+                          if (n.has(row.cliente)) n.delete(row.cliente); else n.add(row.cliente)
                           return n
                         })}
                       />
@@ -1217,7 +1219,7 @@ export default function GanttPage({ token }: GanttPageProps) {
                         collapsed={collProgetto.has(pKey)}
                         onToggle={() => setCollProgetto(prev => {
                           const n = new Set(prev)
-                          n.has(pKey) ? n.delete(pKey) : n.add(pKey)
+                          if (n.has(pKey)) n.delete(pKey); else n.add(pKey)
                           return n
                         })}
                       />

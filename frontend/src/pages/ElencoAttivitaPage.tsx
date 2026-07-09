@@ -1329,7 +1329,7 @@ function ImportTimesheetModal({ token, allAttivita, onClose, onImported }: Impor
   function toggleOne(id: string) {
     setSelectedIds(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
   }
@@ -1637,7 +1637,9 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     }
   }, [token])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    queueMicrotask(() => { fetchData() })
+  }, [fetchData])
 
   // ── CRUD handlers ──
 
@@ -1832,7 +1834,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const toggleGroup = (key: string) =>
     setExpanded(prev => {
       const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
+      if (next.has(key)) next.delete(key); else next.add(key)
       return next
     })
 

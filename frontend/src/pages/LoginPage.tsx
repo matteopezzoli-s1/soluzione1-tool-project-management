@@ -279,7 +279,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   }, [onLogin])
 
   useEffect(() => {
-    handleOAuthCallback()
+    queueMicrotask(() => { handleOAuthCallback() })
   }, [handleOAuthCallback])
 
   const handleGoogleLogin = () => {
