@@ -21,7 +21,7 @@ soluzione1-tool-project-management/
 │   └── src/          # index.ts (entry point), auth.ts, services/
 ├── frontend/         # App React
 │   └── src/
-│       ├── pages/    # LoginPage, DashboardPage, ElencoAttivitaPage, GanttPage, ...
+│       ├── pages/    # LoginPage, DashboardPage, ElencoAttivitaPage, GanttPage, ProgettiPage, RoadmapPage, ...
 │       └── components/
 ├── docs/             # gcp-setup.md
 ├── docker-compose.yml
@@ -91,10 +91,11 @@ npm run preview  # Serve la build di produzione in locale
 
 - **Dashboard** — KPI (attività attive, clienti, in scadenza, in ritardo), lista scadenze, scorciatoie
 - **Elenco Attività** — filtri, raggruppamento per cliente/progetto, drawer di dettaglio, export CSV
-- **Gantt** — timeline interattiva con drag & drop delle date, zoom, critical path, CRUD milestone, navigazione da tastiera
-- **Team / Account** — CRUD Project Manager e Account interni
-- **Clienti / Progetti** — anagrafica clienti e progetti
-- **Impostazioni** — stati attività e stati progetto configurabili
+- **Gantt** — timeline interattiva con drag & drop delle date, zoom, critical path, CRUD milestone, navigazione da tastiera (attualmente nascosta dalla navigazione, pagina e routing restano attivi per un riuso futuro)
+- **Team / Account** — CRUD PM/PO e Account interni
+- **Clienti / Progetti & Prodotti** — anagrafica clienti, progetti cliente e prodotti interni (stessa struttura dati, distinti dal campo `tipo`)
+- **Roadmap Prodotti** — pianificazione delle iniziative sui prodotti interni per anno/trimestre, vista Lista e Kanban con drag & drop per la priorità, link Google Drive per l'analisi
+- **Impostazioni** — stati attività, stati progetto e stati roadmap configurabili
 
 ## API principali
 
@@ -109,6 +110,10 @@ Tutti gli endpoint richiedono `Authorization: Bearer <jwt>`.
 | PUT/DELETE | `/api/gantt/milestones/:id` | Aggiorna/elimina milestone |
 | GET/POST | `/api/stati-attivita` | Stati attività configurabili |
 | GET/POST | `/api/stati-progetto` | Stati progetto configurabili |
+| GET/POST/PUT/DELETE | `/progetti[/:id]` | CRUD progetti/prodotti (`?tipo=CLIENTE\|PRODOTTO`) |
+| GET/POST/PUT/DELETE | `/api/roadmap-items[/:id]` | CRUD attività roadmap prodotti |
+| PATCH | `/api/roadmap-items/:id/posizione` | Aggiorna priorità/trimestre (drag & drop roadmap) |
+| GET/POST/PUT/DELETE | `/api/stati-roadmap[/:id]` | Stati roadmap configurabili |
 | GET | `/auth/me` | Utente corrente |
 
 ## Deploy (Google Cloud Platform)
@@ -122,7 +127,8 @@ Guida completa: [docs/gcp-setup.md](./docs/gcp-setup.md)
 
 ## Convenzioni
 
-- I prefissi CSS (`db-`, `dash-`, `ea-`, `gp-`, `tm-`) evitano collisioni tra pagine — usare sempre il prefisso della pagina corrente per le nuove classi.
+- I prefissi CSS (`db-`, `dash-`, `ea-`, `gp-`, `tm-`, `pr-`, `rm-`, `imp-`) evitano collisioni tra pagine — usare sempre il prefisso della pagina corrente per le nuove classi.
 - Quando si aggiunge una nuova pagina, aggiornare il tipo `NavPage` in `frontend/src/App.tsx`.
-- Il campo `stato` delle attività è una chiave stringa che referenzia `StatoAttivitaConfig.chiave`, non un enum.
+- Il campo `stato` delle attività/progetti/roadmap è una chiave stringa che referenzia la relativa config (`StatoAttivitaConfig`, `StatoProgettoConfig`, `StatoRoadmapConfig`), non un enum.
+- Progetti e Prodotti condividono la stessa tabella (`Progetto`), distinti dal campo `tipo` (`CLIENTE`/`PRODOTTO`) — pensato per un futuro import da un'unica fonte esterna senza dover mappare due entità diverse.
 - **Sforamento**: `giornateConsuntivate > giornateVendute`, o consuntivate > 0 quando vendute è null.
