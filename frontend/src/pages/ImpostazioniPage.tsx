@@ -16,7 +16,7 @@ export interface StatoConfig {
   ordine: number
 }
 
-type Sezione = 'attivita' | 'progetto'
+type Sezione = 'attivita' | 'progetto' | 'roadmap'
 
 interface FormState {
   label: string
@@ -388,8 +388,20 @@ interface StatiSezioneProps {
   sezione: Sezione
 }
 
+const SEZIONE_ENDPOINT: Record<Sezione, string> = {
+  attivita: '/api/stati-attivita',
+  progetto: '/api/stati-progetto',
+  roadmap:  '/api/stati-roadmap',
+}
+
+const SEZIONE_LABELS: Record<Sezione, string> = {
+  attivita: 'Stati Attività',
+  progetto: 'Stati Progetti',
+  roadmap:  'Stati Roadmap',
+}
+
 function StatiSezione({ token, sezione }: StatiSezioneProps) {
-  const endpoint = sezione === 'attivita' ? '/api/stati-attivita' : '/api/stati-progetto'
+  const endpoint = SEZIONE_ENDPOINT[sezione]
 
   const [stati,    setStati]    = useState<StatoConfig[]>([])
   const [loading,  setLoading]  = useState(true)
@@ -588,12 +600,24 @@ export default function ImpostazioniPage({ token }: ImpostazioniPageProps) {
           </svg>
           Stati Progetti
         </button>
+        <button
+          role="tab"
+          type="button"
+          aria-selected={tab === 'roadmap'}
+          className={`imp-tab${tab === 'roadmap' ? ' imp-tab--active' : ''}`}
+          onClick={() => setTab('roadmap')}
+        >
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+            <path d="M2 10h4l2-6 4 12 2-6h4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Stati Roadmap
+        </button>
       </div>
 
       {/* Tab panels */}
       <div
         role="tabpanel"
-        aria-label={tab === 'attivita' ? 'Stati Attività' : 'Stati Progetti'}
+        aria-label={SEZIONE_LABELS[tab]}
       >
         <StatiSezione key={tab} token={token} sezione={tab} />
       </div>

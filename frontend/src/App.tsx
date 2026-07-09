@@ -8,6 +8,7 @@ import ProgettiPage          from './pages/ProgettiPage'
 import ImpostazioniPage      from './pages/ImpostazioniPage'
 import GanttPage             from './pages/GanttPage'
 import DashboardPage         from './pages/DashboardPage'
+import RoadmapPage           from './pages/RoadmapPage'
 import './App.css'
 
 // ─── Sidebar icons ──────────────────────────────────────────────────────────
@@ -24,18 +25,6 @@ function IconGrid() {
   )
 }
 
-
-function IconTimeline() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
-      width="20" height="20" aria-hidden="true">
-      <path d="M3 5h14M3 10h14M3 15h9" strokeLinecap="round" />
-      <circle cx="7"  cy="5"  r="2" fill="currentColor" stroke="none" />
-      <circle cx="13" cy="10" r="2" fill="currentColor" stroke="none" />
-      <circle cx="9"  cy="15" r="2" fill="currentColor" stroke="none" />
-    </svg>
-  )
-}
 
 function IconUsers() {
   return (
@@ -89,6 +78,15 @@ function IconFolder() {
   )
 }
 
+function IconRoadmap() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+      width="20" height="20" aria-hidden="true">
+      <path d="M2 10h4l2-6 4 12 2-6h4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 function IconSettings() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true">
@@ -119,16 +117,17 @@ function BrandMark() {
 
 // ─── Sezione placeholder ─────────────────────────────────────────────────────
 
-type NavPage = 'dashboard' | 'clienti' | 'progetti' | 'timeline' | 'attivita' | 'team-pm' | 'team-account' | 'impostazioni'
+type NavPage = 'dashboard' | 'clienti' | 'progetti' | 'timeline' | 'attivita' | 'team-pm' | 'team-account' | 'roadmap' | 'impostazioni'
 
 const PAGE_LABELS: Record<NavPage, string> = {
   dashboard:      'Dashboard',
   clienti:        'Anagrafica Clienti',
-  progetti:       'Anagrafica Progetti',
+  progetti:       'Progetti & Prodotti',
   timeline:       'Gantt Attività',
   attivita:       'Elenco Attività',
-  'team-pm':      'Anagrafica PM',
+  'team-pm':      'Anagrafica PM / PO',
   'team-account': 'Anagrafica Account',
+  roadmap:        'Roadmap Prodotti',
   impostazioni:   'Impostazioni',
 }
 
@@ -215,11 +214,12 @@ export default function App() {
         <div className="db-sidebar-nav">
           {navBtn('dashboard',     'Dashboard',            <IconGrid />)}
           {navBtn('attivita',      'Elenco Attività',      <IconClipboard />)}
-          {navBtn('timeline',      'Gantt Attività',       <IconTimeline />)}
-          {navBtn('team-pm',       'Anagrafica PM',        <IconUsers />)}
+          {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
+          {navBtn('team-pm',       'Anagrafica PM / PO',   <IconUsers />)}
           {navBtn('team-account',  'Anagrafica Account',   <IconAccount />)}
           {navBtn('clienti',       'Anagrafica Clienti',   <IconBuilding />)}
-          {navBtn('progetti',      'Anagrafica Progetti',  <IconFolder />)}
+          {navBtn('progetti',      'Progetti & Prodotti',  <IconFolder />)}
+          {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
         </div>
 
         <div className="db-sidebar-foot">
@@ -255,9 +255,10 @@ export default function App() {
         {page === 'team-pm'       && <TeamPage              token={token} />}
         {page === 'team-account'  && <TeamAccountPage       token={token} />}
         {page === 'attivita'      && <ElencoAttivitaPage    token={token} />}
+        {page === 'roadmap'       && <RoadmapPage           token={token} />}
         {page === 'impostazioni'  && <ImpostazioniPage      token={token} />}
         {page === 'timeline'      && <GanttPage             token={token} />}
-        {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'team-pm' && page !== 'team-account' && page !== 'attivita' && page !== 'impostazioni' && page !== 'timeline' && (
+        {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'team-pm' && page !== 'team-account' && page !== 'attivita' && page !== 'roadmap' && page !== 'impostazioni' && page !== 'timeline' && (
           <PlaceholderPage page={page} />
         )}
       </div>
