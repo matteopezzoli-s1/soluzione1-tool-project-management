@@ -7,25 +7,26 @@ Tool interno Soluzione1 per la gestione di progetti e attività con viste Gantt,
 | Layer | Tecnologie |
 |-------|-----------|
 | Frontend | React 19 + Vite + TypeScript (no component library) |
-| Backend | Express 5 + Prisma 6 + TypeScript |
-| Database | PostgreSQL (Docker in locale, Cloud SQL in produzione) |
+| Backend | Hono + Prisma 6 + TypeScript (Node in locale, Cloudflare Workers in produzione) |
+| Database | PostgreSQL (Docker in locale su :5433, Neon in produzione via Hyperdrive) |
 | Auth | Google OAuth 2.0 → JWT |
-| Deploy | Google Cloud Run + Cloud Build |
+| Deploy | Cloudflare Workers (backend) + Cloudflare Pages (frontend), via GitHub Actions |
 
 ## Struttura del repository
 
 ```
 soluzione1-tool-project-management/
-├── backend/          # API REST Express + Prisma
+├── backend/          # API REST Hono + Prisma
 │   ├── prisma/       # Schema e migrations
-│   └── src/          # index.ts (entry point), auth.ts, services/
+│   ├── wrangler.toml # Config Cloudflare Worker (Hyperdrive, env.production)
+│   └── src/          # app.ts (route), server.ts (dev Node), worker.ts (Cloudflare), auth.ts, services/
 ├── frontend/         # App React
 │   └── src/
 │       ├── pages/    # LoginPage, DashboardPage, ElencoAttivitaPage, GanttPage, ProgettiPage, RoadmapPage, ...
 │       └── components/
-├── docs/             # gcp-setup.md
 ├── docker-compose.yml
-└── DEV_SETUP.md      # Guida ambiente locale
+├── DEV_SETUP.md      # Guida ambiente locale
+└── CI_CD_SETUP.md    # Guida CI/CD e deploy su Cloudflare
 ```
 
 ## Avvio rapido (sviluppo locale)
@@ -57,7 +58,7 @@ npm run dev            # → http://localhost:5173
 
 | Servizio | Porta |
 |----------|-------|
-| PostgreSQL | 5432 |
+| PostgreSQL | 5433 |
 | Backend | 8080 |
 | Frontend | 5173 |
 
@@ -66,14 +67,16 @@ npm run dev            # → http://localhost:5173
 ### Backend (`backend/`)
 
 ```bash
-npm run dev                  # Dev server con hot-reload
+npm run dev                  # Dev server Node con hot-reload (nodemon + ts-node, src/server.ts)
+npm run dev:worker           # Dev server su runtime Cloudflare Workers (wrangler dev, src/worker.ts)
 npm run build                # Compila TypeScript → dist/
-npm start                    # Avvia dist/index.js
+npm start                    # Avvia dist/server.js
+npm run deploy               # Deploy su Cloudflare Workers (wrangler deploy)
 
 npx prisma db push           # Sincronizza schema al DB (locale)
 npx prisma generate          # Rigenera il client Prisma (dopo ogni modifica allo schema)
 npx prisma studio            # Browser visuale del DB
-npx prisma migrate deploy    # Applica migrations pendenti (CI/produzione)
+npx prisma migrate deploy    # Applica migrations pendenti (CI/produzione, contro Neon)
 ```
 
 > Non usare `npx prisma migrate dev` in locale — usa sempre `npx prisma db push`.
@@ -116,14 +119,15 @@ Tutti gli endpoint richiedono `Authorization: Bearer <jwt>`.
 | GET/POST/PUT/DELETE | `/api/stati-roadmap[/:id]` | Stati roadmap configurabili |
 | GET | `/auth/me` | Utente corrente |
 
-## Deploy (Google Cloud Platform)
+## Deploy (Cloudflare)
 
-- **Push su `develop`** → Cloud Build deploya su Cloud Run (ambiente dev)
-- **Push su `main`** → Cloud Build deploya su Cloud Run (produzione)
-- **Database**: Cloud SQL PostgreSQL, connessione via Unix socket su Cloud Run
-- **Segreti**: gestiti con GCP Secret Manager (non `.env`)
+Unico ambiente cloud esistente: solo `main` deploya (vedi [`.github/workflows/deploy-prod.yml`](./.github/workflows/deploy-prod.yml)). `develop` e gli altri branch passano solo dalla CI ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml): build + typecheck), nessun deploy.
 
-Guida completa: [docs/gcp-setup.md](./docs/gcp-setup.md)
+- **Push su `main`** → GitHub Actions applica le migration Prisma sul DB di produzione (Neon), poi deploya il backend su **Cloudflare Workers** (`wrangler deploy --env production`) e il frontend su **Cloudflare Pages** (`wrangler pages deploy`)
+- **Database**: Neon PostgreSQL, raggiunto dal Worker tramite binding **Hyperdrive** (config in `backend/wrangler.toml`)
+- **Segreti**: `wrangler secret put` per il Worker, GitHub Actions secrets per la pipeline CI/CD (non `.env`)
+
+Guida completa: [CI_CD_SETUP.md](./CI_CD_SETUP.md)
 
 ## Convenzioni
 
