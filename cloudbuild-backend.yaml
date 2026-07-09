@@ -3,8 +3,8 @@
 # Pipeline CI/CD - Backend Node.js + Prisma
 #
 # Trigger GCP:
-#   - Branch: develop  → deploy su be-dev  (database: s1-gantt-dev)
-#   - Branch: main     → deploy su be-prod (database: s1-gantt-prod)
+#   - Branch: develop  → deploy su be-dev  (database: s1-tpm-dev)
+#   - Branch: main     → deploy su be-prod (database: s1-tpm-prod)
 #
 # Istanza Cloud SQL: soluzione1-progetti-interni:europe-west1:s1-progetti-interni
 # =============================================================================

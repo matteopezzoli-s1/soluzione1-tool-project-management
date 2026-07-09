@@ -1,0 +1,78 @@
+name: Deploy to Cloudflare (production)
+
+# Unico ambiente cloud esistente: solo main deploya. "develop" e gli altri
+# branch sono lavoro in corso / PR review, coperti solo da ci.yml (nessun
+# deploy). Vedi CI_CD_SETUP.md per i secret richiesti e i passi manuali.
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROD_BACKEND_URL: https://tpm-backend-production.soluzione1.workers.dev
+  PROD_FRONTEND_URL: https://tpm-frontend.pages.dev
+
+jobs:
+  deploy-backend:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Applica le migration sul DB di produzione (Neon)
+        run: npx prisma migrate deploy
+        env:
+          # migrate deploy usa sempre la connessione diretta (mai il pooler):
+          # vedi CI_CD_SETUP.md per come creare il secret NEON_PROD_DIRECT_URL.
+          DATABASE_URL: ${{ secrets.NEON_PROD_DIRECT_URL }}
+          DIRECT_URL: ${{ secrets.NEON_PROD_DIRECT_URL }}
+
+      - name: Deploy Worker su Cloudflare
+        run: npx wrangler deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-frontend:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Build (Vite)
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ env.PROD_BACKEND_URL }}
+
+      - name: Deploy su Cloudflare Pages
+        run: npx wrangler pages deploy dist --project-name=tpm-frontend --branch=main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

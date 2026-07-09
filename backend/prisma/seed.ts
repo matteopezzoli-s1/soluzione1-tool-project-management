@@ -1,6 +1,7 @@
-import { PrismaClient } from '@prisma/client'
+import 'dotenv/config'
+import { createPrismaClient } from '../src/lib/prisma'
 
-const prisma = new PrismaClient()
+const prisma = createPrismaClient(process.env.DATABASE_URL ?? '')
 
 async function main() {
   console.log('Seeding...')

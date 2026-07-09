@@ -1,4 +1,4 @@
-# s1-gantt
+# TPM — Tool Project Management
 
 Tool interno Soluzione1 per la gestione di progetti e attività con viste Gantt, milestone, scadenze e KPI.
 
@@ -15,7 +15,7 @@ Tool interno Soluzione1 per la gestione di progetti e attività con viste Gantt,
 ## Struttura del repository
 
 ```
-soluzione1-gantt-progetti/
+soluzione1-tool-project-management/
 ├── backend/          # API REST Express + Prisma
 │   ├── prisma/       # Schema e migrations
 │   └── src/          # index.ts (entry point), auth.ts, services/
