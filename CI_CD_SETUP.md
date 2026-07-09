@@ -77,6 +77,6 @@ La vera config Hyperdrive → Neon esiste solo sotto `[env.production]` in `wran
 
 Il backend di produzione gira oggi su `https://tpm-backend-production.soluzione1.workers.dev` — sottodominio `*.workers.dev` legato all'account Cloudflare (non un dominio custom, perché nessuna zona DNS è collegata all'account). Se il sottodominio account cambia di nuovo in futuro (come già successo una volta), va aggiornato **sia** `BACKEND_URL` sotto `[env.production]` in `backend/wrangler.toml` **sia** `PROD_BACKEND_URL` in `.github/workflows/deploy-prod.yml`, poi va rilanciato il deploy.
 
-## Pipeline Google Cloud Build (fallback)
+## Pipeline Google Cloud Build (rimossa)
 
-`cloudbuild-backend.yaml` e `cloudbuild-frontend.yaml` restano attivi e invariati come fallback su Cloud Run, non toccati da questo step. Vanno disattivati/rimossi solo dopo aver confermato che il deploy su Cloudflare funziona stabilmente in produzione.
+Il deploy su Cloudflare è confermato stabile in produzione: `cloudbuild-backend.yaml`, `cloudbuild-frontend.yaml` e `docs/gcp-setup.md` sono stati rimossi. Cloudflare (Workers + Pages, vedi `.github/workflows/deploy-prod.yml`) è l'unica pipeline di deploy.
