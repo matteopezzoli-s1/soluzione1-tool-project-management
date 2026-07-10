@@ -28,6 +28,7 @@
   font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
 .rm-topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; }
+.rm-topbar-actions { display: flex; gap: 0.6rem; }
 .rm-title { font-size: 1.5rem; font-weight: 800; color: #0F172A; letter-spacing: -0.03em; line-height: 1.2; }
 .rm-subtitle { font-size: 0.8rem; color: #94A3B8; margin-top: 0.2rem; font-weight: 500; }
 
@@ -127,17 +128,26 @@
 .rm-quarter-badge { background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; }
 .rm-tag-badge { font-weight: 600; }
 .rm-tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.rm-tag-badge--removable { gap: 0.3rem; padding-right: 0.4rem; }
+.rm-tag-remove {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; color: inherit; cursor: pointer;
+  padding: 0; opacity: 0.6; transition: opacity 150ms ease;
+}
+.rm-tag-remove:hover { opacity: 1; }
 
 /* ── Tag picker (form) ─────────────────────────────────────── */
 
 .rm-tag-picker { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .rm-tag-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem;
   font-family: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer;
   padding: 0.3rem 0.75rem; border-radius: 999px;
   background: #F8FAFC; color: #64748B; border: 1px solid #E2E8F0;
   transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 .rm-tag-chip:hover { border-color: #CBD5E1; }
+.rm-tag-chip-x { flex-shrink: 0; }
 .rm-field-hint { font-size: 0.8rem; color: #94A3B8; }
 .rm-po-avatar {
   display: inline-flex; align-items: center; justify-content: center;
