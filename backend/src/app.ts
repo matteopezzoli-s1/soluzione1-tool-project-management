@@ -7,6 +7,7 @@ import {
   verifyJWT,
 } from './auth'
 import { importCSV } from './services/importService'
+import { importRoadmapCSV } from './services/roadmapImportService'
 
 export interface AppConfig {
   googleClientId: string
@@ -968,6 +969,20 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
   })
 
+  // DELETE /api/roadmap-items/:id/tags/:tagId — scollega un singolo tag (senza toccare il resto)
+  hono.delete('/api/roadmap-items/:id/tags/:tagId', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const tagId = c.req.param('tagId')
+    try {
+      await c.get('prisma').roadmapItemTag.delete({ where: { roadmapItemId_tagId: { roadmapItemId: id, tagId } } })
+      return c.body(null, 204)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Associazione tag non trovata' }, 404)
+      console.error('[roadmap-items] DELETE tag error:', err)
+      return c.json({ error: 'Errore nella rimozione del tag' }, 500)
+    }
+  })
+
   // ── Attività CRUD ───────────────────────────────────────────
 
   // GET /api/attivita — lista raggruppata per cliente+progetto
@@ -1365,6 +1380,22 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json({ success: true, result })
     } catch (err) {
       console.error('[import] error:', err)
+      return c.json({ error: 'Errore import', detail: String(err) }, 422)
+    }
+  })
+
+  hono.post('/api/roadmap-items/import-csv', requireAuth(), async (c) => {
+    const formData = await c.req.formData()
+    const file = formData.get('file')
+    if (!(file instanceof File)) {
+      return c.json({ error: 'File mancante' }, 400)
+    }
+    try {
+      const buffer = Buffer.from(await file.arrayBuffer())
+      const result = await importRoadmapCSV(buffer, c.get('prisma'))
+      return c.json({ success: true, result })
+    } catch (err) {
+      console.error('[import roadmap] error:', err)
       return c.json({ error: 'Errore import', detail: String(err) }, 422)
     }
   })

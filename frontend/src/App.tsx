@@ -214,12 +214,12 @@ export default function App() {
         <div className="db-sidebar-nav">
           {navBtn('dashboard',     'Dashboard',            <IconGrid />)}
           {navBtn('attivita',      'Elenco Attività',      <IconClipboard />)}
+          {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
           {navBtn('team-pm',       'Anagrafica PM / PO',   <IconUsers />)}
           {navBtn('team-account',  'Anagrafica Account',   <IconAccount />)}
           {navBtn('clienti',       'Anagrafica Clienti',   <IconBuilding />)}
           {navBtn('progetti',      'Progetti & Prodotti',  <IconFolder />)}
-          {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
         </div>
 
         <div className="db-sidebar-foot">

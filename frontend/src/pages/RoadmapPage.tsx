@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
+import RoadmapImportCSVModal from '../components/RoadmapImportCSVModal'
 import './RoadmapPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -61,6 +62,11 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })
 }
 
+function fmtDateLong(iso: string | null) {
+  if (!iso) return null
+  return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
 function toInputDate(iso: string | null) {
   if (!iso) return ''
   return iso.split('T')[0]
@@ -101,9 +107,24 @@ function TagBadge({ tag }: { tag: TagRef }) {
   )
 }
 
-function TagList({ tags }: { tags: TagRef[] }) {
+function TagList({ tags, onRemove }: { tags: TagRef[]; onRemove?: (tagId: string) => void }) {
   if (tags.length === 0) return null
-  return <div className="rm-tag-list">{tags.map(t => <TagBadge key={t.id} tag={t} />)}</div>
+  return (
+    <div className="rm-tag-list">
+      {tags.map(t => onRemove ? (
+        <span key={t.id} className="rm-tag-badge rm-tag-badge--removable"
+          style={{ backgroundColor: t.colore + '22', color: t.colore, border: `1px solid ${t.colore}55` }}>
+          {t.label}
+          <button type="button" className="rm-tag-remove" aria-label={`Rimuovi tag ${t.label}`}
+            onClick={() => onRemove(t.id)}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.5" width="10" height="10" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+            </svg>
+          </button>
+        </span>
+      ) : <TagBadge key={t.id} tag={t} />)}
+    </div>
+  )
 }
 
 function TagPicker({ tags, selectedIds, onToggle }: { tags: TagRef[]; selectedIds: string[]; onToggle: (id: string) => void }) {
@@ -118,8 +139,14 @@ function TagPicker({ tags, selectedIds, onToggle }: { tags: TagRef[]; selectedId
           <button key={t.id} type="button"
             className={`rm-tag-chip${selected ? ' rm-tag-chip--selected' : ''}`}
             style={selected ? { backgroundColor: t.colore + '22', color: t.colore, border: `1px solid ${t.colore}55` } : undefined}
-            onClick={() => onToggle(t.id)}>
+            onClick={() => onToggle(t.id)}
+            aria-pressed={selected}>
             {t.label}
+            {selected && (
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.5" width="10" height="10" aria-hidden="true" className="rm-tag-chip-x">
+                <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+              </svg>
+            )}
           </button>
         )
       })}
@@ -324,6 +351,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
   const [formErr,   setFormErr]   = useState<string | null>(null)
   const [delTarget, setDelTarget] = useState<RoadmapItem | null>(null)
   const [deleting,  setDeleting]  = useState(false)
+  const [showImport, setShowImport] = useState(false)
 
   const dragIdRef = useRef<string | null>(null)
 
@@ -472,6 +500,17 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
     finally { setSaving(false) }
   }
 
+  const removeTagFromItem = async (itemId: string, tagId: string) => {
+    setItems(prev => prev.map(it => it.id === itemId ? { ...it, tags: it.tags.filter(t => t.id !== tagId) } : it))
+    try {
+      const res = await fetch(`${API_URL}/api/roadmap-items/${itemId}/tags/${tagId}`, { method: 'DELETE', headers: authHeaders(token) })
+      if (!res.ok && res.status !== 404) throw new Error()
+    } catch {
+      setApiError('Impossibile rimuovere il tag. Riprova.')
+      await fetchAll()
+    }
+  }
+
   const handleDelete = async () => {
     if (!delTarget) return
     setDeleting(true)
@@ -492,12 +531,20 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
           <h1 className="rm-title">Roadmap Prodotti</h1>
           <p className="rm-subtitle">{loading ? '' : `${displayItems.length} attività · ${anno}`}</p>
         </div>
-        <button className="rm-btn rm-btn--primary" type="button" onClick={openAdd}>
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
-            <path d="M10 4v12M4 10h12" strokeLinecap="round" />
-          </svg>
-          Nuova attività
-        </button>
+        <div className="rm-topbar-actions">
+          <button className="rm-btn rm-btn--ghost" type="button" onClick={() => setShowImport(true)}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
+              <path d="M10 3v10M6 9l4 4 4-4M4 16.5h12" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Importa CSV
+          </button>
+          <button className="rm-btn rm-btn--primary" type="button" onClick={openAdd}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
+              <path d="M10 4v12M4 10h12" strokeLinecap="round" />
+            </svg>
+            Nuova attività
+          </button>
+        </div>
       </div>
 
       <div className="rm-toolbar">
@@ -557,6 +604,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
                 <th scope="col">Titolo</th>
                 <th scope="col">Tag</th>
                 <th scope="col">Trimestre</th>
+                <th scope="col">Deadline</th>
                 <th scope="col">Stato</th>
                 <th scope="col">Stima</th>
                 <th scope="col">PO</th>
@@ -576,9 +624,12 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
                   <td><ProdottoBadge prodotto={item.progetto} /></td>
                   <td className="rm-cell-titolo">{item.titolo}</td>
                   <td className="rm-cell-tags">
-                    {item.tags.length > 0 ? <TagList tags={item.tags} /> : <span className="rm-empty-cell">—</span>}
+                    {item.tags.length > 0
+                      ? <TagList tags={item.tags} onRemove={tagId => removeTagFromItem(item.id, tagId)} />
+                      : <span className="rm-empty-cell">—</span>}
                   </td>
                   <td className="rm-cell-text">{QUARTERS.find(q => q.key === (item.quarter ?? ''))?.label ?? item.quarter}</td>
+                  <td className="rm-cell-text">{fmtDateLong(item.dataDeadline) ?? <span className="rm-empty-cell">—</span>}</td>
                   <td><StatoBadge stato={item.stato} statiMap={statiMap} /></td>
                   <td className="rm-cell-text">{item.stimaGg !== null ? `${item.stimaGg}gg` : '—'}</td>
                   <td className="rm-cell-text">
@@ -678,6 +729,9 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
       )}
       {delTarget && (
         <ConfirmDelete item={delTarget} loading={deleting} onConfirm={handleDelete} onClose={() => setDelTarget(null)} />
+      )}
+      {showImport && (
+        <RoadmapImportCSVModal token={token} onClose={() => setShowImport(false)} onImportComplete={() => fetchAll()} />
       )}
     </div>
   )
