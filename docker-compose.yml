@@ -1,17 +1,17 @@
 version: '3.8'
 
 services:
-  postgres:
+  tpm-db:
     image: postgres:16-alpine
-    container_name: s1-gantt-db
+    container_name: s1-tpm-db
     environment:
-      POSTGRES_USER: gantt
-      POSTGRES_PASSWORD: gantt_dev_pwd
-      POSTGRES_DB: s1-gantt-dev
+      POSTGRES_USER: tpm
+      POSTGRES_PASSWORD: tpm_dev_pwd
+      POSTGRES_DB: s1-tpm-dev
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - tpm_postgres_data:/var/lib/postgresql/data
 
 volumes:
-  postgres_data:
+  tpm_postgres_data:

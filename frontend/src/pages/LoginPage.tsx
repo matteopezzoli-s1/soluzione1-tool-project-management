@@ -279,7 +279,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   }, [onLogin])
 
   useEffect(() => {
-    handleOAuthCallback()
+    queueMicrotask(() => { handleOAuthCallback() })
   }, [handleOAuthCallback])
 
   const handleGoogleLogin = () => {
@@ -321,7 +321,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       </section>
 
       {/* ── Right panel: Form ── */}
-      <section className="lp-form" aria-label="Accesso a s1 Gantt">
+      <section className="lp-form" aria-label="Accesso a Tool Project Management">
         <div className="lp-form-inner">
 
           <header className="lp-brand">
@@ -329,7 +329,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               <GanttBarIcon />
             </div>
             <div>
-              <h1 className="lp-brand-name">s1 Gantt</h1>
+              <h1 className="lp-brand-name">TPM</h1>
               <p className="lp-brand-sub">Project Management Interno</p>
             </div>
           </header>

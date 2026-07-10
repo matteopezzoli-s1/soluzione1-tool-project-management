@@ -4,16 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**s1-gantt** — Internal project management tool for Soluzione1. Tracks activities, projects with Gantt views, milestones, project managers, and accounts. Frontend in React, backend in Express + Prisma + PostgreSQL.
+**TPM (Tool Project Management)** — Internal project management tool for Soluzione1. Tracks activities, projects with Gantt views, milestones, project managers, and accounts. Frontend in React, backend in Express + Prisma + PostgreSQL.
 
 ## Commands
 
 ### Backend (in `backend/`)
 
 ```bash
-npm run dev        # Start with hot-reload (ts-node-dev)
+npm run dev        # Node dev server con hot-reload (nodemon + ts-node, src/server.ts)
+npm run dev:worker # Dev server su runtime Cloudflare Workers (wrangler dev, src/worker.ts)
 npm run build      # Compile TypeScript → dist/
-npm start          # Run compiled dist/index.js
+npm start          # Run compiled dist/server.js
+npm run deploy     # Deploy su Cloudflare Workers (wrangler deploy)
 
 npx prisma db push             # Sync schema to DB without migration history (use this locally)
 npx prisma migrate deploy      # Apply pending migrations (CI/prod only)
@@ -36,7 +38,7 @@ npm run preview    # Serve production build locally
 ### Local DB
 
 ```bash
-docker compose up -d    # Start PostgreSQL on :5432 (container: s1-gantt-db)
+docker compose up -d    # Start PostgreSQL on :5433 (container: s1-tpm-db)
 docker compose down     # Stop
 ```
 
@@ -64,7 +66,7 @@ docker compose down     # Stop
 
 ### Backend
 
-- **Express 5 + Prisma 6 + PostgreSQL** — TypeScript, single `src/index.ts` entry point
+- **Hono + Prisma 6 + PostgreSQL** — TypeScript, runtime-agnostic route definitions in `src/app.ts`, with two entry points: `src/server.ts` (Node, dev locale via `@hono/node-server`) and `src/worker.ts` (Cloudflare Workers, produzione — legge la connessione DB da un binding Hyperdrive)
 - **Auth routes** (`src/auth.ts`): `GET /auth/google` → Google OAuth, `GET /auth/google/callback` → JWT issue, `GET /auth/me`
 - **REST API**: all routes protected by JWT middleware
 
@@ -115,13 +117,13 @@ VITE_API_URL=http://localhost:8080
 
 Vite reads this at server start. If missing, the login page shows "VITE_API_URL non impostato".
 
-## Deploy (GCP)
+## Deploy (Cloudflare)
 
-- **Cloud Build triggers**: push to `develop` → deploy to dev Cloud Run; push to `main` → deploy to prod
-- **Backend**: Dockerized Node.js on Cloud Run, reads secrets from GCP Secret Manager
-- **Frontend**: Dockerized Nginx serving the Vite build, with `VITE_API_URL` injected at build time via Cloud Build substitutions
-- **Database**: Cloud SQL PostgreSQL; connection string uses Unix socket format for Cloud Run (`?host=/cloudsql/PROJECT:REGION:INSTANCE`)
-- Full setup instructions: `docs/gcp-setup.md`
+- **GitHub Actions trigger**: only push to `main` deploys (`.github/workflows/deploy-prod.yml`); `develop` and other branches only run CI (`ci.yml` — build + typecheck, no deploy)
+- **Backend**: Cloudflare Workers (`wrangler deploy --env production`), reads secrets via `wrangler secret put`
+- **Frontend**: Cloudflare Pages (`wrangler pages deploy`), with `VITE_API_URL` injected at build time
+- **Database**: Neon PostgreSQL, reached from the Worker via the `HYPERDRIVE` binding configured in `backend/wrangler.toml`
+- Full setup instructions: `CI_CD_SETUP.md`
 
 ## Key Conventions
 
