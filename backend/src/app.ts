@@ -374,9 +374,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.get('/progetti', requireAuth(), async (c) => {
     try {
+      const tipo = c.req.query('tipo')
       const progetti = await c.get('prisma').progetto.findMany({
+        where: tipo?.trim() ? { tipo: tipo.trim() } : undefined,
         orderBy: { nome: 'asc' },
-        include: { cliente: { select: { id: true, nome: true } } },
+        include: {
+          cliente: { select: { id: true, nome: true } },
+          po: { select: { id: true, firstName: true, lastName: true } },
+        },
       })
       return c.json(progetti)
     } catch (err) {
@@ -386,32 +391,40 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.post('/progetti', requireAuth(), async (c) => {
-    const { nome, descrizione, stato, clienteId, dataInizio, dataFine } = await readJSON<{
-      nome?: string; descrizione?: string; stato?: string
-      clienteId?: string; dataInizio?: string; dataFine?: string
+    const { nome, descrizione, tipo, stato, colore, clienteId, poId, dataInizio, dataFine } = await readJSON<{
+      nome?: string; descrizione?: string; tipo?: string; stato?: string; colore?: string
+      clienteId?: string; poId?: string; dataInizio?: string; dataFine?: string
     }>(c)
     if (!nome?.trim()) return c.json({ error: 'Il nome è obbligatorio' }, 400)
     const prisma = c.get('prisma')
+    const tipoVal = tipo?.trim() === 'PRODOTTO' ? 'PRODOTTO' : 'CLIENTE'
     const statoVal = stato?.trim() ?? 'ATTIVO'
     const statiValidi = await prisma.statoProgettoConfig.findMany({ select: { chiave: true } })
     if (!statiValidi.some(s => s.chiave === statoVal)) {
       return c.json({ error: 'Stato non valido' }, 400)
     }
+    if (colore && !COLOR_RE.test(colore)) return c.json({ error: 'Colore non valido' }, 400)
     try {
       const progetto = await prisma.progetto.create({
         data: {
           nome: nome.trim(),
           descrizione: descrizione?.trim() || null,
+          tipo: tipoVal,
           stato: statoVal,
-          clienteId: clienteId?.trim() || null,
+          colore: colore?.trim() || null,
+          clienteId: tipoVal === 'CLIENTE' ? (clienteId?.trim() || null) : null,
+          poId: tipoVal === 'PRODOTTO' ? (poId?.trim() || null) : null,
           dataInizio: dataInizio ? new Date(dataInizio) : null,
           dataFine: dataFine ? new Date(dataFine) : null,
         },
-        include: { cliente: { select: { id: true, nome: true } } },
+        include: {
+          cliente: { select: { id: true, nome: true } },
+          po: { select: { id: true, firstName: true, lastName: true } },
+        },
       })
       return c.json(progetto, 201)
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Cliente non trovato' }, 400)
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Cliente o PO non trovato' }, 400)
       console.error('[progetti] POST error:', err)
       return c.json({ error: 'Errore nella creazione del progetto' }, 500)
     }
@@ -419,29 +432,37 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/progetti/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { nome, descrizione, stato, clienteId, dataInizio, dataFine } = await readJSON<{
-      nome?: string; descrizione?: string; stato?: string
-      clienteId?: string; dataInizio?: string; dataFine?: string
+    const { nome, descrizione, tipo, stato, colore, clienteId, poId, dataInizio, dataFine } = await readJSON<{
+      nome?: string; descrizione?: string; tipo?: string; stato?: string; colore?: string
+      clienteId?: string; poId?: string; dataInizio?: string; dataFine?: string
     }>(c)
     if (!nome?.trim()) return c.json({ error: 'Il nome è obbligatorio' }, 400)
     const prisma = c.get('prisma')
+    const tipoVal = tipo?.trim() === 'PRODOTTO' ? 'PRODOTTO' : 'CLIENTE'
     const statoVal = stato?.trim() ?? 'ATTIVO'
     const statiValidi = await prisma.statoProgettoConfig.findMany({ select: { chiave: true } })
     if (!statiValidi.some(s => s.chiave === statoVal)) {
       return c.json({ error: 'Stato non valido' }, 400)
     }
+    if (colore && !COLOR_RE.test(colore)) return c.json({ error: 'Colore non valido' }, 400)
     try {
       const progetto = await prisma.progetto.update({
         where: { id },
         data: {
           nome: nome.trim(),
           descrizione: descrizione?.trim() || null,
+          tipo: tipoVal,
           stato: statoVal,
-          clienteId: clienteId?.trim() || null,
+          colore: colore?.trim() || null,
+          clienteId: tipoVal === 'CLIENTE' ? (clienteId?.trim() || null) : null,
+          poId: tipoVal === 'PRODOTTO' ? (poId?.trim() || null) : null,
           dataInizio: dataInizio ? new Date(dataInizio) : null,
           dataFine: dataFine ? new Date(dataFine) : null,
         },
-        include: { cliente: { select: { id: true, nome: true } } },
+        include: {
+          cliente: { select: { id: true, nome: true } },
+          po: { select: { id: true, firstName: true, lastName: true } },
+        },
       })
       return c.json(progetto)
     } catch (err: unknown) {
@@ -634,6 +655,228 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     } catch (err: unknown) {
       console.error('[stati-progetto] DELETE error:', err)
       return c.json({ error: 'Errore nella cancellazione dello stato' }, 500)
+    }
+  })
+
+  // ── Stati Roadmap Config CRUD ───────────────────────────────
+
+  hono.get('/api/stati-roadmap', requireAuth(), async (c) => {
+    try {
+      const stati = await c.get('prisma').statoRoadmapConfig.findMany({
+        orderBy: [{ ordine: 'asc' }, { label: 'asc' }],
+      })
+      return c.json(stati)
+    } catch (err) {
+      console.error('[stati-roadmap] GET error:', err)
+      return c.json({ error: 'Errore nel recupero degli stati' }, 500)
+    }
+  })
+
+  hono.post('/api/stati-roadmap', requireAuth(), async (c) => {
+    const { label, colore, isArchiviato, ordine } = await readJSON<{
+      label?: string; colore?: string; isArchiviato?: boolean; ordine?: number
+    }>(c)
+    if (!label?.trim()) return c.json({ error: 'label è obbligatorio' }, 400)
+    if (colore && !COLOR_RE.test(colore)) {
+      return c.json({ error: 'Colore non valido (usa formato hex, es. #10b981)' }, 400)
+    }
+    const chiave = label.trim().toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '') || 'STATO'
+    try {
+      const stato = await c.get('prisma').statoRoadmapConfig.create({
+        data: {
+          chiave,
+          label: label.trim(),
+          colore: colore?.trim() ?? '#94a3b8',
+          isArchiviato: isArchiviato ?? false,
+          ordine: ordine ?? 99,
+        },
+      })
+      return c.json(stato, 201)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2002') {
+        return c.json({ error: `Esiste già uno stato con chiave "${chiave}"` }, 409)
+      }
+      console.error('[stati-roadmap] POST error:', err)
+      return c.json({ error: 'Errore nella creazione dello stato' }, 500)
+    }
+  })
+
+  hono.put('/api/stati-roadmap/:id', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { label, colore, isArchiviato, ordine } = await readJSON<{
+      label?: string; colore?: string; isArchiviato?: boolean; ordine?: number
+    }>(c)
+    if (!label?.trim()) return c.json({ error: 'label è obbligatorio' }, 400)
+    if (colore && !COLOR_RE.test(colore)) return c.json({ error: 'Colore non valido' }, 400)
+    try {
+      const stato = await c.get('prisma').statoRoadmapConfig.update({
+        where: { id },
+        data: {
+          label: label.trim(),
+          colore: colore?.trim() ?? '#94a3b8',
+          isArchiviato: isArchiviato ?? false,
+          ordine: ordine ?? 99,
+        },
+      })
+      return c.json(stato)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Stato non trovato' }, 404)
+      console.error('[stati-roadmap] PUT error:', err)
+      return c.json({ error: 'Errore nell\'aggiornamento dello stato' }, 500)
+    }
+  })
+
+  hono.delete('/api/stati-roadmap/:id', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const prisma = c.get('prisma')
+    try {
+      const stato = await prisma.statoRoadmapConfig.findUnique({ where: { id } })
+      if (!stato) return c.json({ error: 'Stato non trovato' }, 404)
+      const inUso = await prisma.roadmapItem.count({ where: { stato: stato.chiave } })
+      if (inUso > 0) {
+        return c.json({ error: `Stato in uso da ${inUso} attività roadmap — riassegna prima le attività` }, 409)
+      }
+      await prisma.statoRoadmapConfig.delete({ where: { id } })
+      return c.body(null, 204)
+    } catch (err: unknown) {
+      console.error('[stati-roadmap] DELETE error:', err)
+      return c.json({ error: 'Errore nella cancellazione dello stato' }, 500)
+    }
+  })
+
+  // ── Roadmap Items CRUD ──────────────────────────────────────
+
+  hono.get('/api/roadmap-items', requireAuth(), async (c) => {
+    try {
+      const progettoId = c.req.query('progettoId')
+      const anno = c.req.query('anno')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const where: Record<string, any> = {}
+      if (progettoId?.trim()) where['progettoId'] = progettoId.trim()
+      if (anno?.trim()) where['anno'] = parseInt(anno, 10)
+      const items = await c.get('prisma').roadmapItem.findMany({
+        where,
+        orderBy: [{ anno: 'asc' }, { quarter: 'asc' }, { ordine: 'asc' }],
+        include: { progetto: { select: { id: true, nome: true, colore: true, poId: true } } },
+      })
+      return c.json(items)
+    } catch (err) {
+      console.error('[roadmap-items] GET error:', err)
+      return c.json({ error: 'Errore nel recupero delle attività roadmap' }, 500)
+    }
+  })
+
+  hono.post('/api/roadmap-items', requireAuth(), async (c) => {
+    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine } = await readJSON<{
+      progettoId?: string; anno?: number; quarter?: string | null; dataDeadline?: string | null
+      titolo?: string; descrizione?: string; stato?: string; analisiUrl?: string
+      stimaGg?: number | null; ordine?: number
+    }>(c)
+    if (!progettoId?.trim()) return c.json({ error: 'progettoId è obbligatorio' }, 400)
+    if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
+    if (!anno) return c.json({ error: 'L\'anno è obbligatorio' }, 400)
+    const prisma = c.get('prisma')
+    const statoVal = stato?.trim() ?? 'DA_FARE'
+    const statiValidi = await prisma.statoRoadmapConfig.findMany({ select: { chiave: true } })
+    if (statiValidi.length > 0 && !statiValidi.some(s => s.chiave === statoVal)) {
+      return c.json({ error: 'Stato non valido' }, 400)
+    }
+    try {
+      const item = await prisma.roadmapItem.create({
+        data: {
+          progettoId: progettoId.trim(),
+          anno,
+          quarter: quarter?.trim() || null,
+          dataDeadline: dataDeadline ? new Date(dataDeadline) : null,
+          titolo: titolo.trim(),
+          descrizione: descrizione?.trim() || null,
+          stato: statoVal,
+          analisiUrl: analisiUrl?.trim() || null,
+          stimaGg: stimaGg ?? null,
+          ordine: ordine ?? 0,
+        },
+        include: { progetto: { select: { id: true, nome: true, colore: true, poId: true } } },
+      })
+      return c.json(item, 201)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Prodotto non trovato' }, 400)
+      console.error('[roadmap-items] POST error:', err)
+      return c.json({ error: 'Errore nella creazione dell\'attività roadmap' }, 500)
+    }
+  })
+
+  hono.put('/api/roadmap-items/:id', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine } = await readJSON<{
+      progettoId?: string; anno?: number; quarter?: string | null; dataDeadline?: string | null
+      titolo?: string; descrizione?: string; stato?: string; analisiUrl?: string
+      stimaGg?: number | null; ordine?: number
+    }>(c)
+    if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
+    if (!anno) return c.json({ error: 'L\'anno è obbligatorio' }, 400)
+    const prisma = c.get('prisma')
+    const statoVal = stato?.trim() ?? 'DA_FARE'
+    const statiValidi = await prisma.statoRoadmapConfig.findMany({ select: { chiave: true } })
+    if (statiValidi.length > 0 && !statiValidi.some(s => s.chiave === statoVal)) {
+      return c.json({ error: 'Stato non valido' }, 400)
+    }
+    try {
+      const item = await prisma.roadmapItem.update({
+        where: { id },
+        data: {
+          progettoId: progettoId?.trim() || undefined,
+          anno,
+          quarter: quarter?.trim() || null,
+          dataDeadline: dataDeadline ? new Date(dataDeadline) : null,
+          titolo: titolo.trim(),
+          descrizione: descrizione?.trim() || null,
+          stato: statoVal,
+          analisiUrl: analisiUrl?.trim() || null,
+          stimaGg: stimaGg ?? null,
+          ordine: ordine ?? 0,
+        },
+        include: { progetto: { select: { id: true, nome: true, colore: true, poId: true } } },
+      })
+      return c.json(item)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività roadmap non trovata' }, 404)
+      console.error('[roadmap-items] PUT error:', err)
+      return c.json({ error: 'Errore nell\'aggiornamento dell\'attività roadmap' }, 500)
+    }
+  })
+
+  // PATCH /api/roadmap-items/:id/posizione — usato dal drag&drop (Lista e Kanban)
+  hono.patch('/api/roadmap-items/:id/posizione', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { ordine, anno, quarter, stato } = await readJSON<{
+      ordine?: number; anno?: number; quarter?: string | null; stato?: string
+    }>(c)
+    try {
+      const item = await c.get('prisma').roadmapItem.update({
+        where: { id },
+        data: {
+          ordine: ordine ?? undefined,
+          anno: anno ?? undefined,
+          quarter: quarter !== undefined ? (quarter?.trim() || null) : undefined,
+          stato: stato?.trim() || undefined,
+        },
+      })
+      return c.json(item)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività roadmap non trovata' }, 404)
+      return c.json({ error: 'Errore aggiornamento posizione' }, 500)
+    }
+  })
+
+  hono.delete('/api/roadmap-items/:id', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    try {
+      await c.get('prisma').roadmapItem.delete({ where: { id } })
+      return c.body(null, 204)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività roadmap non trovata' }, 404)
+      console.error('[roadmap-items] DELETE error:', err)
+      return c.json({ error: 'Errore nella cancellazione dell\'attività roadmap' }, 500)
     }
   })
 

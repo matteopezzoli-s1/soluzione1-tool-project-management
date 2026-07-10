@@ -27,9 +27,30 @@
   animation: pr-fade-up 0.35s ease both;
   font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
+.pr-page-topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; }
 .pr-topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; }
 .pr-title { font-size: 1.5rem; font-weight: 800; color: #0F172A; letter-spacing: -0.03em; line-height: 1.2; }
 .pr-subtitle { font-size: 0.8rem; color: #94A3B8; margin-top: 0.2rem; font-weight: 500; }
+.pr-sezione { display: flex; flex-direction: column; gap: 1.25rem; padding-top: 0.5rem; }
+
+/* ── Tabs ──────────────────────────────────────────────────── */
+
+.pr-tabs {
+  display: flex; gap: 0.25rem;
+  border-bottom: 2px solid #E2E8F0;
+}
+.pr-tab {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.65rem 1rem; border-radius: 8px 8px 0 0;
+  font-family: inherit; font-size: 0.875rem; font-weight: 600;
+  color: #64748B; background: transparent;
+  border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; transition: color 150ms ease, background 150ms ease;
+  margin-bottom: -2px;
+}
+.pr-tab:hover:not(.pr-tab--active) { color: #334155; background: #F8FAFC; }
+.pr-tab--active { color: #0D9488; border-bottom-color: #0D9488; }
+.pr-tab:focus-visible { outline: 2.5px solid #0D9488; outline-offset: 2px; }
 
 /* ── Buttons ───────────────────────────────────────────────── */
 
@@ -119,6 +140,22 @@
   background: #F0F9FF; border: 1px solid #BAE6FD; color: #0369A1;
   font-size: 0.78rem; font-weight: 600;
 }
+.pr-po-tag {
+  display: inline-flex; align-items: center;
+  padding: 0.2rem 0.65rem; border-radius: 999px;
+  background: #FFF7ED; border: 1px solid #FED7AA; color: #9A3412;
+  font-size: 0.78rem; font-weight: 600;
+}
+.pr-color-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 0.5rem; flex-shrink: 0;
+}
+.pr-color-row { display: flex; align-items: center; gap: 0.6rem; }
+.pr-color-input {
+  width: 40px; height: 40px; padding: 0; border: 1.5px solid #E2E8F0; border-radius: 9px;
+  cursor: pointer; background: none; flex-shrink: 0;
+}
+.pr-input--hex { flex: 1; font-family: 'SF Mono', monospace; }
 
 /* ── Stato badges ──────────────────────────────────────────── */
 

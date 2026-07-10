@@ -117,13 +117,13 @@ VITE_API_URL=http://localhost:8080
 
 Vite reads this at server start. If missing, the login page shows "VITE_API_URL non impostato".
 
-## Deploy (GCP)
+## Deploy (Cloudflare)
 
-- **Cloud Build triggers**: push to `develop` → deploy to dev Cloud Run; push to `main` → deploy to prod
-- **Backend**: Dockerized Node.js on Cloud Run, reads secrets from GCP Secret Manager
-- **Frontend**: Dockerized Nginx serving the Vite build, with `VITE_API_URL` injected at build time via Cloud Build substitutions
-- **Database**: Cloud SQL PostgreSQL; connection string uses Unix socket format for Cloud Run (`?host=/cloudsql/PROJECT:REGION:INSTANCE`)
-- Full setup instructions: `docs/gcp-setup.md`
+- **GitHub Actions trigger**: only push to `main` deploys (`.github/workflows/deploy-prod.yml`); `develop` and other branches only run CI (`ci.yml` — build + typecheck, no deploy)
+- **Backend**: Cloudflare Workers (`wrangler deploy --env production`), reads secrets via `wrangler secret put`
+- **Frontend**: Cloudflare Pages (`wrangler pages deploy`), with `VITE_API_URL` injected at build time
+- **Database**: Neon PostgreSQL, reached from the Worker via the `HYPERDRIVE` binding configured in `backend/wrangler.toml`
+- Full setup instructions: `CI_CD_SETUP.md`
 
 ## Key Conventions
 
