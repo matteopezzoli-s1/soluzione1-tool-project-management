@@ -7,25 +7,26 @@ Tool interno Soluzione1 per la gestione di progetti e attività con viste Gantt,
 | Layer | Tecnologie |
 |-------|-----------|
 | Frontend | React 19 + Vite + TypeScript (no component library) |
-| Backend | Express 5 + Prisma 6 + TypeScript |
-| Database | PostgreSQL (Docker in locale, Cloud SQL in produzione) |
+| Backend | Hono + Prisma 6 + TypeScript (Node in locale, Cloudflare Workers in produzione) |
+| Database | PostgreSQL (Docker in locale su :5433, Neon in produzione via Hyperdrive) |
 | Auth | Google OAuth 2.0 → JWT |
-| Deploy | Google Cloud Run + Cloud Build |
+| Deploy | Cloudflare Workers (backend) + Cloudflare Pages (frontend), via GitHub Actions |
 
 ## Struttura del repository
 
 ```
 soluzione1-tool-project-management/
-├── backend/          # API REST Express + Prisma
+├── backend/          # API REST Hono + Prisma
 │   ├── prisma/       # Schema e migrations
-│   └── src/          # index.ts (entry point), auth.ts, services/
+│   ├── wrangler.toml # Config Cloudflare Worker (Hyperdrive, env.production)
+│   └── src/          # app.ts (route), server.ts (dev Node), worker.ts (Cloudflare), auth.ts, services/
 ├── frontend/         # App React
 │   └── src/
-│       ├── pages/    # LoginPage, DashboardPage, ElencoAttivitaPage, GanttPage, ...
+│       ├── pages/    # LoginPage, DashboardPage, ElencoAttivitaPage, GanttPage, ProgettiPage, RoadmapPage, ...
 │       └── components/
-├── docs/             # gcp-setup.md
 ├── docker-compose.yml
-└── DEV_SETUP.md      # Guida ambiente locale
+├── DEV_SETUP.md      # Guida ambiente locale
+└── CI_CD_SETUP.md    # Guida CI/CD e deploy su Cloudflare
 ```
 
 ## Avvio rapido (sviluppo locale)
@@ -57,7 +58,7 @@ npm run dev            # → http://localhost:5173
 
 | Servizio | Porta |
 |----------|-------|
-| PostgreSQL | 5432 |
+| PostgreSQL | 5433 |
 | Backend | 8080 |
 | Frontend | 5173 |
 
@@ -66,14 +67,16 @@ npm run dev            # → http://localhost:5173
 ### Backend (`backend/`)
 
 ```bash
-npm run dev                  # Dev server con hot-reload
+npm run dev                  # Dev server Node con hot-reload (nodemon + ts-node, src/server.ts)
+npm run dev:worker           # Dev server su runtime Cloudflare Workers (wrangler dev, src/worker.ts)
 npm run build                # Compila TypeScript → dist/
-npm start                    # Avvia dist/index.js
+npm start                    # Avvia dist/server.js
+npm run deploy               # Deploy su Cloudflare Workers (wrangler deploy)
 
 npx prisma db push           # Sincronizza schema al DB (locale)
 npx prisma generate          # Rigenera il client Prisma (dopo ogni modifica allo schema)
 npx prisma studio            # Browser visuale del DB
-npx prisma migrate deploy    # Applica migrations pendenti (CI/produzione)
+npx prisma migrate deploy    # Applica migrations pendenti (CI/produzione, contro Neon)
 ```
 
 > Non usare `npx prisma migrate dev` in locale — usa sempre `npx prisma db push`.
@@ -91,10 +94,11 @@ npm run preview  # Serve la build di produzione in locale
 
 - **Dashboard** — KPI (attività attive, clienti, in scadenza, in ritardo), lista scadenze, scorciatoie
 - **Elenco Attività** — filtri, raggruppamento per cliente/progetto, drawer di dettaglio, export CSV
-- **Gantt** — timeline interattiva con drag & drop delle date, zoom, critical path, CRUD milestone, navigazione da tastiera
-- **Team / Account** — CRUD Project Manager e Account interni
-- **Clienti / Progetti** — anagrafica clienti e progetti
-- **Impostazioni** — stati attività e stati progetto configurabili
+- **Gantt** — timeline interattiva con drag & drop delle date, zoom, critical path, CRUD milestone, navigazione da tastiera (attualmente nascosta dalla navigazione, pagina e routing restano attivi per un riuso futuro)
+- **Team / Account** — CRUD PM/PO e Account interni
+- **Clienti / Progetti & Prodotti** — anagrafica clienti, progetti cliente e prodotti interni (stessa struttura dati, distinti dal campo `tipo`)
+- **Roadmap Prodotti** — pianificazione delle iniziative sui prodotti interni per anno/trimestre, vista Lista e Kanban con drag & drop per la priorità, link Google Drive per l'analisi
+- **Impostazioni** — stati attività, stati progetto e stati roadmap configurabili
 
 ## API principali
 
@@ -109,20 +113,26 @@ Tutti gli endpoint richiedono `Authorization: Bearer <jwt>`.
 | PUT/DELETE | `/api/gantt/milestones/:id` | Aggiorna/elimina milestone |
 | GET/POST | `/api/stati-attivita` | Stati attività configurabili |
 | GET/POST | `/api/stati-progetto` | Stati progetto configurabili |
+| GET/POST/PUT/DELETE | `/progetti[/:id]` | CRUD progetti/prodotti (`?tipo=CLIENTE\|PRODOTTO`) |
+| GET/POST/PUT/DELETE | `/api/roadmap-items[/:id]` | CRUD attività roadmap prodotti |
+| PATCH | `/api/roadmap-items/:id/posizione` | Aggiorna priorità/trimestre (drag & drop roadmap) |
+| GET/POST/PUT/DELETE | `/api/stati-roadmap[/:id]` | Stati roadmap configurabili |
 | GET | `/auth/me` | Utente corrente |
 
-## Deploy (Google Cloud Platform)
+## Deploy (Cloudflare)
 
-- **Push su `develop`** → Cloud Build deploya su Cloud Run (ambiente dev)
-- **Push su `main`** → Cloud Build deploya su Cloud Run (produzione)
-- **Database**: Cloud SQL PostgreSQL, connessione via Unix socket su Cloud Run
-- **Segreti**: gestiti con GCP Secret Manager (non `.env`)
+Unico ambiente cloud esistente: solo `main` deploya (vedi [`.github/workflows/deploy-prod.yml`](./.github/workflows/deploy-prod.yml)). `develop` e gli altri branch passano solo dalla CI ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml): build + typecheck), nessun deploy.
 
-Guida completa: [docs/gcp-setup.md](./docs/gcp-setup.md)
+- **Push su `main`** → GitHub Actions applica le migration Prisma sul DB di produzione (Neon), poi deploya il backend su **Cloudflare Workers** (`wrangler deploy --env production`) e il frontend su **Cloudflare Pages** (`wrangler pages deploy`)
+- **Database**: Neon PostgreSQL, raggiunto dal Worker tramite binding **Hyperdrive** (config in `backend/wrangler.toml`)
+- **Segreti**: `wrangler secret put` per il Worker, GitHub Actions secrets per la pipeline CI/CD (non `.env`)
+
+Guida completa: [CI_CD_SETUP.md](./CI_CD_SETUP.md)
 
 ## Convenzioni
 
-- I prefissi CSS (`db-`, `dash-`, `ea-`, `gp-`, `tm-`) evitano collisioni tra pagine — usare sempre il prefisso della pagina corrente per le nuove classi.
+- I prefissi CSS (`db-`, `dash-`, `ea-`, `gp-`, `tm-`, `pr-`, `rm-`, `imp-`) evitano collisioni tra pagine — usare sempre il prefisso della pagina corrente per le nuove classi.
 - Quando si aggiunge una nuova pagina, aggiornare il tipo `NavPage` in `frontend/src/App.tsx`.
-- Il campo `stato` delle attività è una chiave stringa che referenzia `StatoAttivitaConfig.chiave`, non un enum.
+- Il campo `stato` delle attività/progetti/roadmap è una chiave stringa che referenzia la relativa config (`StatoAttivitaConfig`, `StatoProgettoConfig`, `StatoRoadmapConfig`), non un enum.
+- Progetti e Prodotti condividono la stessa tabella (`Progetto`), distinti dal campo `tipo` (`CLIENTE`/`PRODOTTO`) — pensato per un futuro import da un'unica fonte esterna senza dover mappare due entità diverse.
 - **Sforamento**: `giornateConsuntivate > giornateVendute`, o consuntivate > 0 quando vendute è null.

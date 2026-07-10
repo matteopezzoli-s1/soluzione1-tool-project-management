@@ -182,16 +182,6 @@ function IconList() {
   )
 }
 
-function IconGantt() {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="20" height="20" aria-hidden="true">
-      <rect x="3" y="4" width="8" height="3" rx="1.5" />
-      <rect x="6" y="9" width="9" height="3" rx="1.5" />
-      <rect x="4" y="14" width="10" height="3" rx="1.5" />
-    </svg>
-  )
-}
-
 function IconFolder() {
   return (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="20" height="20" aria-hidden="true">
@@ -451,12 +441,7 @@ export default function DashboardPage({ token, onNavigate }: DashboardPageProps)
           onClick={() => onNavigate('attivita')}
         />
         <ShortcutCard
-          label="Gantt Attività"
-          icon={<IconGantt />}
-          onClick={() => onNavigate('timeline')}
-        />
-        <ShortcutCard
-          label="Anagrafica Progetti"
+          label="Progetti & Prodotti"
           icon={<IconFolder />}
           onClick={() => onNavigate('progetti')}
         />
