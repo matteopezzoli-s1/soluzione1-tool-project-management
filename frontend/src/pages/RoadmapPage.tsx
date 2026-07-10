@@ -85,6 +85,11 @@ function StatoBadge({ stato, statiMap }: { stato: string; statiMap: Map<string, 
   )
 }
 
+function QuarterBadge({ quarter }: { quarter: string | null }) {
+  const label = QUARTERS.find(q => q.key === (quarter ?? ''))?.label ?? quarter
+  return <span className="rm-quarter-badge">{label}</span>
+}
+
 // ─── Modal add/edit ───────────────────────────────────────────────────────────
 
 interface ModalProps {
@@ -181,6 +186,39 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, onChan
   )
 }
 
+interface RoadmapCardProps {
+  item: RoadmapItem; secondary: 'stato' | 'quarter'; statiMap: Map<string, StatoRoadmapConfig>
+  po: PoRef | undefined
+  onDragStart: () => void; onDrop: (e: React.DragEvent) => void; onOpen: () => void
+}
+
+function RoadmapCard({ item, secondary, statiMap, po, onDragStart, onDrop, onOpen }: RoadmapCardProps) {
+  return (
+    <div className="rm-card" draggable
+      onDragStart={onDragStart}
+      onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
+      onDrop={e => { e.stopPropagation(); onDrop(e) }}>
+      <div className="rm-card-head">
+        <ProdottoBadge prodotto={item.progetto} />
+        {item.analisiUrl && (
+          <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link" aria-label="Apri analisi">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14"><path d="M8 12l5-5M9 4h6v6M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </a>
+        )}
+      </div>
+      <button className="rm-card-title" type="button" onClick={onOpen}>{item.titolo}</button>
+      <div className="rm-card-foot">
+        {secondary === 'stato'
+          ? <StatoBadge stato={item.stato} statiMap={statiMap} />
+          : <QuarterBadge quarter={item.quarter} />}
+        {item.stimaGg !== null && <span className="rm-card-meta">{item.stimaGg}gg</span>}
+        {item.dataDeadline && <span className="rm-card-meta">{fmtDate(item.dataDeadline)}</span>}
+        {po && <span className="rm-po-avatar rm-po-avatar--sm" title={poFullName(po)}>{poInitials(po)}</span>}
+      </div>
+    </div>
+  )
+}
+
 function ConfirmDelete({ item, loading, onConfirm, onClose }: {
   item: RoadmapItem; loading: boolean; onConfirm: () => void; onClose: () => void
 }) {
@@ -226,7 +264,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
   const [loading,     setLoading]     = useState(true)
   const [apiError,    setApiError]    = useState<string | null>(null)
 
-  const [view, setView] = useState<'lista' | 'kanban'>('lista')
+  const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('lista')
   const [anno, setAnno] = useState(currentYear)
   const [filterProdotto, setFilterProdotto] = useState('')
   const [filterStato, setFilterStato] = useState('')
@@ -289,14 +327,19 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
     )
   }, [displayItems])
 
-  // ── Drag & drop (reorder scoped a prodotto+anno+quarter) ────
+  // ── Drag & drop (reorder scoped a prodotto+anno+quarter; quarter/stato
+  //    possono essere sovrascritti spostando la card in un'altra colonna) ────
 
-  const reorderAndPersist = useCallback((scopeIds: string[], draggedId: string, targetId: string | null, overrideQuarter?: string | null) => {
+  const reorderAndPersist = useCallback((
+    scopeIds: string[], draggedId: string, targetId: string | null,
+    overrides: { quarter?: string | null; stato?: string } = {},
+  ) => {
     setItems(prev => {
       const byId = new Map(prev.map(it => [it.id, it]))
       const dragged = byId.get(draggedId)
       if (!dragged) return prev
-      const newQuarter = overrideQuarter !== undefined ? overrideQuarter : dragged.quarter
+      const newQuarter = overrides.quarter !== undefined ? overrides.quarter : dragged.quarter
+      const newStato = overrides.stato !== undefined ? overrides.stato : dragged.stato
       const seq = scopeIds.filter(id => id !== draggedId)
       let idx = targetId ? seq.indexOf(targetId) : -1
       if (idx === -1) idx = seq.length
@@ -308,7 +351,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
       })
       const patches = groupIds.map((id, i) => ({ id, ordine: i }))
       patches.forEach(p => {
-        const body = p.id === draggedId ? { ordine: p.ordine, quarter: newQuarter || null } : { ordine: p.ordine }
+        const body = p.id === draggedId ? { ordine: p.ordine, quarter: newQuarter || null, stato: newStato } : { ordine: p.ordine }
         fetch(`${API_URL}/api/roadmap-items/${p.id}/posizione`, {
           method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(body),
         }).catch(() => {})
@@ -316,7 +359,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
       return prev.map(it => {
         const p = patches.find(pp => pp.id === it.id)
         if (!p) return it
-        return it.id === draggedId ? { ...it, ordine: p.ordine, quarter: newQuarter } : { ...it, ordine: p.ordine }
+        return it.id === draggedId ? { ...it, ordine: p.ordine, quarter: newQuarter, stato: newStato } : { ...it, ordine: p.ordine }
       })
     })
   }, [token])
@@ -329,11 +372,11 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
     reorderAndPersist(listaRows.map(r => r.id), draggedId, targetId)
   }
 
-  const onCardDrop = (columnQuarter: string, columnItems: RoadmapItem[], targetId: string | null) => {
+  const onCardDrop = (columnItems: RoadmapItem[], targetId: string | null, overrides: { quarter?: string; stato?: string }) => {
     const draggedId = dragIdRef.current
     dragIdRef.current = null
     if (!draggedId) return
-    reorderAndPersist(columnItems.map(i => i.id), draggedId, targetId, columnQuarter)
+    reorderAndPersist(columnItems.map(i => i.id), draggedId, targetId, overrides)
   }
 
   // ── CRUD ──────────────────────────────────────────────────
@@ -411,9 +454,13 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
             className={`rm-view-btn${view === 'lista' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('lista')}>
             Lista
           </button>
-          <button role="tab" aria-selected={view === 'kanban'} type="button"
-            className={`rm-view-btn${view === 'kanban' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban')}>
-            Kanban
+          <button role="tab" aria-selected={view === 'kanban-trimestre'} type="button"
+            className={`rm-view-btn${view === 'kanban-trimestre' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-trimestre')}>
+            Kanban per trimestre
+          </button>
+          <button role="tab" aria-selected={view === 'kanban-stati'} type="button"
+            className={`rm-view-btn${view === 'kanban-stati' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-stati')}>
+            Kanban per stati
           </button>
         </div>
 
@@ -503,7 +550,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
             </tbody>
           </table>
         </div>
-      ) : (
+      ) : view === 'kanban-trimestre' ? (
         <div className="rm-board">
           {QUARTERS.map(col => {
             const colItems = [...displayItems]
@@ -512,34 +559,49 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
             return (
               <div key={col.key || 'backlog'} className="rm-col"
                 onDragOver={e => e.preventDefault()}
-                onDrop={() => onCardDrop(col.key, colItems, null)}>
+                onDrop={() => onCardDrop(colItems, null, { quarter: col.key })}>
                 <div className="rm-col-head">
                   <span className="rm-col-label">{col.label}</span>
                   <span className="rm-col-count">{colItems.length}</span>
                 </div>
                 <div className="rm-col-body">
                   {colItems.map(item => (
-                    <div key={item.id} className="rm-card" draggable
+                    <RoadmapCard key={item.id} item={item} secondary="stato" statiMap={statiMap}
+                      po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
                       onDragStart={() => onRowDragStart(item.id)}
-                      onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
-                      onDrop={e => { e.stopPropagation(); onCardDrop(col.key, colItems, item.id) }}>
-                      <div className="rm-card-head">
-                        <ProdottoBadge prodotto={item.progetto} />
-                        {item.analisiUrl && (
-                          <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link" aria-label="Apri analisi">
-                            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14"><path d="M8 12l5-5M9 4h6v6M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                          </a>
-                        )}
-                      </div>
-                      <button className="rm-card-title" type="button" onClick={() => openEdit(item)}>{item.titolo}</button>
-                      <div className="rm-card-foot">
-                        <StatoBadge stato={item.stato} statiMap={statiMap} />
-                        {item.stimaGg !== null && <span className="rm-card-meta">{item.stimaGg}gg</span>}
-                        {item.dataDeadline && <span className="rm-card-meta">{fmtDate(item.dataDeadline)}</span>}
-                        {(() => { const po = pmById.get(prodottoById.get(item.progettoId)?.poId ?? ''); return po
-                          ? <span className="rm-po-avatar rm-po-avatar--sm" title={poFullName(po)}>{poInitials(po)}</span> : null })()}
-                      </div>
-                    </div>
+                      onDrop={() => onCardDrop(colItems, item.id, { quarter: col.key })}
+                      onOpen={() => openEdit(item)} />
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : statiList.length === 0 ? (
+        <div className="rm-empty">
+          <p className="rm-empty-text">Nessuno stato roadmap configurato — aggiungine uno da Impostazioni → Stati Roadmap.</p>
+        </div>
+      ) : (
+        <div className="rm-board">
+          {statiList.map(col => {
+            const colItems = [...displayItems]
+              .filter(i => i.stato === col.chiave)
+              .sort((a, b) => a.ordine - b.ordine)
+            return (
+              <div key={col.chiave} className="rm-col"
+                onDragOver={e => e.preventDefault()}
+                onDrop={() => onCardDrop(colItems, null, { stato: col.chiave })}>
+                <div className="rm-col-head">
+                  <span className="rm-col-label">{col.label}</span>
+                  <span className="rm-col-count">{colItems.length}</span>
+                </div>
+                <div className="rm-col-body">
+                  {colItems.map(item => (
+                    <RoadmapCard key={item.id} item={item} secondary="quarter" statiMap={statiMap}
+                      po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
+                      onDragStart={() => onRowDragStart(item.id)}
+                      onDrop={() => onCardDrop(colItems, item.id, { stato: col.chiave })}
+                      onOpen={() => openEdit(item)} />
                   ))}
                 </div>
               </div>

@@ -848,8 +848,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // PATCH /api/roadmap-items/:id/posizione — usato dal drag&drop (Lista e Kanban)
   hono.patch('/api/roadmap-items/:id/posizione', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { ordine, anno, quarter } = await readJSON<{
-      ordine?: number; anno?: number; quarter?: string | null
+    const { ordine, anno, quarter, stato } = await readJSON<{
+      ordine?: number; anno?: number; quarter?: string | null; stato?: string
     }>(c)
     try {
       const item = await c.get('prisma').roadmapItem.update({
@@ -858,6 +858,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           ordine: ordine ?? undefined,
           anno: anno ?? undefined,
           quarter: quarter !== undefined ? (quarter?.trim() || null) : undefined,
+          stato: stato?.trim() || undefined,
         },
       })
       return c.json(item)
