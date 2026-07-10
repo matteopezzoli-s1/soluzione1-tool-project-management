@@ -195,7 +195,9 @@ export default function ClientiPage({ token }: ClientiPageProps) {
     finally { setLoading(false) }
   }, [token])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => {
+    queueMicrotask(() => { fetchAll() })
+  }, [fetchAll])
 
   const openAdd = () => { setForm(EMPTY_FORM); setFormErr(null); setModal('add') }
   const openEdit = (c: Cliente) => {

@@ -6,6 +6,7 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type Tipo = 'CLIENTE' | 'PRODOTTO'
 type StatoProgetto = string  // chiave DB, es. "ATTIVO"
 
 interface StatoProgettoConfig {
@@ -14,22 +15,27 @@ interface StatoProgettoConfig {
 }
 
 interface ClienteRef { id: string; nome: string }
+interface PoRef { id: string; firstName: string | null; lastName: string }
 
 interface Progetto {
-  id: string; nome: string; descrizione: string | null
-  stato: StatoProgetto; dataInizio: string | null; dataFine: string | null
+  id: string; nome: string; descrizione: string | null; tipo: Tipo
+  stato: StatoProgetto; colore: string | null
+  dataInizio: string | null; dataFine: string | null
   clienteId: string | null; cliente: ClienteRef | null
+  poId: string | null; po: PoRef | null
 }
 
 interface ClienteOption { id: string; nome: string }
+interface PoOption { id: string; firstName: string | null; lastName: string }
 
 type FormData = {
   nome: string; descrizione: string; stato: StatoProgetto
-  clienteId: string; dataInizio: string; dataFine: string
+  clienteId: string; poId: string; colore: string
+  dataInizio: string; dataFine: string
 }
-const EMPTY_FORM: FormData = {
-  nome: '', descrizione: '', stato: 'ATTIVO', clienteId: '', dataInizio: '', dataFine: ''
-}
+const emptyForm = (): FormData => ({
+  nome: '', descrizione: '', stato: 'ATTIVO', clienteId: '', poId: '', colore: '#0D9488', dataInizio: '', dataFine: '',
+})
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
@@ -43,6 +49,11 @@ function fmtDate(iso: string | null) {
 function toInputDate(iso: string | null) {
   if (!iso) return ''
   return iso.split('T')[0]
+}
+
+function poName(po: PoRef | null) {
+  if (!po) return null
+  return [po.firstName, po.lastName].filter(Boolean).join(' ')
 }
 
 // ─── Stato badge ─────────────────────────────────────────────────────────────
@@ -68,12 +79,12 @@ function StatoBadge({ stato, statiMap }: { stato: StatoProgetto; statiMap: Map<s
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
 interface ModalProps {
-  title: string; form: FormData; loading: boolean; apiError: string | null
-  clienti: ClienteOption[]; statiList: StatoProgettoConfig[]
+  tipo: Tipo; title: string; form: FormData; loading: boolean; apiError: string | null
+  clienti: ClienteOption[]; pos: PoOption[]; statiList: StatoProgettoConfig[]
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
-function Modal({ title, form, loading, apiError, clienti, statiList, onChange, onSave, onClose }: ModalProps) {
+function Modal({ tipo, title, form, loading, apiError, clienti, pos, statiList, onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
@@ -93,51 +104,90 @@ function Modal({ title, form, loading, apiError, clienti, statiList, onChange, o
           {apiError && <p className="pr-field-error pr-field-error--banner" role="alert">{apiError}</p>}
 
           <div className="pr-field">
-            <label htmlFor="pr-nome" className="pr-label">Nome progetto <span aria-hidden="true">*</span></label>
+            <label htmlFor="pr-nome" className="pr-label">
+              {tipo === 'CLIENTE' ? 'Nome progetto' : 'Nome prodotto'} <span aria-hidden="true">*</span>
+            </label>
             <input id="pr-nome" className="pr-input" type="text"
               value={form.nome} onChange={set('nome')}
-              placeholder="es. Sito web e-commerce" autoFocus />
+              placeholder={tipo === 'CLIENTE' ? 'es. Sito web e-commerce' : 'es. Praticko'} autoFocus />
           </div>
 
-          <div className="pr-field-row">
-            <div className="pr-field">
-              <label htmlFor="pr-cliente" className="pr-label">Cliente</label>
-              <select id="pr-cliente" className="pr-input pr-select"
-                value={form.clienteId} onChange={set('clienteId')}>
-                <option value="">— Nessun cliente —</option>
-                {clienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-              </select>
+          {tipo === 'CLIENTE' ? (
+            <div className="pr-field-row">
+              <div className="pr-field">
+                <label htmlFor="pr-cliente" className="pr-label">Cliente</label>
+                <select id="pr-cliente" className="pr-input pr-select"
+                  value={form.clienteId} onChange={set('clienteId')}>
+                  <option value="">— Nessun cliente —</option>
+                  {clienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                </select>
+              </div>
+              <div className="pr-field">
+                <label htmlFor="pr-stato" className="pr-label">Stato</label>
+                <select id="pr-stato" className="pr-input pr-select"
+                  value={form.stato} onChange={set('stato')}>
+                  {statiList.map(s => (
+                    <option key={s.chiave} value={s.chiave}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="pr-field">
-              <label htmlFor="pr-stato" className="pr-label">Stato</label>
-              <select id="pr-stato" className="pr-input pr-select"
-                value={form.stato} onChange={set('stato')}>
-                {statiList.map(s => (
-                  <option key={s.chiave} value={s.chiave}>{s.label}</option>
-                ))}
-              </select>
+          ) : (
+            <div className="pr-field-row">
+              <div className="pr-field">
+                <label htmlFor="pr-po" className="pr-label">PO di riferimento</label>
+                <select id="pr-po" className="pr-input pr-select"
+                  value={form.poId} onChange={set('poId')}>
+                  <option value="">— Nessun PO —</option>
+                  {pos.map(p => <option key={p.id} value={p.id}>{[p.firstName, p.lastName].filter(Boolean).join(' ')}</option>)}
+                </select>
+              </div>
+              <div className="pr-field">
+                <label htmlFor="pr-stato" className="pr-label">Stato</label>
+                <select id="pr-stato" className="pr-input pr-select"
+                  value={form.stato} onChange={set('stato')}>
+                  {statiList.map(s => (
+                    <option key={s.chiave} value={s.chiave}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
+          )}
+
+          {tipo === 'PRODOTTO' && (
+            <div className="pr-field">
+              <label htmlFor="pr-colore" className="pr-label">Colore badge</label>
+              <div className="pr-color-row">
+                <input id="pr-colore" className="pr-color-input" type="color"
+                  value={form.colore} onChange={set('colore')} />
+                <input className="pr-input pr-input--hex" type="text"
+                  value={form.colore} onChange={set('colore')}
+                  placeholder="#0D9488" pattern="^#[0-9a-fA-F]{3,8}$" />
+              </div>
+            </div>
+          )}
 
           <div className="pr-field">
             <label htmlFor="pr-desc" className="pr-label">Descrizione</label>
             <textarea id="pr-desc" className="pr-input pr-textarea"
               value={form.descrizione} onChange={set('descrizione')}
-              placeholder="Obiettivi e note del progetto…" rows={3} />
+              placeholder={tipo === 'CLIENTE' ? 'Obiettivi e note del progetto…' : 'Obiettivi e note del prodotto…'} rows={3} />
           </div>
 
-          <div className="pr-field-row">
-            <div className="pr-field">
-              <label htmlFor="pr-inizio" className="pr-label">Data inizio</label>
-              <input id="pr-inizio" className="pr-input" type="date"
-                value={form.dataInizio} onChange={set('dataInizio')} />
+          {tipo === 'CLIENTE' && (
+            <div className="pr-field-row">
+              <div className="pr-field">
+                <label htmlFor="pr-inizio" className="pr-label">Data inizio</label>
+                <input id="pr-inizio" className="pr-input" type="date"
+                  value={form.dataInizio} onChange={set('dataInizio')} />
+              </div>
+              <div className="pr-field">
+                <label htmlFor="pr-fine" className="pr-label">Data fine</label>
+                <input id="pr-fine" className="pr-input" type="date"
+                  value={form.dataFine} onChange={set('dataFine')} />
+              </div>
             </div>
-            <div className="pr-field">
-              <label htmlFor="pr-fine" className="pr-label">Data fine</label>
-              <input id="pr-fine" className="pr-input" type="date"
-                value={form.dataFine} onChange={set('dataFine')} />
-            </div>
-          </div>
+          )}
         </div>
         <div className="pr-modal-footer">
           <button className="pr-btn pr-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
@@ -152,14 +202,15 @@ function Modal({ title, form, loading, apiError, clienti, statiList, onChange, o
 
 // ─── Confirm delete ───────────────────────────────────────────────────────────
 
-function ConfirmDelete({ progetto, loading, onConfirm, onClose }: {
-  progetto: Progetto; loading: boolean; onConfirm: () => void; onClose: () => void
+function ConfirmDelete({ progetto, tipo, loading, onConfirm, onClose }: {
+  progetto: Progetto; tipo: Tipo; loading: boolean; onConfirm: () => void; onClose: () => void
 }) {
+  const label = tipo === 'CLIENTE' ? 'progetto' : 'prodotto'
   return (
     <SectionModal onClose={onClose} labelledBy="pr-del-title">
       <div className="pr-modal pr-modal--sm">
         <div className="pr-modal-header">
-          <h2 id="pr-del-title" className="pr-modal-title">Elimina progetto</h2>
+          <h2 id="pr-del-title" className="pr-modal-title">Elimina {label}</h2>
           <button className="pr-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
               <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
@@ -183,19 +234,20 @@ function ConfirmDelete({ progetto, loading, onConfirm, onClose }: {
   )
 }
 
-// ─── ProgettiPage ─────────────────────────────────────────────────────────────
+// ─── ProgettiSezione ──────────────────────────────────────────────────────────
 
-interface ProgettiPageProps { token: string }
+interface ProgettiSezioneProps { token: string; tipo: Tipo }
 
-export default function ProgettiPage({ token }: ProgettiPageProps) {
+function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
   const [progetti,    setProgetti]    = useState<Progetto[]>([])
   const [clienti,     setClienti]     = useState<ClienteOption[]>([])
+  const [pos,         setPos]         = useState<PoOption[]>([])
   const [statiConfig, setStatiConfig] = useState<StatoProgettoConfig[]>([])
   const [loading,     setLoading]     = useState(true)
   const [apiError,    setApiError]    = useState<string | null>(null)
   const [modal,       setModal]       = useState<'add' | 'edit' | null>(null)
   const [editing,     setEditing]     = useState<Progetto | null>(null)
-  const [form,        setForm]        = useState<FormData>(EMPTY_FORM)
+  const [form,        setForm]        = useState<FormData>(emptyForm())
   const [saving,      setSaving]      = useState(false)
   const [formErr,     setFormErr]     = useState<string | null>(null)
   const [delTarget,   setDelTarget]   = useState<Progetto | null>(null)
@@ -204,44 +256,52 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
   const statiMap  = new Map(statiConfig.map(s => [s.chiave, s]))
   const statiList = [...statiConfig].sort((a, b) => a.ordine - b.ordine)
 
+  const entityLabel = tipo === 'CLIENTE' ? 'progetto' : 'prodotto'
+  const entityLabelPlural = tipo === 'CLIENTE' ? 'progetti' : 'prodotti'
+
   const fetchAll = useCallback(async () => {
     setLoading(true); setApiError(null)
     try {
-      const [rP, rC, rS] = await Promise.all([
-        fetch(`${API_URL}/progetti`,          { headers: authHeaders(token) }),
-        fetch(`${API_URL}/clienti`,           { headers: authHeaders(token) }),
-        fetch(`${API_URL}/api/stati-progetto`, { headers: authHeaders(token) }),
+      const [rP, rC, rPo, rS] = await Promise.all([
+        fetch(`${API_URL}/progetti?tipo=${tipo}`, { headers: authHeaders(token) }),
+        fetch(`${API_URL}/clienti`,                { headers: authHeaders(token) }),
+        fetch(`${API_URL}/pm`,                     { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/stati-progetto`,     { headers: authHeaders(token) }),
       ])
       if (!rP.ok || !rC.ok) throw new Error()
-      const [p, c, s] = await Promise.all([rP.json(), rC.json(), rS.ok ? rS.json() : Promise.resolve([])])
+      const [p, c, po, s] = await Promise.all([
+        rP.json(), rC.json(), rPo.ok ? rPo.json() : Promise.resolve([]), rS.ok ? rS.json() : Promise.resolve([]),
+      ])
       setProgetti((p as Progetto[]).sort((a, b) =>
         (a.cliente?.nome ?? '').localeCompare(b.cliente?.nome ?? '', 'it') ||
         a.nome.localeCompare(b.nome, 'it')
-      )); setClienti(c); setStatiConfig(s)
-    } catch { setApiError('Impossibile caricare i dati.') }
+      )); setClienti(c); setPos(po); setStatiConfig(s)
+    } catch { setApiError(`Impossibile caricare i dati.`) }
     finally { setLoading(false) }
-  }, [token])
+  }, [token, tipo])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => {
+    queueMicrotask(() => { fetchAll() })
+  }, [fetchAll])
 
-  const openAdd = () => { setForm(EMPTY_FORM); setFormErr(null); setModal('add') }
+  const openAdd = () => { setForm(emptyForm()); setFormErr(null); setModal('add') }
   const openEdit = (p: Progetto) => {
     setEditing(p)
     setForm({
       nome: p.nome, descrizione: p.descrizione ?? '', stato: p.stato,
-      clienteId: p.clienteId ?? '',
+      clienteId: p.clienteId ?? '', poId: p.poId ?? '', colore: p.colore ?? '#0D9488',
       dataInizio: toInputDate(p.dataInizio), dataFine: toInputDate(p.dataFine),
     })
     setFormErr(null); setModal('edit')
   }
 
   const handleSave = async () => {
-    if (!form.nome.trim()) { setFormErr('Il nome del progetto è obbligatorio.'); return }
+    if (!form.nome.trim()) { setFormErr(`Il nome del ${entityLabel} è obbligatorio.`); return }
     setSaving(true); setFormErr(null)
     try {
       const url    = modal === 'edit' ? `${API_URL}/progetti/${editing!.id}` : `${API_URL}/progetti`
       const method = modal === 'edit' ? 'PUT' : 'POST'
-      const res = await fetch(url, { method, headers: authHeaders(token), body: JSON.stringify(form) })
+      const res = await fetch(url, { method, headers: authHeaders(token), body: JSON.stringify({ ...form, tipo }) })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setFormErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
@@ -266,12 +326,11 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
   const completati = progetti.filter(p => p.stato === 'COMPLETATO').length
 
   return (
-    <div className="pr-page">
+    <div className="pr-sezione">
       <div className="pr-topbar">
         <div>
-          <h1 className="pr-title">Anagrafica Progetti</h1>
           <p className="pr-subtitle">
-            {loading ? '' : `${progetti.length} progett${progetti.length !== 1 ? 'i' : 'o'}`}
+            {loading ? '' : `${progetti.length} ${progetti.length !== 1 ? entityLabelPlural : entityLabel}`}
             {!loading && attivi > 0     && ` · ${attivi} attiv${attivi !== 1 ? 'i' : 'o'}`}
             {!loading && completati > 0 && ` · ${completati} completat${completati !== 1 ? 'i' : 'o'}`}
           </p>
@@ -280,7 +339,7 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
             <path d="M10 4v12M4 10h12" strokeLinecap="round" />
           </svg>
-          Aggiungi progetto
+          Aggiungi {entityLabel}
         </button>
       </div>
 
@@ -297,18 +356,18 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
             <circle cx="36" cy="36" r="8" fill="#F1F5F9" stroke="#0D9488" strokeWidth="2" />
             <path d="M33 36h6M36 33v6" stroke="#0D9488" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          <p className="pr-empty-text">Nessun progetto ancora aggiunto.</p>
-          <button className="pr-btn pr-btn--primary" type="button" onClick={openAdd}>Aggiungi il primo progetto</button>
+          <p className="pr-empty-text">Nessun {entityLabel} ancora aggiunto.</p>
+          <button className="pr-btn pr-btn--primary" type="button" onClick={openAdd}>Aggiungi il primo {entityLabel}</button>
         </div>
       ) : (
         <div className="pr-table-wrap">
-          <table className="pr-table" aria-label="Elenco progetti">
+          <table className="pr-table" aria-label={`Elenco ${entityLabelPlural}`}>
             <thead>
               <tr>
-                <th scope="col">Progetto</th>
-                <th scope="col">Cliente</th>
+                <th scope="col">{tipo === 'CLIENTE' ? 'Progetto' : 'Prodotto'}</th>
+                <th scope="col">{tipo === 'CLIENTE' ? 'Cliente' : 'PO'}</th>
                 <th scope="col">Stato</th>
-                <th scope="col">Periodo</th>
+                {tipo === 'CLIENTE' && <th scope="col">Periodo</th>}
                 <th scope="col" className="pr-th--actions">Azioni</th>
               </tr>
             </thead>
@@ -316,27 +375,32 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
               {progetti.map(p => (
                 <tr key={p.id} className="pr-row">
                   <td className="pr-cell-nome">
-                    <span className="pr-nome">{p.nome}</span>
+                    <span className="pr-nome">
+                      {tipo === 'PRODOTTO' && <span className="pr-color-dot" style={{ backgroundColor: p.colore ?? '#0D9488' }} aria-hidden="true" />}
+                      {p.nome}
+                    </span>
                     {p.descrizione && <span className="pr-desc-preview">{p.descrizione}</span>}
                   </td>
                   <td className="pr-cell-text">
-                    {p.cliente
-                      ? <span className="pr-cliente-tag">{p.cliente.nome}</span>
-                      : <span className="pr-empty-cell">—</span>}
+                    {tipo === 'CLIENTE'
+                      ? (p.cliente ? <span className="pr-cliente-tag">{p.cliente.nome}</span> : <span className="pr-empty-cell">—</span>)
+                      : (p.po ? <span className="pr-po-tag">{poName(p.po)}</span> : <span className="pr-empty-cell">—</span>)}
                   </td>
                   <td><StatoBadge stato={p.stato} statiMap={statiMap} /></td>
-                  <td className="pr-cell-text pr-cell-date">
-                    {p.dataInizio || p.dataFine ? (
-                      <span className="pr-date-range">
-                        {fmtDate(p.dataInizio) ?? '…'}
-                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"
-                          width="12" height="12" aria-hidden="true">
-                          <path d="M3 8h10M9 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        {fmtDate(p.dataFine) ?? '…'}
-                      </span>
-                    ) : <span className="pr-empty-cell">—</span>}
-                  </td>
+                  {tipo === 'CLIENTE' && (
+                    <td className="pr-cell-text pr-cell-date">
+                      {p.dataInizio || p.dataFine ? (
+                        <span className="pr-date-range">
+                          {fmtDate(p.dataInizio) ?? '…'}
+                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"
+                            width="12" height="12" aria-hidden="true">
+                            <path d="M3 8h10M9 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          {fmtDate(p.dataFine) ?? '…'}
+                        </span>
+                      ) : <span className="pr-empty-cell">—</span>}
+                    </td>
+                  )}
                   <td className="pr-cell-actions">
                     <button className="pr-icon-btn" type="button" aria-label={`Modifica ${p.nome}`} onClick={() => openEdit(p)}>
                       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
@@ -358,15 +422,62 @@ export default function ProgettiPage({ token }: ProgettiPageProps) {
 
       {(modal === 'add' || modal === 'edit') && (
         <Modal
-          title={modal === 'add' ? 'Aggiungi progetto' : 'Modifica progetto'}
-          form={form} loading={saving} apiError={formErr} clienti={clienti}
+          tipo={tipo}
+          title={modal === 'add' ? `Aggiungi ${entityLabel}` : `Modifica ${entityLabel}`}
+          form={form} loading={saving} apiError={formErr} clienti={clienti} pos={pos}
           statiList={statiList}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
       )}
       {delTarget && (
-        <ConfirmDelete progetto={delTarget} loading={deleting}
+        <ConfirmDelete progetto={delTarget} tipo={tipo} loading={deleting}
           onConfirm={handleDelete} onClose={() => setDelTarget(null)} />
       )}
+    </div>
+  )
+}
+
+// ─── ProgettiPage ─────────────────────────────────────────────────────────────
+
+interface ProgettiPageProps { token: string }
+
+export default function ProgettiPage({ token }: ProgettiPageProps) {
+  const [tipo, setTipo] = useState<Tipo>('CLIENTE')
+
+  return (
+    <div className="pr-page">
+      <div className="pr-page-topbar">
+        <h1 className="pr-title">Progetti & Prodotti</h1>
+      </div>
+
+      <div className="pr-tabs" role="tablist" aria-label="Sezioni progetti">
+        <button
+          role="tab" type="button" aria-selected={tipo === 'CLIENTE'}
+          className={`pr-tab${tipo === 'CLIENTE' ? ' pr-tab--active' : ''}`}
+          onClick={() => setTipo('CLIENTE')}
+        >
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+            <path d="M2 6a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L9.707 5.7A1 1 0 0 0 10.414 6H16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Progetti
+        </button>
+        <button
+          role="tab" type="button" aria-selected={tipo === 'PRODOTTO'}
+          className={`pr-tab${tipo === 'PRODOTTO' ? ' pr-tab--active' : ''}`}
+          onClick={() => setTipo('PRODOTTO')}
+        >
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+            <rect x="3" y="3" width="6" height="6" rx="1.3" />
+            <rect x="11" y="3" width="6" height="6" rx="1.3" />
+            <rect x="3" y="11" width="6" height="6" rx="1.3" />
+            <rect x="11" y="11" width="6" height="6" rx="1.3" />
+          </svg>
+          Prodotti
+        </button>
+      </div>
+
+      <div role="tabpanel" aria-label={tipo === 'CLIENTE' ? 'Progetti' : 'Prodotti'}>
+        <ProgettiSezione key={tipo} token={token} tipo={tipo} />
+      </div>
     </div>
   )
 }

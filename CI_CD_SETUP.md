@@ -1,0 +1,82 @@
+# CI/CD — GitHub Actions → Cloudflare Workers
+
+Pipeline per TPM (Tool Project Management). Un solo ambiente cloud esiste: **produzione**. Non c'è un ambiente "dev" cloud separato — `develop` (branch di default del repo) e ogni altro branch sono solo lavoro in corso / PR review, senza alcun deploy.
+
+> **Verifica di partenza**: al momento della stesura, questo repo **non aveva nessun workflow GitHub Actions** (`.github/workflows` inesistente, verificato via API GitHub) — nessuna automazione di documentazione o altro. I due workflow qui sotto sono stati creati da zero. Il guard `[skip ci]` in entrambi è comunque già cablato, così se in futuro viene aggiunta un'automazione che committa direttamente (es. un bot di documentazione), basta includere `[skip ci]` nel messaggio di commit per non innescare build/deploy involontari — nessuna modifica ai workflow sarà necessaria a quel punto.
+
+## Workflow creati
+
+| File | Trigger | Cosa fa |
+|---|---|---|
+| [.github/workflows/ci.yml](.github/workflows/ci.yml) | push/PR su **qualsiasi branch** (incluso `develop`) | build + lint backend e frontend. **Mai un deploy.** |
+| [.github/workflows/deploy-prod.yml](.github/workflows/deploy-prod.yml) | push su **`main`** (solo) | `prisma migrate deploy` → `wrangler deploy` (backend) → build Vite → `wrangler pages deploy` (frontend) |
+
+`deploy-prod.yml` applica prima le migration sul DB di produzione (Neon `s1-tpm-prod`): se la migration falisce, il job si ferma con errore visibile e **non arriva a deployare il Worker** — niente schema disallineato in produzione. Il deploy del frontend parte solo se quello del backend è andato a buon fine (`needs: deploy-backend`).
+
+---
+
+## 1. Secret da creare su GitHub
+
+Repo → **Settings → Secrets and variables → Actions → New repository secret**.
+
+| Nome secret | Cosa contiene | Dove si trova |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | Token API Cloudflare con permessi minimi | Vedi sezione 2 sotto |
+| `CLOUDFLARE_ACCOUNT_ID` | `35a1e0009c737f6885e7515d79008c25` (Board@soluzione1.it's Account) | `wrangler whoami` in locale, o dashboard Cloudflare in alto a destra |
+| `NEON_PROD_DIRECT_URL` | Connection string **diretta** (non pooled, senza `-pooler` nell'host) del progetto Neon `s1-tpm-prod` | Console Neon → progetto `s1-tpm-prod` → Connect → "Direct connection" |
+
+> ⚠️ **`NEON_PROD_DIRECT_URL` non è nella richiesta originale ma è indispensabile**: `prisma migrate deploy` nel job `deploy-backend` deve autenticarsi contro Neon per applicare le migration, e le migration richiedono sempre la connessione diretta (mai il pooler in transaction mode). Senza questo secret il passo di migration fallisce.
+
+---
+
+## 2. Creare il token API Cloudflare (permessi minimi)
+
+Dashboard Cloudflare → icona profilo (in alto a destra) → **My Profile → API Tokens → Create Token → Create Custom Token**.
+
+Permessi da assegnare (**non** "Account – Administrator"):
+
+| Risorsa | Permesso | Perché |
+|---|---|---|
+| Account → **Workers Scripts** | Edit | Deploy del backend (`wrangler deploy`) |
+| Account → **Cloudflare Pages** | Edit | Deploy del frontend (`wrangler pages deploy`) — **non era nella richiesta originale ma è obbligatorio**, altrimenti il job `deploy-frontend` fallisce con "Authentication error" |
+
+Non serve **Workers Routes** (nessuna zona/dominio è collegata a questo account Cloudflare al momento — il Worker gira su `*.workers.dev` — vedi nota in fondo). Se in futuro si collega un dominio custom, andrà aggiunto anche quel permesso.
+
+**Account Resources**: limita a "Board@soluzione1.it's Account" (non "All accounts").
+
+Copia il token generato (mostrato una sola volta) e incollalo nel secret `CLOUDFLARE_API_TOKEN` su GitHub.
+
+---
+
+## 3. Branch protection su `main`
+
+Repo → **Settings → Branches → Add branch protection rule**.
+
+- Branch name pattern: `main`
+- ✅ **Require a pull request before merging**
+- ✅ **Require approvals** (almeno 1)
+- ✅ **Require status checks to pass before merging** → seleziona i job `backend` e `frontend` di `ci.yml`, così una PR non può essere mergiata se la build è rotta
+- (Opzionale ma consigliato) ✅ **Do not allow bypassing the above settings** — evita che un push diretto salti la pipeline anche per gli admin
+
+Questo garantisce che ogni merge su `main` (quindi ogni deploy in produzione) sia passato da una PR review, non da un push diretto.
+
+---
+
+## 4. `wrangler dev` in locale — non tocca mai produzione
+
+Il dev locale (sul Mac di Matteo, o di chiunque lavori al progetto) non richiede né push né alcun token Cloudflare:
+
+- `npm run dev` (in `backend/`) → server Node via `@hono/node-server`, punta al Postgres Docker locale (`s1-tpm-db`) tramite `DATABASE_URL` in `backend/.env`
+- `npm run dev:worker` → `wrangler dev`, runtime Workers **in locale**. Il binding `HYPERDRIVE` di default in `wrangler.toml` ha un `localConnectionString` che punta allo stesso Postgres Docker locale — `wrangler dev` (senza `--remote`) lo usa sempre, non contatta mai la vera risorsa Hyperdrive/Neon di produzione
+
+La vera config Hyperdrive → Neon esiste solo sotto `[env.production]` in `wrangler.toml`, ed è quella che il workflow `deploy-prod.yml` attiva con `wrangler deploy --env production`. Nessun comando locale, nemmeno `wrangler dev`, la raggiunge mai.
+
+---
+
+## Nota sul dominio Worker
+
+Il backend di produzione gira oggi su `https://tpm-backend-production.soluzione1.workers.dev` — sottodominio `*.workers.dev` legato all'account Cloudflare (non un dominio custom, perché nessuna zona DNS è collegata all'account). Se il sottodominio account cambia di nuovo in futuro (come già successo una volta), va aggiornato **sia** `BACKEND_URL` sotto `[env.production]` in `backend/wrangler.toml` **sia** `PROD_BACKEND_URL` in `.github/workflows/deploy-prod.yml`, poi va rilanciato il deploy.
+
+## Pipeline Google Cloud Build (rimossa)
+
+Il deploy su Cloudflare è confermato stabile in produzione: `cloudbuild-backend.yaml`, `cloudbuild-frontend.yaml` e `docs/gcp-setup.md` sono stati rimossi. Cloudflare (Workers + Pages, vedi `.github/workflows/deploy-prod.yml`) è l'unica pipeline di deploy.

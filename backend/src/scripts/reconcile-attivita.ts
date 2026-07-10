@@ -1,8 +1,8 @@
 /// <reference types="node" />
 import 'dotenv/config'
-import { PrismaClient } from '@prisma/client'
+import { createPrismaClient } from '../lib/prisma'
 
-const prisma = new PrismaClient()
+const prisma = createPrismaClient(process.env.DATABASE_URL ?? '')
 
 function normalize(s: string) {
   return s.trim().toLowerCase()

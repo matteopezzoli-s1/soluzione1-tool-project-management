@@ -115,7 +115,7 @@ function ConfirmDelete({ pm, loading, onConfirm, onClose }: {
     <SectionModal onClose={onClose} labelledBy="tm-confirm-title">
       <div className="tm-modal tm-modal--sm">
         <div className="tm-modal-header">
-          <h2 id="tm-confirm-title" className="tm-modal-title">Elimina PM</h2>
+          <h2 id="tm-confirm-title" className="tm-modal-title">Elimina PM / PO</h2>
           <button className="tm-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
               width="18" height="18" aria-hidden="true">
@@ -179,7 +179,9 @@ export default function TeamPage({ token }: TeamPageProps) {
     }
   }, [token])
 
-  useEffect(() => { fetchPMs() }, [fetchPMs])
+  useEffect(() => {
+    queueMicrotask(() => { fetchPMs() })
+  }, [fetchPMs])
 
   // ── Open add ───────────────────────────────────────────────
   const openAdd = () => {
@@ -252,9 +254,9 @@ export default function TeamPage({ token }: TeamPageProps) {
 
       <div className="tm-topbar">
         <div>
-          <h1 className="tm-title">Anagrafica PM</h1>
+          <h1 className="tm-title">Anagrafica PM / PO</h1>
           <p className="tm-subtitle">
-            {loading ? '' : `${pms.length} Project Manager${pms.length !== 1 ? 's' : ''}`}
+            {loading ? '' : `${pms.length} PM / PO`}
           </p>
         </div>
         <button className="tm-btn tm-btn--primary" type="button" onClick={openAdd}>
@@ -262,7 +264,7 @@ export default function TeamPage({ token }: TeamPageProps) {
             width="16" height="16" aria-hidden="true">
             <path d="M10 4v12M4 10h12" strokeLinecap="round" />
           </svg>
-          Aggiungi PM
+          Aggiungi PM / PO
         </button>
       </div>
 
@@ -283,17 +285,17 @@ export default function TeamPage({ token }: TeamPageProps) {
             <path d="M4 40c0-7.732 6.268-14 14-14s14 6.268 14 14" stroke="#CBD5E1" strokeWidth="2" strokeLinecap="round" />
             <path d="M32 28l8 8m0-8l-8 8" stroke="#0D9488" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          <p className="tm-empty-text">Nessun PM ancora aggiunto.</p>
+          <p className="tm-empty-text">Nessun PM / PO ancora aggiunto.</p>
           <button className="tm-btn tm-btn--primary" type="button" onClick={openAdd}>
-            Aggiungi il primo PM
+            Aggiungi il primo PM / PO
           </button>
         </div>
       ) : (
         <div className="tm-table-wrap">
-          <table className="tm-table" aria-label="Elenco Project Manager">
+          <table className="tm-table" aria-label="Elenco PM / PO">
             <thead>
               <tr>
-                <th scope="col">PM</th>
+                <th scope="col">PM / PO</th>
                 <th scope="col">Email</th>
                 <th scope="col" className="tm-th--actions">Azioni</th>
               </tr>
@@ -339,7 +341,7 @@ export default function TeamPage({ token }: TeamPageProps) {
 
       {(modal === 'add' || modal === 'edit') && (
         <Modal
-          title={modal === 'add' ? 'Aggiungi Project Manager' : 'Modifica Project Manager'}
+          title={modal === 'add' ? 'Aggiungi PM / PO' : 'Modifica PM / PO'}
           form={form}
           loading={saving}
           apiError={formErr}
