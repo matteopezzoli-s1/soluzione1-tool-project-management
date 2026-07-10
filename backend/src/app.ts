@@ -744,22 +744,106 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
   })
 
+  // ── Roadmap Tags CRUD ────────────────────────────────────────
+
+  hono.get('/api/roadmap-tags', requireAuth(), async (c) => {
+    try {
+      const tags = await c.get('prisma').roadmapTag.findMany({
+        orderBy: [{ ordine: 'asc' }, { label: 'asc' }],
+      })
+      return c.json(tags)
+    } catch (err) {
+      console.error('[roadmap-tags] GET error:', err)
+      return c.json({ error: 'Errore nel recupero dei tag' }, 500)
+    }
+  })
+
+  hono.post('/api/roadmap-tags', requireAuth(), async (c) => {
+    const { label, colore, ordine } = await readJSON<{ label?: string; colore?: string; ordine?: number }>(c)
+    if (!label?.trim()) return c.json({ error: 'label è obbligatorio' }, 400)
+    if (colore && !COLOR_RE.test(colore)) return c.json({ error: 'Colore non valido' }, 400)
+    try {
+      const tag = await c.get('prisma').roadmapTag.create({
+        data: { label: label.trim(), colore: colore?.trim() || '#94a3b8', ordine: ordine ?? 99 },
+      })
+      return c.json(tag, 201)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2002') return c.json({ error: `Esiste già un tag "${label.trim()}"` }, 409)
+      console.error('[roadmap-tags] POST error:', err)
+      return c.json({ error: 'Errore nella creazione del tag' }, 500)
+    }
+  })
+
+  hono.put('/api/roadmap-tags/:id', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { label, colore, ordine } = await readJSON<{ label?: string; colore?: string; ordine?: number }>(c)
+    if (!label?.trim()) return c.json({ error: 'label è obbligatorio' }, 400)
+    if (colore && !COLOR_RE.test(colore)) return c.json({ error: 'Colore non valido' }, 400)
+    try {
+      const tag = await c.get('prisma').roadmapTag.update({
+        where: { id },
+        data: { label: label.trim(), colore: colore?.trim() || '#94a3b8', ordine: ordine ?? 99 },
+      })
+      return c.json(tag)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Tag non trovato' }, 404)
+      if ((err as { code?: string }).code === 'P2002') return c.json({ error: `Esiste già un tag "${label.trim()}"` }, 409)
+      console.error('[roadmap-tags] PUT error:', err)
+      return c.json({ error: 'Errore nell\'aggiornamento del tag' }, 500)
+    }
+  })
+
+  hono.delete('/api/roadmap-tags/:id', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    try {
+      await c.get('prisma').roadmapTag.delete({ where: { id } })
+      return c.body(null, 204)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Tag non trovato' }, 404)
+      console.error('[roadmap-tags] DELETE error:', err)
+      return c.json({ error: 'Errore nella cancellazione del tag' }, 500)
+    }
+  })
+
   // ── Roadmap Items CRUD ──────────────────────────────────────
+
+  const roadmapItemInclude = {
+    progetto: { select: { id: true, nome: true, colore: true, poId: true } },
+    tags: { include: { tag: true } },
+  } as const
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function flattenRoadmapItem(item: any) {
+    const { tags, ...rest } = item
+    return { ...rest, tags: (tags ?? []).map((t: { tag: unknown }) => t.tag) }
+  }
+
+  async function syncRoadmapItemTags(prisma: PrismaClient, roadmapItemId: string, tagIds: string[]) {
+    await prisma.roadmapItemTag.deleteMany({ where: { roadmapItemId } })
+    if (tagIds.length > 0) {
+      await prisma.roadmapItemTag.createMany({
+        data: tagIds.map(tagId => ({ roadmapItemId, tagId })),
+        skipDuplicates: true,
+      })
+    }
+  }
 
   hono.get('/api/roadmap-items', requireAuth(), async (c) => {
     try {
       const progettoId = c.req.query('progettoId')
       const anno = c.req.query('anno')
+      const tag = c.req.query('tag')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const where: Record<string, any> = {}
       if (progettoId?.trim()) where['progettoId'] = progettoId.trim()
       if (anno?.trim()) where['anno'] = parseInt(anno, 10)
+      if (tag?.trim()) where['tags'] = { some: { tagId: tag.trim() } }
       const items = await c.get('prisma').roadmapItem.findMany({
         where,
         orderBy: [{ anno: 'asc' }, { quarter: 'asc' }, { ordine: 'asc' }],
-        include: { progetto: { select: { id: true, nome: true, colore: true, poId: true } } },
+        include: roadmapItemInclude,
       })
-      return c.json(items)
+      return c.json(items.map(flattenRoadmapItem))
     } catch (err) {
       console.error('[roadmap-items] GET error:', err)
       return c.json({ error: 'Errore nel recupero delle attività roadmap' }, 500)
@@ -767,10 +851,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.post('/api/roadmap-items', requireAuth(), async (c) => {
-    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine } = await readJSON<{
+    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds } = await readJSON<{
       progettoId?: string; anno?: number; quarter?: string | null; dataDeadline?: string | null
       titolo?: string; descrizione?: string; stato?: string; analisiUrl?: string
-      stimaGg?: number | null; ordine?: number
+      stimaGg?: number | null; ordine?: number; tagIds?: string[]
     }>(c)
     if (!progettoId?.trim()) return c.json({ error: 'progettoId è obbligatorio' }, 400)
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
@@ -794,12 +878,15 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           analisiUrl: analisiUrl?.trim() || null,
           stimaGg: stimaGg ?? null,
           ordine: ordine ?? 0,
+          tags: Array.isArray(tagIds) && tagIds.length > 0
+            ? { create: tagIds.map(tagId => ({ tagId })) }
+            : undefined,
         },
-        include: { progetto: { select: { id: true, nome: true, colore: true, poId: true } } },
+        include: roadmapItemInclude,
       })
-      return c.json(item, 201)
+      return c.json(flattenRoadmapItem(item), 201)
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Prodotto non trovato' }, 400)
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Prodotto o tag non trovato' }, 400)
       console.error('[roadmap-items] POST error:', err)
       return c.json({ error: 'Errore nella creazione dell\'attività roadmap' }, 500)
     }
@@ -807,10 +894,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/api/roadmap-items/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine } = await readJSON<{
+    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds } = await readJSON<{
       progettoId?: string; anno?: number; quarter?: string | null; dataDeadline?: string | null
       titolo?: string; descrizione?: string; stato?: string; analisiUrl?: string
-      stimaGg?: number | null; ordine?: number
+      stimaGg?: number | null; ordine?: number; tagIds?: string[]
     }>(c)
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
     if (!anno) return c.json({ error: 'L\'anno è obbligatorio' }, 400)
@@ -821,6 +908,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json({ error: 'Stato non valido' }, 400)
     }
     try {
+      if (Array.isArray(tagIds)) await syncRoadmapItemTags(prisma, id, tagIds)
       const item = await prisma.roadmapItem.update({
         where: { id },
         data: {
@@ -835,9 +923,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           stimaGg: stimaGg ?? null,
           ordine: ordine ?? 0,
         },
-        include: { progetto: { select: { id: true, nome: true, colore: true, poId: true } } },
+        include: roadmapItemInclude,
       })
-      return c.json(item)
+      return c.json(flattenRoadmapItem(item))
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività roadmap non trovata' }, 404)
       console.error('[roadmap-items] PUT error:', err)

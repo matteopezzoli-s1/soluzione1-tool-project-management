@@ -114,16 +114,31 @@
 .rm-cell-titolo { color: #1E293B; font-weight: 600; }
 .rm-cell-text { color: #475569; font-size: 0.82rem; white-space: nowrap; }
 .rm-cell-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.25rem; }
+.rm-cell-tags { max-width: 180px; }
 .rm-empty-cell { color: #CBD5E1; }
 
 /* ── Badges ────────────────────────────────────────────────── */
 
-.rm-prod-badge, .rm-stato-badge, .rm-quarter-badge {
+.rm-prod-badge, .rm-stato-badge, .rm-quarter-badge, .rm-tag-badge {
   display: inline-flex; align-items: center; white-space: nowrap;
   padding: 0.2rem 0.6rem; border-radius: 999px;
   font-size: 0.72rem; font-weight: 700; letter-spacing: 0.01em;
 }
 .rm-quarter-badge { background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; }
+.rm-tag-badge { font-weight: 600; }
+.rm-tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+/* ── Tag picker (form) ─────────────────────────────────────── */
+
+.rm-tag-picker { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.rm-tag-chip {
+  font-family: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  padding: 0.3rem 0.75rem; border-radius: 999px;
+  background: #F8FAFC; color: #64748B; border: 1px solid #E2E8F0;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.rm-tag-chip:hover { border-color: #CBD5E1; }
+.rm-field-hint { font-size: 0.8rem; color: #94A3B8; }
 .rm-po-avatar {
   display: inline-flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; border-radius: 50%;

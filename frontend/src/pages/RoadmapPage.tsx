@@ -14,17 +14,20 @@ interface StatoRoadmapConfig {
   id: string; chiave: string; label: string; colore: string; isArchiviato: boolean; ordine: number
 }
 
+interface TagRef { id: string; label: string; colore: string }
+
 interface RoadmapItem {
   id: string; progettoId: string; progetto: ProdottoRef
   anno: number; quarter: string | null; dataDeadline: string | null
   titolo: string; descrizione: string | null; stato: string
   analisiUrl: string | null; stimaGg: number | null; ordine: number
+  tags: TagRef[]
 }
 
 type FormData = {
   progettoId: string; titolo: string; descrizione: string
   anno: string; quarter: string; dataDeadline: string
-  stato: string; stimaGg: string; analisiUrl: string
+  stato: string; stimaGg: string; analisiUrl: string; tagIds: string[]
 }
 
 const QUARTERS: { key: string; label: string }[] = [
@@ -36,7 +39,7 @@ const QUARTERS: { key: string; label: string }[] = [
 ]
 
 function emptyForm(anno: number): FormData {
-  return { progettoId: '', titolo: '', descrizione: '', anno: String(anno), quarter: '', dataDeadline: '', stato: 'DA_FARE', stimaGg: '', analisiUrl: '' }
+  return { progettoId: '', titolo: '', descrizione: '', anno: String(anno), quarter: '', dataDeadline: '', stato: 'DA_FARE', stimaGg: '', analisiUrl: '', tagIds: [] }
 }
 
 function authHeaders(token: string) {
@@ -90,18 +93,54 @@ function QuarterBadge({ quarter }: { quarter: string | null }) {
   return <span className="rm-quarter-badge">{label}</span>
 }
 
+function TagBadge({ tag }: { tag: TagRef }) {
+  return (
+    <span className="rm-tag-badge" style={{ backgroundColor: tag.colore + '22', color: tag.colore, border: `1px solid ${tag.colore}55` }}>
+      {tag.label}
+    </span>
+  )
+}
+
+function TagList({ tags }: { tags: TagRef[] }) {
+  if (tags.length === 0) return null
+  return <div className="rm-tag-list">{tags.map(t => <TagBadge key={t.id} tag={t} />)}</div>
+}
+
+function TagPicker({ tags, selectedIds, onToggle }: { tags: TagRef[]; selectedIds: string[]; onToggle: (id: string) => void }) {
+  if (tags.length === 0) {
+    return <p className="rm-field-hint">Nessun tag configurato — aggiungine uno da Impostazioni → Tag Roadmap.</p>
+  }
+  return (
+    <div className="rm-tag-picker">
+      {tags.map(t => {
+        const selected = selectedIds.includes(t.id)
+        return (
+          <button key={t.id} type="button"
+            className={`rm-tag-chip${selected ? ' rm-tag-chip--selected' : ''}`}
+            style={selected ? { backgroundColor: t.colore + '22', color: t.colore, border: `1px solid ${t.colore}55` } : undefined}
+            onClick={() => onToggle(t.id)}>
+            {t.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Modal add/edit ───────────────────────────────────────────────────────────
 
 interface ModalProps {
   title: string; form: FormData; loading: boolean; apiError: string | null
-  prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]
+  prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]; tags: TagRef[]
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
-function ItemModal({ title, form, loading, apiError, prodotti, statiList, onChange, onSave, onClose }: ModalProps) {
+function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
+  const toggleTag = (tagId: string) =>
+    onChange({ ...form, tagIds: form.tagIds.includes(tagId) ? form.tagIds.filter(id => id !== tagId) : [...form.tagIds, tagId] })
 
   return (
     <SectionModal onClose={onClose} labelledBy="rm-modal-title">
@@ -174,6 +213,11 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, onChan
             <input id="rm-analisi" className="rm-input" type="url" value={form.analisiUrl} onChange={set('analisiUrl')}
               placeholder="https://drive.google.com/…" />
           </div>
+
+          <div className="rm-field">
+            <span className="rm-label">Tag</span>
+            <TagPicker tags={tags} selectedIds={form.tagIds} onToggle={toggleTag} />
+          </div>
         </div>
         <div className="rm-modal-footer">
           <button className="rm-btn rm-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
@@ -207,6 +251,7 @@ function RoadmapCard({ item, secondary, statiMap, po, onDragStart, onDrop, onOpe
         )}
       </div>
       <button className="rm-card-title" type="button" onClick={onOpen}>{item.titolo}</button>
+      <TagList tags={item.tags} />
       <div className="rm-card-foot">
         {secondary === 'stato'
           ? <StatoBadge stato={item.stato} statiMap={statiMap} />
@@ -261,6 +306,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
   const [prodotti,    setProdotti]    = useState<Prodotto[]>([])
   const [pms,         setPms]         = useState<PoRef[]>([])
   const [statiConfig, setStatiConfig] = useState<StatoRoadmapConfig[]>([])
+  const [tags,        setTags]        = useState<TagRef[]>([])
   const [loading,     setLoading]     = useState(true)
   const [apiError,    setApiError]    = useState<string | null>(null)
 
@@ -268,6 +314,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
   const [anno, setAnno] = useState(currentYear)
   const [filterProdotto, setFilterProdotto] = useState('')
   const [filterStato, setFilterStato] = useState('')
+  const [filterTag, setFilterTag] = useState('')
   const [search, setSearch] = useState('')
 
   const [modal,     setModal]     = useState<'add' | 'edit' | null>(null)
@@ -288,17 +335,19 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
   const fetchAll = useCallback(async () => {
     setLoading(true); setApiError(null)
     try {
-      const [rI, rP, rPm, rS] = await Promise.all([
+      const [rI, rP, rPm, rS, rT] = await Promise.all([
         fetch(`${API_URL}/api/roadmap-items`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/progetti?tipo=PRODOTTO`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/pm`,                  { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/stati-roadmap`,   { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/roadmap-tags`,    { headers: authHeaders(token) }),
       ])
       if (!rI.ok || !rP.ok) throw new Error()
-      const [i, p, pm, s] = await Promise.all([
+      const [i, p, pm, s, t] = await Promise.all([
         rI.json(), rP.json(), rPm.ok ? rPm.json() : Promise.resolve([]), rS.ok ? rS.json() : Promise.resolve([]),
+        rT.ok ? rT.json() : Promise.resolve([]),
       ])
-      setItems(i); setProdotti(p); setPms(pm); setStatiConfig(s)
+      setItems(i); setProdotti(p); setPms(pm); setStatiConfig(s); setTags(t)
     } catch { setApiError('Impossibile caricare i dati della roadmap.') }
     finally { setLoading(false) }
   }, [token])
@@ -316,8 +365,9 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
       .filter(i => i.anno === anno)
       .filter(i => !filterProdotto || i.progettoId === filterProdotto)
       .filter(i => !filterStato || i.stato === filterStato)
+      .filter(i => !filterTag || i.tags.some(t => t.id === filterTag))
       .filter(i => !search.trim() || i.titolo.toLowerCase().includes(search.trim().toLowerCase()))
-  }, [items, anno, filterProdotto, filterStato, search])
+  }, [items, anno, filterProdotto, filterStato, filterTag, search])
 
   const listaRows = useMemo(() => {
     return [...displayItems].sort((a, b) =>
@@ -388,6 +438,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
       progettoId: item.progettoId, titolo: item.titolo, descrizione: item.descrizione ?? '',
       anno: String(item.anno), quarter: item.quarter ?? '', dataDeadline: toInputDate(item.dataDeadline),
       stato: item.stato, stimaGg: item.stimaGg !== null ? String(item.stimaGg) : '', analisiUrl: item.analisiUrl ?? '',
+      tagIds: item.tags.map(t => t.id),
     })
     setFormErr(null); setModal('edit')
   }
@@ -409,6 +460,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
         stato: form.stato,
         stimaGg: form.stimaGg ? parseFloat(form.stimaGg) : null,
         analisiUrl: form.analisiUrl,
+        tagIds: form.tagIds,
       }
       const res = await fetch(url, { method, headers: authHeaders(token), body: JSON.stringify(body) })
       if (!res.ok) {
@@ -475,6 +527,10 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
           <option value="">Tutti gli stati</option>
           {statiList.map(s => <option key={s.chiave} value={s.chiave}>{s.label}</option>)}
         </select>
+        <select className="rm-input rm-select rm-filter" value={filterTag} onChange={e => setFilterTag(e.target.value)}>
+          <option value="">Tutti i tag</option>
+          {tags.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+        </select>
         <input className="rm-input rm-filter rm-filter--search" type="text" placeholder="Cerca titolo…"
           value={search} onChange={e => setSearch(e.target.value)} />
       </div>
@@ -499,6 +555,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
                 <th scope="col" className="rm-th--drag"></th>
                 <th scope="col">Prodotto</th>
                 <th scope="col">Titolo</th>
+                <th scope="col">Tag</th>
                 <th scope="col">Trimestre</th>
                 <th scope="col">Stato</th>
                 <th scope="col">Stima</th>
@@ -518,6 +575,9 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
                   </td>
                   <td><ProdottoBadge prodotto={item.progetto} /></td>
                   <td className="rm-cell-titolo">{item.titolo}</td>
+                  <td className="rm-cell-tags">
+                    {item.tags.length > 0 ? <TagList tags={item.tags} /> : <span className="rm-empty-cell">—</span>}
+                  </td>
                   <td className="rm-cell-text">{QUARTERS.find(q => q.key === (item.quarter ?? ''))?.label ?? item.quarter}</td>
                   <td><StatoBadge stato={item.stato} statiMap={statiMap} /></td>
                   <td className="rm-cell-text">{item.stimaGg !== null ? `${item.stimaGg}gg` : '—'}</td>
@@ -613,7 +673,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
       {(modal === 'add' || modal === 'edit') && (
         <ItemModal
           title={modal === 'add' ? 'Nuova attività roadmap' : 'Modifica attività roadmap'}
-          form={form} loading={saving} apiError={formErr} prodotti={prodotti} statiList={statiList}
+          form={form} loading={saving} apiError={formErr} prodotti={prodotti} statiList={statiList} tags={tags}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
       )}
       {delTarget && (
