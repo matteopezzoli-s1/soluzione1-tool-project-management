@@ -448,8 +448,33 @@ model RoadmapItem {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
+  tags         RoadmapItemTag[]
+
   @@index([progettoId])
   @@index([anno, quarter])
   @@index([stato])
   @@map("roadmap_items")
+}
+
+model RoadmapTag {
+  id        String   @id @default(cuid())
+  label     String   @unique
+  colore    String   @default("#94a3b8")
+  ordine    Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  items     RoadmapItemTag[]
+
+  @@map("roadmap_tags")
+}
+
+model RoadmapItemTag {
+  roadmapItemId String      @map("roadmap_item_id")
+  tagId         String      @map("tag_id")
+  roadmapItem   RoadmapItem @relation(fields: [roadmapItemId], references: [id], onDelete: Cascade)
+  tag           RoadmapTag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([roadmapItemId, tagId])
+  @@map("roadmap_item_tags")
 }
