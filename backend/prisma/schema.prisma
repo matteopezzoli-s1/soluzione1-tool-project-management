@@ -8,42 +8,24 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model ProjectManager {
-  id        String   @id @default(cuid())
-  firstName String?  @map("first_name")
-  lastName  String   @map("last_name")
-  email     String?  @unique
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  attivita     AttivitaPM[]
-  progettiPO   Progetto[]   @relation("ProgettoPO")
-
-  @@map("project_managers")
-}
-
-model Account {
-  id        String   @id @default(cuid())
-  firstName String?  @map("first_name")
-  lastName  String   @map("last_name")
-  email     String?  @unique
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  clienti   Cliente[]
-  attivita  Attivita[]
-
-  @@map("accounts")
+enum UserRole {
+  ACCOUNT
+  PM
+  BOARD
+  DEVHUB
 }
 
 model User {
-  id             String   @id @default(cuid())
-  googleId       String   @unique @map("google_id")
-  email          String   @unique
-  name           String
-  avatarUrl      String?  @map("avatar_url")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id             String     @id @default(cuid())
+  googleId       String?    @unique @map("google_id")
+  email          String?    @unique
+  name           String?
+  firstName      String?    @map("first_name")
+  lastName       String?    @map("last_name")
+  avatarUrl      String?    @map("avatar_url")
+  roles          UserRole[] @default([])
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
 
   ownedProjects  Project[]       @relation("ProjectOwner")
   memberships    ProjectMember[]
@@ -51,6 +33,12 @@ model User {
   createdTasks   Task[]          @relation("TaskCreator")
   comments       TaskComment[]
   activityLogs   ActivityLog[]
+
+  progettiDevHub  Progetto[]  @relation("ProgettoDevHub")
+  progettiPO      Progetto[]  @relation("ProgettoPO")
+  attivitaPM      AttivitaPM[]
+  clientiAccount  Cliente[]   @relation("ClienteAccount")
+  attivitaAccount Attivita[]  @relation("AttivitaAccount")
 
   @@map("users")
 }
@@ -276,7 +264,7 @@ model Cliente {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   accountId String?  @map("account_id")
-  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  account   User?    @relation("ClienteAccount", fields: [accountId], references: [id], onDelete: SetNull)
 
   progetti  Progetto[]
   attivita  Attivita[]
@@ -290,7 +278,7 @@ model Cliente {
 // dal campo `tipo` ("CLIENTE" | "PRODOTTO") — pensata per un futuro
 // import da un'unica fonte esterna (es. Zoho) senza dover mappare
 // due entità diverse. I prodotti non hanno cliente ma un PO
-// (riferimento a ProjectManager) e un colore per la roadmap.
+// (riferimento a User con ruolo PM) e un colore per la roadmap.
 
 model Progetto {
   id          String    @id @default(cuid())
@@ -307,14 +295,18 @@ model Progetto {
   clienteId   String?   @map("cliente_id")
   cliente     Cliente?  @relation(fields: [clienteId], references: [id], onDelete: SetNull)
 
-  poId        String?         @map("po_id")
-  po          ProjectManager? @relation("ProgettoPO", fields: [poId], references: [id], onDelete: SetNull)
+  poId        String? @map("po_id")
+  po          User?   @relation("ProgettoPO", fields: [poId], references: [id], onDelete: SetNull)
+
+  responsabileDevHubId String? @map("responsabile_dev_hub_id")
+  responsabileDevHub   User?   @relation("ProgettoDevHub", fields: [responsabileDevHubId], references: [id], onDelete: SetNull)
 
   attivita     Attivita[]
   roadmapItems RoadmapItem[]
 
   @@index([clienteId])
   @@index([tipo])
+  @@index([responsabileDevHubId])
   @@map("progetti")
 }
 
@@ -342,7 +334,7 @@ model Attivita {
   progettoRel              Progetto?       @relation(fields: [progettoId], references: [id], onDelete: SetNull)
 
   accountId                String?         @map("account_id")
-  accountRel               Account?        @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  accountRel               User?           @relation("AttivitaAccount", fields: [accountId], references: [id], onDelete: SetNull)
 
   pms                      AttivitaPM[]
   milestones               GanttMilestone[]
@@ -356,10 +348,10 @@ model Attivita {
 }
 
 model AttivitaPM {
-  attivitaId  String         @map("attivita_id")
-  pmId        String         @map("pm_id")
-  attivita    Attivita       @relation(fields: [attivitaId], references: [id], onDelete: Cascade)
-  pm          ProjectManager @relation(fields: [pmId], references: [id], onDelete: Cascade)
+  attivitaId  String   @map("attivita_id")
+  pmId        String   @map("pm_id")
+  attivita    Attivita @relation(fields: [attivitaId], references: [id], onDelete: Cascade)
+  pm          User     @relation(fields: [pmId], references: [id], onDelete: Cascade)
 
   @@id([attivitaId, pmId])
   @@map("attivita_pms")
