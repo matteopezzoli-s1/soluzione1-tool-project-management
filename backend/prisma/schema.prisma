@@ -36,14 +36,24 @@ model Account {
   @@map("accounts")
 }
 
+enum UserRole {
+  ACCOUNT
+  PM
+  BOARD
+  DEVHUB
+}
+
 model User {
-  id             String   @id @default(cuid())
-  googleId       String   @unique @map("google_id")
-  email          String   @unique
-  name           String
-  avatarUrl      String?  @map("avatar_url")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id             String     @id @default(cuid())
+  googleId       String?    @unique @map("google_id")
+  email          String?    @unique
+  name           String?
+  firstName      String?    @map("first_name")
+  lastName       String?    @map("last_name")
+  avatarUrl      String?    @map("avatar_url")
+  roles          UserRole[] @default([])
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
 
   ownedProjects  Project[]       @relation("ProjectOwner")
   memberships    ProjectMember[]
@@ -51,6 +61,8 @@ model User {
   createdTasks   Task[]          @relation("TaskCreator")
   comments       TaskComment[]
   activityLogs   ActivityLog[]
+
+  progettiDevHub Progetto[] @relation("ProgettoDevHub")
 
   @@map("users")
 }
@@ -310,11 +322,15 @@ model Progetto {
   poId        String?         @map("po_id")
   po          ProjectManager? @relation("ProgettoPO", fields: [poId], references: [id], onDelete: SetNull)
 
+  responsabileDevHubId String? @map("responsabile_dev_hub_id")
+  responsabileDevHub   User?   @relation("ProgettoDevHub", fields: [responsabileDevHubId], references: [id], onDelete: SetNull)
+
   attivita     Attivita[]
   roadmapItems RoadmapItem[]
 
   @@index([clienteId])
   @@index([tipo])
+  @@index([responsabileDevHubId])
   @@map("progetti")
 }
 
