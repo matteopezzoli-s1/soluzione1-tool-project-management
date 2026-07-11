@@ -147,67 +147,81 @@ export async function importCSV(buffer: Buffer, prisma: PrismaClient): Promise<I
         result.clienti.created++
       }
 
-      // ── 2. Account ─────────────────────────────────────────
+      // ── 2. Account (User con ruolo ACCOUNT) ─────────────────
       let account: { id: string } | null = null
       if (row.cognomeAccount) {
         if (row.emailAccount) {
-          const existing = await prisma.account.findFirst({ where: { email: row.emailAccount } })
+          const existing = await prisma.user.findFirst({ where: { email: row.emailAccount } })
           if (existing) {
-            await prisma.account.update({
+            await prisma.user.update({
               where: { id: existing.id },
-              data: { firstName: row.nomeAccount, lastName: row.cognomeAccount },
+              data: {
+                firstName: row.nomeAccount,
+                lastName: row.cognomeAccount,
+                roles: existing.roles.includes('ACCOUNT') ? undefined : { push: 'ACCOUNT' },
+              },
             })
             account = existing
             result.account.updated++
           } else {
-            account = await prisma.account.create({
-              data: { firstName: row.nomeAccount, lastName: row.cognomeAccount, email: row.emailAccount },
+            account = await prisma.user.create({
+              data: { firstName: row.nomeAccount, lastName: row.cognomeAccount, email: row.emailAccount, roles: ['ACCOUNT'] },
             })
             result.account.created++
           }
         } else {
           // no email — find by name
-          const existing = await prisma.account.findFirst({
+          const existing = await prisma.user.findFirst({
             where: { lastName: row.cognomeAccount, firstName: row.nomeAccount },
           })
           if (existing) {
             account = existing
+            if (!existing.roles.includes('ACCOUNT')) {
+              await prisma.user.update({ where: { id: existing.id }, data: { roles: { push: 'ACCOUNT' } } })
+            }
           } else {
-            account = await prisma.account.create({
-              data: { firstName: row.nomeAccount, lastName: row.cognomeAccount },
+            account = await prisma.user.create({
+              data: { firstName: row.nomeAccount, lastName: row.cognomeAccount, roles: ['ACCOUNT'] },
             })
             result.account.created++
           }
         }
       }
 
-      // ── 3. ProjectManager ──────────────────────────────────
+      // ── 3. PM (User con ruolo PM) ───────────────────────────
       let pm: { id: string } | null = null
       if (row.cognomePM) {
         if (row.emailPM) {
-          const existing = await prisma.projectManager.findFirst({ where: { email: row.emailPM } })
+          const existing = await prisma.user.findFirst({ where: { email: row.emailPM } })
           if (existing) {
-            await prisma.projectManager.update({
+            await prisma.user.update({
               where: { id: existing.id },
-              data: { firstName: row.nomePM, lastName: row.cognomePM },
+              data: {
+                firstName: row.nomePM,
+                lastName: row.cognomePM,
+                roles: existing.roles.includes('PM') ? undefined : { push: 'PM' },
+              },
             })
             pm = existing
             result.pm.updated++
           } else {
-            pm = await prisma.projectManager.create({
-              data: { firstName: row.nomePM, lastName: row.cognomePM, email: row.emailPM },
+            pm = await prisma.user.create({
+              data: { firstName: row.nomePM, lastName: row.cognomePM, email: row.emailPM, roles: ['PM'] },
             })
             result.pm.created++
           }
         } else {
-          const existing = await prisma.projectManager.findFirst({
+          const existing = await prisma.user.findFirst({
             where: { lastName: row.cognomePM, firstName: row.nomePM },
           })
           if (existing) {
             pm = existing
+            if (!existing.roles.includes('PM')) {
+              await prisma.user.update({ where: { id: existing.id }, data: { roles: { push: 'PM' } } })
+            }
           } else {
-            pm = await prisma.projectManager.create({
-              data: { firstName: row.nomePM, lastName: row.cognomePM },
+            pm = await prisma.user.create({
+              data: { firstName: row.nomePM, lastName: row.cognomePM, roles: ['PM'] },
             })
             result.pm.created++
           }
@@ -229,13 +243,6 @@ export async function importCSV(buffer: Buffer, prisma: PrismaClient): Promise<I
 
       // ── 5. Attività ────────────────────────────────────────
       if (row.attivita) {
-        const accountStr = account
-          ? [row.nomeAccount, row.cognomeAccount].filter(Boolean).join(' ')
-          : ''
-        const pmStr = pm
-          ? [row.nomePM, row.cognomePM].filter(Boolean).join(' ')
-          : ''
-
         const existing = await prisma.attivita.findFirst({
           where: { attivita: row.attivita, cliente: row.cliente, progetto: row.progetto },
         })
@@ -243,8 +250,7 @@ export async function importCSV(buffer: Buffer, prisma: PrismaClient): Promise<I
           await prisma.attivita.update({
             where: { id: existing.id },
             data: {
-              account:                  accountStr || undefined,
-              projectManager:           pmStr || undefined,
+              accountId:                account?.id ?? undefined,
               giornateVendute:          row.stimaGiornate ?? undefined,
               giornateConsuntivate:     row.consuntivateGiornate ?? undefined,
               riferimentoOrdineVendita: row.ordineGO ?? undefined,
@@ -254,6 +260,13 @@ export async function importCSV(buffer: Buffer, prisma: PrismaClient): Promise<I
               note:                     row.note ?? undefined,
             },
           })
+          if (pm) {
+            await prisma.attivitaPM.upsert({
+              where: { attivitaId_pmId: { attivitaId: existing.id, pmId: pm.id } },
+              update: {},
+              create: { attivitaId: existing.id, pmId: pm.id },
+            })
+          }
           result.attivita.updated++
         } else {
           await prisma.attivita.create({
@@ -261,8 +274,7 @@ export async function importCSV(buffer: Buffer, prisma: PrismaClient): Promise<I
               cliente:                  row.cliente,
               progetto:                 row.progetto,
               attivita:                 row.attivita,
-              account:                  accountStr,
-              projectManager:           pmStr,
+              accountId:                account?.id ?? null,
               giornateVendute:          row.stimaGiornate,
               giornateConsuntivate:     row.consuntivateGiornate,
               riferimentoOrdineVendita: row.ordineGO,
@@ -270,6 +282,7 @@ export async function importCSV(buffer: Buffer, prisma: PrismaClient): Promise<I
               inizio:                   row.dataInizio,
               deadline:                 row.dataDeadline,
               note:                     row.note,
+              pms:                      pm ? { create: [{ pmId: pm.id }] } : undefined,
             },
           })
           result.attivita.created++

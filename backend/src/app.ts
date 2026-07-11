@@ -111,11 +111,43 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     try {
       const profile = await fetchGoogleProfile(code, googleClientId, googleClientSecret, callbackUrl)
       console.log(`[auth] Login: ${profile.email}`)
+
+      const prisma = c.get('prisma')
+      const nameParts = profile.name.trim().split(/\s+/).filter(Boolean)
+      const derivedFirstName = nameParts[0] ?? null
+      const derivedLastName = nameParts.slice(1).join(' ') || null
+
+      const existing = await prisma.user.findUnique({ where: { email: profile.email } })
+      const user = existing
+        ? await prisma.user.update({
+            where: { id: existing.id },
+            data: {
+              googleId:  profile.id,
+              name:      profile.name,
+              avatarUrl: profile.picture,
+              firstName: existing.firstName ?? derivedFirstName,
+              lastName:  existing.lastName ?? derivedLastName,
+            },
+          })
+        : await prisma.user.create({
+            data: {
+              googleId:  profile.id,
+              email:     profile.email,
+              name:      profile.name,
+              avatarUrl: profile.picture,
+              firstName: derivedFirstName,
+              lastName:  derivedLastName,
+              roles:     [],
+            },
+          })
+
       const token = signJWT({
-        sub: profile.id,
-        email: profile.email,
-        name: profile.name,
+        sub:     profile.id,
+        email:   profile.email,
+        name:    profile.name,
         picture: profile.picture,
+        userId:  user.id,
+        roles:   user.roles,
       }, jwtSecret)
       return c.redirect(`${frontendUrl}?token=${token}`)
     } catch (err) {
@@ -125,164 +157,179 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   // ── Auth: verifica token ────────────────────────────────────
-  hono.get('/auth/me', (c) => {
+  hono.get('/auth/me', async (c) => {
     const header = c.req.header('authorization')
     if (!header?.startsWith('Bearer ')) {
       return c.json({ error: 'Token mancante' }, 401)
     }
     try {
       const payload = verifyJWT(header.slice(7), c.get('config').jwtSecret)
-      return c.json({ user: payload })
+      const user = await c.get('prisma').user.findUnique({
+        where: { id: payload.userId },
+        select: { id: true, email: true, name: true, firstName: true, lastName: true, avatarUrl: true, roles: true },
+      })
+      if (!user) return c.json({ error: 'Utente non trovato' }, 401)
+      return c.json({ user })
     } catch {
       return c.json({ error: 'Token non valido o scaduto' }, 401)
     }
   })
 
-  // ── PM CRUD ─────────────────────────────────────────────────
+  // ── PM / Account: alias di sola lettura (legacy, rimuovere a fine Prompt 04) ──
+  // Sostituiti da /api/users?role=PM|ACCOUNT — mantenuti in GET per non rompere
+  // il frontend prima che venga aggiornato (Prompt 04).
 
   hono.get('/pm', requireAuth(), async (c) => {
     try {
-      const pms = await c.get('prisma').projectManager.findMany({
+      const pms = await c.get('prisma').user.findMany({
+        where: { roles: { has: 'PM' } },
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+        select: { id: true, firstName: true, lastName: true, email: true },
       })
       return c.json(pms)
     } catch (err) {
-      console.error('[pm] GET error:', err)
+      console.error('[pm alias] GET error:', err)
       return c.json({ error: 'Errore nel recupero dei PM' }, 500)
     }
   })
 
-  hono.post('/pm', requireAuth(), async (c) => {
-    const { firstName, lastName, email } = await readJSON<{ firstName?: string; lastName?: string; email?: string }>(c)
-
-    if (!firstName?.trim() || !lastName?.trim() || !email?.trim()) {
-      return c.json({ error: 'firstName, lastName ed email sono obbligatori' }, 400)
-    }
-    if (!EMAIL_RE.test(email.trim())) {
-      return c.json({ error: 'Email non valida' }, 400)
-    }
-
-    try {
-      const pm = await c.get('prisma').projectManager.create({
-        data: { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim().toLowerCase() },
-      })
-      return c.json(pm, 201)
-    } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2002') {
-        return c.json({ error: 'Email già presente' }, 409)
-      }
-      console.error('[pm] POST error:', err)
-      return c.json({ error: 'Errore nella creazione del PM' }, 500)
-    }
-  })
-
-  hono.put('/pm/:id', requireAuth(), async (c) => {
-    const id = c.req.param('id')
-    const { firstName, lastName, email } = await readJSON<{ firstName?: string; lastName?: string; email?: string }>(c)
-
-    if (!firstName?.trim() || !lastName?.trim() || !email?.trim()) {
-      return c.json({ error: 'firstName, lastName ed email sono obbligatori' }, 400)
-    }
-    if (!EMAIL_RE.test(email.trim())) {
-      return c.json({ error: 'Email non valida' }, 400)
-    }
-
-    try {
-      const pm = await c.get('prisma').projectManager.update({
-        where: { id },
-        data: { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim().toLowerCase() },
-      })
-      return c.json(pm)
-    } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'PM non trovato' }, 404)
-      if ((err as { code?: string }).code === 'P2002') return c.json({ error: 'Email già presente' }, 409)
-      console.error('[pm] PUT error:', err)
-      return c.json({ error: 'Errore nell\'aggiornamento del PM' }, 500)
-    }
-  })
-
-  hono.delete('/pm/:id', requireAuth(), async (c) => {
-    const id = c.req.param('id')
-    try {
-      await c.get('prisma').projectManager.delete({ where: { id } })
-      return c.body(null, 204)
-    } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'PM non trovato' }, 404)
-      console.error('[pm] DELETE error:', err)
-      return c.json({ error: 'Errore nella cancellazione del PM' }, 500)
-    }
-  })
-
-  // ── Account CRUD ────────────────────────────────────────────
-
   hono.get('/accounts', requireAuth(), async (c) => {
     try {
-      const accounts = await c.get('prisma').account.findMany({
+      const accounts = await c.get('prisma').user.findMany({
+        where: { roles: { has: 'ACCOUNT' } },
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+        select: { id: true, firstName: true, lastName: true, email: true },
       })
       return c.json(accounts)
     } catch (err) {
-      console.error('[accounts] GET error:', err)
+      console.error('[accounts alias] GET error:', err)
       return c.json({ error: 'Errore nel recupero degli account' }, 500)
     }
   })
 
-  hono.post('/accounts', requireAuth(), async (c) => {
-    const { firstName, lastName, email } = await readJSON<{ firstName?: string; lastName?: string; email?: string }>(c)
+  // ── Utenti (anagrafica unica con ruoli) ──────────────────────
 
-    if (!firstName?.trim() || !lastName?.trim() || !email?.trim()) {
-      return c.json({ error: 'firstName, lastName ed email sono obbligatori' }, 400)
-    }
-    if (!EMAIL_RE.test(email.trim())) {
-      return c.json({ error: 'Email non valida' }, 400)
-    }
+  const VALID_ROLES = ['ACCOUNT', 'PM', 'BOARD', 'DEVHUB'] as const
 
+  hono.get('/api/users', requireAuth(), async (c) => {
     try {
-      const account = await c.get('prisma').account.create({
-        data: { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim().toLowerCase() },
+      const role = c.req.query('role')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const where: Record<string, any> = {}
+      if (role?.trim()) {
+        const roleVal = role.trim().toUpperCase()
+        if (!VALID_ROLES.includes(roleVal as typeof VALID_ROLES[number])) {
+          return c.json({ error: 'Ruolo non valido' }, 400)
+        }
+        where.roles = { has: roleVal }
+      }
+      const users = await c.get('prisma').user.findMany({
+        where,
+        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }, { name: 'asc' }],
+        select: { id: true, firstName: true, lastName: true, name: true, email: true, roles: true },
       })
-      return c.json(account, 201)
-    } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2002') return c.json({ error: 'Email già presente' }, 409)
-      console.error('[accounts] POST error:', err)
-      return c.json({ error: 'Errore nella creazione dell\'account' }, 500)
+      return c.json(users)
+    } catch (err) {
+      console.error('[users] GET error:', err)
+      return c.json({ error: 'Errore nel recupero degli utenti' }, 500)
     }
   })
 
-  hono.put('/accounts/:id', requireAuth(), async (c) => {
-    const id = c.req.param('id')
-    const { firstName, lastName, email } = await readJSON<{ firstName?: string; lastName?: string; email?: string }>(c)
+  hono.post('/api/users', requireAuth(), async (c) => {
+    const { firstName, lastName, email, roles } = await readJSON<{
+      firstName?: string; lastName?: string; email?: string; roles?: string[]
+    }>(c)
 
-    if (!firstName?.trim() || !lastName?.trim() || !email?.trim()) {
-      return c.json({ error: 'firstName, lastName ed email sono obbligatori' }, 400)
+    if (!firstName?.trim() || !lastName?.trim()) {
+      return c.json({ error: 'firstName e lastName sono obbligatori' }, 400)
     }
-    if (!EMAIL_RE.test(email.trim())) {
+    if (email?.trim() && !EMAIL_RE.test(email.trim())) {
       return c.json({ error: 'Email non valida' }, 400)
+    }
+    const rolesVal = [...new Set((roles ?? []).map(r => r.trim().toUpperCase()))]
+    if (rolesVal.some(r => !VALID_ROLES.includes(r as typeof VALID_ROLES[number]))) {
+      return c.json({ error: 'Ruoli non validi' }, 400)
     }
 
     try {
-      const account = await c.get('prisma').account.update({
+      const user = await c.get('prisma').user.create({
+        data: {
+          firstName: firstName.trim(),
+          lastName:  lastName.trim(),
+          email:     email?.trim().toLowerCase() || null,
+          roles:     rolesVal as ('ACCOUNT' | 'PM' | 'BOARD' | 'DEVHUB')[],
+        },
+        select: { id: true, firstName: true, lastName: true, email: true, roles: true },
+      })
+      return c.json(user, 201)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2002') return c.json({ error: 'Email già presente' }, 409)
+      console.error('[users] POST error:', err)
+      return c.json({ error: 'Errore nella creazione dell\'utente' }, 500)
+    }
+  })
+
+  hono.put('/api/users/:id', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { firstName, lastName, email, roles } = await readJSON<{
+      firstName?: string; lastName?: string; email?: string; roles?: string[]
+    }>(c)
+
+    if (!firstName?.trim() || !lastName?.trim()) {
+      return c.json({ error: 'firstName e lastName sono obbligatori' }, 400)
+    }
+    if (email?.trim() && !EMAIL_RE.test(email.trim())) {
+      return c.json({ error: 'Email non valida' }, 400)
+    }
+    const rolesVal = [...new Set((roles ?? []).map(r => r.trim().toUpperCase()))]
+    if (rolesVal.some(r => !VALID_ROLES.includes(r as typeof VALID_ROLES[number]))) {
+      return c.json({ error: 'Ruoli non validi' }, 400)
+    }
+
+    try {
+      const user = await c.get('prisma').user.update({
         where: { id },
-        data: { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim().toLowerCase() },
+        data: {
+          firstName: firstName.trim(),
+          lastName:  lastName.trim(),
+          email:     email?.trim().toLowerCase() || null,
+          roles:     rolesVal as ('ACCOUNT' | 'PM' | 'BOARD' | 'DEVHUB')[],
+        },
+        select: { id: true, firstName: true, lastName: true, email: true, roles: true },
       })
-      return c.json(account)
+      return c.json(user)
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Account non trovato' }, 404)
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Utente non trovato' }, 404)
       if ((err as { code?: string }).code === 'P2002') return c.json({ error: 'Email già presente' }, 409)
-      console.error('[accounts] PUT error:', err)
-      return c.json({ error: 'Errore nell\'aggiornamento dell\'account' }, 500)
+      console.error('[users] PUT error:', err)
+      return c.json({ error: 'Errore nell\'aggiornamento dell\'utente' }, 500)
     }
   })
 
-  hono.delete('/accounts/:id', requireAuth(), async (c) => {
+  hono.delete('/api/users/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
+    const prisma = c.get('prisma')
     try {
-      await c.get('prisma').account.delete({ where: { id } })
+      const [pmDiAttivita, poDiProgetti, responsabileDevHubDiProgetti, accountDiClienti, accountDiAttivita] = await Promise.all([
+        prisma.attivitaPM.count({ where: { pmId: id } }),
+        prisma.progetto.count({ where: { poId: id } }),
+        prisma.progetto.count({ where: { responsabileDevHubId: id } }),
+        prisma.cliente.count({ where: { accountId: id } }),
+        prisma.attivita.count({ where: { accountId: id } }),
+      ])
+      const inUso = pmDiAttivita + poDiProgetti + responsabileDevHubDiProgetti + accountDiClienti + accountDiAttivita
+      if (inUso > 0) {
+        return c.json({
+          error: 'Utente in uso, impossibile eliminare',
+          dettagli: { pmDiAttivita, poDiProgetti, responsabileDevHubDiProgetti, accountDiClienti, accountDiAttivita },
+        }, 409)
+      }
+      await prisma.user.delete({ where: { id } })
       return c.body(null, 204)
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Account non trovato' }, 404)
-      console.error('[accounts] DELETE error:', err)
-      return c.json({ error: 'Errore nella cancellazione dell\'account' }, 500)
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Utente non trovato' }, 404)
+      console.error('[users] DELETE error:', err)
+      return c.json({ error: 'Errore nella cancellazione dell\'utente' }, 500)
     }
   })
 
@@ -382,6 +429,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         include: {
           cliente: { select: { id: true, nome: true } },
           po: { select: { id: true, firstName: true, lastName: true } },
+          responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
         },
       })
       return c.json(progetti)
@@ -392,9 +440,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.post('/progetti', requireAuth(), async (c) => {
-    const { nome, descrizione, tipo, stato, colore, clienteId, poId, dataInizio, dataFine } = await readJSON<{
+    const { nome, descrizione, tipo, stato, colore, clienteId, poId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
       nome?: string; descrizione?: string; tipo?: string; stato?: string; colore?: string
-      clienteId?: string; poId?: string; dataInizio?: string; dataFine?: string
+      clienteId?: string; poId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
     }>(c)
     if (!nome?.trim()) return c.json({ error: 'Il nome è obbligatorio' }, 400)
     const prisma = c.get('prisma')
@@ -415,17 +463,19 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           colore: colore?.trim() || null,
           clienteId: tipoVal === 'CLIENTE' ? (clienteId?.trim() || null) : null,
           poId: tipoVal === 'PRODOTTO' ? (poId?.trim() || null) : null,
+          responsabileDevHubId: responsabileDevHubId?.trim() || null,
           dataInizio: dataInizio ? new Date(dataInizio) : null,
           dataFine: dataFine ? new Date(dataFine) : null,
         },
         include: {
           cliente: { select: { id: true, nome: true } },
           po: { select: { id: true, firstName: true, lastName: true } },
+          responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
         },
       })
       return c.json(progetto, 201)
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Cliente o PO non trovato' }, 400)
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Cliente, PO o Responsabile DevHub non trovato' }, 400)
       console.error('[progetti] POST error:', err)
       return c.json({ error: 'Errore nella creazione del progetto' }, 500)
     }
@@ -433,9 +483,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/progetti/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { nome, descrizione, tipo, stato, colore, clienteId, poId, dataInizio, dataFine } = await readJSON<{
+    const { nome, descrizione, tipo, stato, colore, clienteId, poId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
       nome?: string; descrizione?: string; tipo?: string; stato?: string; colore?: string
-      clienteId?: string; poId?: string; dataInizio?: string; dataFine?: string
+      clienteId?: string; poId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
     }>(c)
     if (!nome?.trim()) return c.json({ error: 'Il nome è obbligatorio' }, 400)
     const prisma = c.get('prisma')
@@ -457,12 +507,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           colore: colore?.trim() || null,
           clienteId: tipoVal === 'CLIENTE' ? (clienteId?.trim() || null) : null,
           poId: tipoVal === 'PRODOTTO' ? (poId?.trim() || null) : null,
+          responsabileDevHubId: responsabileDevHubId?.trim() || null,
           dataInizio: dataInizio ? new Date(dataInizio) : null,
           dataFine: dataFine ? new Date(dataFine) : null,
         },
         include: {
           cliente: { select: { id: true, nome: true } },
           po: { select: { id: true, firstName: true, lastName: true } },
+          responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
         },
       })
       return c.json(progetto)
