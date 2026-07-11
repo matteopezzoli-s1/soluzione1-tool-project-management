@@ -182,7 +182,7 @@ export default function ClientiPage({ token }: ClientiPageProps) {
     try {
       const [rC, rA] = await Promise.all([
         fetch(`${API_URL}/clienti`,  { headers: authHeaders(token) }),
-        fetch(`${API_URL}/accounts`, { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/users?role=ACCOUNT`, { headers: authHeaders(token) }),
       ])
       if (!rC.ok || !rA.ok) throw new Error()
       const [c, a] = await Promise.all([rC.json(), rA.json()])
