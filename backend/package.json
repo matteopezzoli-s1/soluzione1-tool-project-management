@@ -8,7 +8,11 @@
     "start": "node dist/server.js",
     "dev": "dotenv -e .env -- nodemon src/server.ts",
     "dev:worker": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "db:sync": "prisma db push && prisma generate && prisma db seed"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   },
   "keywords": [],
   "author": "",
