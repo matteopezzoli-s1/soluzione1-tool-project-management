@@ -80,6 +80,8 @@ export interface JWTPayload {
   email:   string
   name:    string
   picture: string
+  userId:  string
+  roles?:  string[]
 }
 
 export function signJWT(payload: JWTPayload, secret: string): string {
