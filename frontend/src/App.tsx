@@ -206,9 +206,9 @@ export default function App() {
           {navBtn('attivita',      'Elenco Attività',      <IconClipboard />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
-          {navBtn('utenti',        'Anagrafica Utenti',    <IconUsers />)}
           {navBtn('clienti',       'Anagrafica Clienti',   <IconBuilding />)}
           {navBtn('progetti',      'Progetti & Prodotti',  <IconFolder />)}
+          {navBtn('utenti',        'Anagrafica Utenti',    <IconUsers />)}
         </div>
 
         <div className="db-sidebar-foot">
