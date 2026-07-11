@@ -115,7 +115,7 @@ const PAGE_LABELS: Record<NavPage, string> = {
   clienti:      'Anagrafica Clienti',
   progetti:     'Progetti & Prodotti',
   timeline:     'Gantt Attività',
-  attivita:     'Elenco Attività',
+  attivita:     'Elenco Attività Progetti',
   utenti:       'Anagrafica Utenti',
   roadmap:      'Roadmap Prodotti',
   impostazioni: 'Impostazioni',
@@ -203,15 +203,15 @@ export default function App() {
 
         <div className="db-sidebar-nav">
           {navBtn('dashboard',     'Dashboard',            <IconGrid />)}
-          {navBtn('attivita',      'Elenco Attività',      <IconClipboard />)}
+          {navBtn('attivita',      'Elenco Attività Progetti', <IconClipboard />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
           {navBtn('clienti',       'Anagrafica Clienti',   <IconBuilding />)}
           {navBtn('progetti',      'Progetti & Prodotti',  <IconFolder />)}
-          {navBtn('utenti',        'Anagrafica Utenti',    <IconUsers />)}
         </div>
 
         <div className="db-sidebar-foot">
+          {navBtn('utenti',        'Anagrafica Utenti',    <IconUsers />)}
           {navBtn('impostazioni', 'Impostazioni',   <IconSettings />)}
           <button className="db-nav-btn db-nav-btn--logout" type="button"
             title="Esci" aria-label="Esci dall'applicazione" onClick={handleLogout}>

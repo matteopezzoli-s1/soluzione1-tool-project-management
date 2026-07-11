@@ -1857,7 +1857,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       {/* ── Top bar ── */}
       <div className="ea-topbar">
         <div className="ea-topbar-left">
-          <h1 className="ea-title">Elenco Attività</h1>
+          <h1 className="ea-title">Elenco Attività Progetti</h1>
         </div>
         <div className="ea-topbar-right">
           <button type="button" className="ea-btn ea-btn--primary" onClick={openAdd}>
