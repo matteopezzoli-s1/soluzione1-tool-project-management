@@ -445,7 +445,7 @@ export default function DashboardPage({ token, onNavigate }: DashboardPageProps)
       </div>
       <div className="dash-shortcuts-grid">
         <ShortcutCard
-          label="Elenco Attività"
+          label="Elenco Attività Progetti"
           icon={<IconList />}
           onClick={() => onNavigate('attivita')}
         />
