@@ -95,6 +95,28 @@ pg_restore --clean --if-exists -d "postgresql://<user>:<password>@<host>/<db>?ss
 
 In alternativa, Neon offre anche gli **snapshot/branch point-in-time restore** nativi (Neon Console → Branches → "Restore"), utilizzabili come rete di sicurezza aggiuntiva senza dover gestire un file `.dump` — consigliato in aggiunta al `pg_dump` manuale per le migration più delicate.
 
+### Rollback dopo una migration "dati sensibili"
+
+Se dopo il deploy emerge un problema con una migration di questo tipo (es. `20260711164615_migrate_pm_account_to_users`), ci sono due livelli di ripristino, dal più mirato al più drastico:
+
+1. **Ripristino mirato dalle tabelle `_backup_*`** (nessun downtime, resta nello stesso DB) — utile se il problema è nei dati spostati ma lo schema successivo (nuove colonne/FK) va tenuto:
+   ```sql
+   -- Esempio: ripristinare account_id su clienti/attivita ai valori pre-migrazione
+   UPDATE clienti c SET account_id = b.account_id FROM _backup_clienti_fk b WHERE c.id = b.id;
+   UPDATE attivita a SET account_id = b.account_id FROM _backup_attivita_fk b WHERE a.id = b.id;
+   UPDATE progetti p SET po_id = b.po_id FROM _backup_progetti_fk b WHERE p.id = b.id;
+   -- I dati originali di project_managers/accounts restano leggibili in:
+   --   SELECT * FROM _backup_project_managers;
+   --   SELECT * FROM _backup_accounts;
+   ```
+   Le tabelle `_backup_*` non vengono mai droppate automaticamente: restano nel DB come audit trail finché qualcuno non le rimuove esplicitamente.
+
+2. **Ripristino completo da `pg_dump`** (rollback totale, riporta il DB allo stato pre-deploy, **downtime**):
+   ```bash
+   pg_restore --clean --if-exists -d "postgresql://<user>:<password>@<host>/<db>?sslmode=require" neon_prod_backup_<timestamp>.dump
+   ```
+   Dopo un ripristino completo, verifica che `backend/prisma/migrations` sul branch deployato corrisponda allo stato del DB ripristinato (altrimenti il prossimo `prisma migrate deploy` potrebbe tentare di riapplicare migration già presenti nel dump — la guard di idempotenza nella migration stessa previene danni, ma verifica comunque `prisma migrate status` prima di un nuovo deploy).
+
 ---
 
 ## Nota sul dominio Worker
