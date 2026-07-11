@@ -34,6 +34,10 @@ interface DeleteConflict {
   responsabileDevHubDiProgetti: number
   accountDiClienti: number
   accountDiAttivita: number
+  progettiGanttProprietario?: number
+  taskGanttCreatore?: number
+  taskGanttAssegnatario?: number
+  membroProgettiGantt?: number
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -194,6 +198,10 @@ function ConfirmDelete({ user, loading, conflict, onConfirm, onClose }: {
     { label: 'Responsabile DevHub di progetti', count: conflict.responsabileDevHubDiProgetti },
     { label: 'Account di clienti',            count: conflict.accountDiClienti },
     { label: 'Account di attività',           count: conflict.accountDiAttivita },
+    { label: 'Proprietario di progetti (Gantt)', count: conflict.progettiGanttProprietario ?? 0 },
+    { label: 'Creatore di task (Gantt)',      count: conflict.taskGanttCreatore ?? 0 },
+    { label: 'Assegnatario di task (Gantt)',  count: conflict.taskGanttAssegnatario ?? 0 },
+    { label: 'Membro di progetti (Gantt)',    count: conflict.membroProgettiGantt ?? 0 },
   ].filter(r => r.count > 0) : []
 
   return (
