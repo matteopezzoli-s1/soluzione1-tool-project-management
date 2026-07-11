@@ -1,21 +1,30 @@
 import 'dotenv/config'
 import { createPrismaClient } from '../src/lib/prisma'
+import type { UserRole } from '@prisma/client'
 
 const prisma = createPrismaClient(process.env.DATABASE_URL ?? '')
 
 async function main() {
   console.log('Seeding...')
 
+  const user1Data = {
+    email: 'alice@test.com', name: 'Alice',
+    firstName: 'Alice', lastName: 'Seed', roles: ['PM', 'BOARD'] as UserRole[],
+  }
   const user1 = await prisma.user.upsert({
     where: { googleId: 'seed-user-1' },
-    update: {},
-    create: { googleId: 'seed-user-1', email: 'alice@test.com', name: 'Alice' },
+    update: user1Data,
+    create: { googleId: 'seed-user-1', ...user1Data },
   })
 
+  const user2Data = {
+    email: 'bob@test.com', name: 'Bob',
+    firstName: 'Bob', lastName: 'Seed', roles: ['ACCOUNT', 'DEVHUB'] as UserRole[],
+  }
   const user2 = await prisma.user.upsert({
     where: { googleId: 'seed-user-2' },
-    update: {},
-    create: { googleId: 'seed-user-2', email: 'bob@test.com', name: 'Bob' },
+    update: user2Data,
+    create: { googleId: 'seed-user-2', ...user2Data },
   })
 
   const project = await prisma.project.upsert({
