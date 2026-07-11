@@ -191,6 +191,15 @@ function IconFolder() {
   )
 }
 
+function IconRoadmap() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+      width="20" height="20" aria-hidden="true">
+      <path d="M2 10h4l2-6 4 12 2-6h4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 function IconBuilding() {
   return (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="20" height="20" aria-hidden="true">
@@ -439,6 +448,11 @@ export default function DashboardPage({ token, onNavigate }: DashboardPageProps)
           label="Elenco Attività"
           icon={<IconList />}
           onClick={() => onNavigate('attivita')}
+        />
+        <ShortcutCard
+          label="Roadmap Prodotti"
+          icon={<IconRoadmap />}
+          onClick={() => onNavigate('roadmap')}
         />
         <ShortcutCard
           label="Progetti & Prodotti"
