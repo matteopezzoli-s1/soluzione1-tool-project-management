@@ -1592,8 +1592,8 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       const [res, rC, rA, rP, rPr, rSt] = await Promise.all([
         fetch(`${API_URL}/api/attivita`,       { headers: authHeaders(token) }),
         fetch(`${API_URL}/clienti`,            { headers: authHeaders(token) }),
-        fetch(`${API_URL}/accounts`,           { headers: authHeaders(token) }),
-        fetch(`${API_URL}/pm`,                 { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/users?role=ACCOUNT`, { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/users?role=PM`,      { headers: authHeaders(token) }),
         fetch(`${API_URL}/progetti?tipo=CLIENTE`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/stati-attivita`, { headers: authHeaders(token) }),
       ])

@@ -175,38 +175,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
   })
 
-  // ── PM / Account: alias di sola lettura (legacy, rimuovere a fine Prompt 04) ──
-  // Sostituiti da /api/users?role=PM|ACCOUNT — mantenuti in GET per non rompere
-  // il frontend prima che venga aggiornato (Prompt 04).
-
-  hono.get('/pm', requireAuth(), async (c) => {
-    try {
-      const pms = await c.get('prisma').user.findMany({
-        where: { roles: { has: 'PM' } },
-        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
-        select: { id: true, firstName: true, lastName: true, email: true },
-      })
-      return c.json(pms)
-    } catch (err) {
-      console.error('[pm alias] GET error:', err)
-      return c.json({ error: 'Errore nel recupero dei PM' }, 500)
-    }
-  })
-
-  hono.get('/accounts', requireAuth(), async (c) => {
-    try {
-      const accounts = await c.get('prisma').user.findMany({
-        where: { roles: { has: 'ACCOUNT' } },
-        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
-        select: { id: true, firstName: true, lastName: true, email: true },
-      })
-      return c.json(accounts)
-    } catch (err) {
-      console.error('[accounts alias] GET error:', err)
-      return c.json({ error: 'Errore nel recupero degli account' }, 500)
-    }
-  })
-
   // ── Utenti (anagrafica unica con ruoli) ──────────────────────
 
   const VALID_ROLES = ['ACCOUNT', 'PM', 'BOARD', 'DEVHUB'] as const

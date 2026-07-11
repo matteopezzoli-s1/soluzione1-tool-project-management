@@ -366,7 +366,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
       const [rI, rP, rPm, rS, rT] = await Promise.all([
         fetch(`${API_URL}/api/roadmap-items`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/progetti?tipo=PRODOTTO`, { headers: authHeaders(token) }),
-        fetch(`${API_URL}/pm`,                  { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/users?role=PM`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/stati-roadmap`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/roadmap-tags`,    { headers: authHeaders(token) }),
       ])

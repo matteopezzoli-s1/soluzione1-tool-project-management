@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import LoginPage             from './pages/LoginPage'
-import TeamPage              from './pages/TeamPage'
-import TeamAccountPage       from './pages/TeamAccountPage'
+import UtentiPage            from './pages/UtentiPage'
 import ElencoAttivitaPage    from './pages/ElencoAttivitaPage'
 import ClientiPage           from './pages/ClientiPage'
 import ProgettiPage          from './pages/ProgettiPage'
@@ -30,14 +29,6 @@ function IconUsers() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true">
       <path d="M7 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.5 1a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM1.615 16.428a1.224 1.224 0 0 1-.569-1.175 6.002 6.002 0 0 1 11.908 0c.058.467-.172.92-.57 1.174A9.953 9.953 0 0 1 7 17a9.953 9.953 0 0 1-5.385-1.572zM14.5 16h-.106c.07-.297.088-.611.048-.933a7.47 7.47 0 0 0-1.588-3.755 4.502 4.502 0 0 1 5.874 4.575.8.8 0 0 1-.36.734A7.506 7.506 0 0 1 14.5 16z" />
-    </svg>
-  )
-}
-
-function IconAccount() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true">
-      <path fillRule="evenodd" d="M10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-7 9a7 7 0 1 1 14 0H3z" clipRule="evenodd" />
     </svg>
   )
 }
@@ -117,18 +108,17 @@ function BrandMark() {
 
 // ─── Sezione placeholder ─────────────────────────────────────────────────────
 
-type NavPage = 'dashboard' | 'clienti' | 'progetti' | 'timeline' | 'attivita' | 'team-pm' | 'team-account' | 'roadmap' | 'impostazioni'
+type NavPage = 'dashboard' | 'clienti' | 'progetti' | 'timeline' | 'attivita' | 'utenti' | 'roadmap' | 'impostazioni'
 
 const PAGE_LABELS: Record<NavPage, string> = {
-  dashboard:      'Dashboard',
-  clienti:        'Anagrafica Clienti',
-  progetti:       'Progetti & Prodotti',
-  timeline:       'Gantt Attività',
-  attivita:       'Elenco Attività',
-  'team-pm':      'Anagrafica PM / PO',
-  'team-account': 'Anagrafica Account',
-  roadmap:        'Roadmap Prodotti',
-  impostazioni:   'Impostazioni',
+  dashboard:    'Dashboard',
+  clienti:      'Anagrafica Clienti',
+  progetti:     'Progetti & Prodotti',
+  timeline:     'Gantt Attività',
+  attivita:     'Elenco Attività',
+  utenti:       'Anagrafica Utenti',
+  roadmap:      'Roadmap Prodotti',
+  impostazioni: 'Impostazioni',
 }
 
 function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard' | 'attivita' | 'clienti' | 'progetti'> }) {
@@ -216,8 +206,7 @@ export default function App() {
           {navBtn('attivita',      'Elenco Attività',      <IconClipboard />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
-          {navBtn('team-pm',       'Anagrafica PM / PO',   <IconUsers />)}
-          {navBtn('team-account',  'Anagrafica Account',   <IconAccount />)}
+          {navBtn('utenti',        'Anagrafica Utenti',    <IconUsers />)}
           {navBtn('clienti',       'Anagrafica Clienti',   <IconBuilding />)}
           {navBtn('progetti',      'Progetti & Prodotti',  <IconFolder />)}
         </div>
@@ -252,13 +241,12 @@ export default function App() {
         {page === 'dashboard'     && <DashboardPage         token={token} onNavigate={(p) => setPage(p as NavPage)} />}
         {page === 'clienti'       && <ClientiPage           token={token} />}
         {page === 'progetti'      && <ProgettiPage          token={token} />}
-        {page === 'team-pm'       && <TeamPage              token={token} />}
-        {page === 'team-account'  && <TeamAccountPage       token={token} />}
+        {page === 'utenti'        && <UtentiPage            token={token} />}
         {page === 'attivita'      && <ElencoAttivitaPage    token={token} />}
         {page === 'roadmap'       && <RoadmapPage           token={token} />}
         {page === 'impostazioni'  && <ImpostazioniPage      token={token} />}
         {page === 'timeline'      && <GanttPage             token={token} />}
-        {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'team-pm' && page !== 'team-account' && page !== 'attivita' && page !== 'roadmap' && page !== 'impostazioni' && page !== 'timeline' && (
+        {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'utenti' && page !== 'attivita' && page !== 'roadmap' && page !== 'impostazioni' && page !== 'timeline' && (
           <PlaceholderPage page={page} />
         )}
       </div>

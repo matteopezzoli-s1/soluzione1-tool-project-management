@@ -16,6 +16,7 @@ interface StatoProgettoConfig {
 
 interface ClienteRef { id: string; nome: string }
 interface PoRef { id: string; firstName: string | null; lastName: string }
+interface DevHubRef { id: string; firstName: string | null; lastName: string }
 
 interface Progetto {
   id: string; nome: string; descrizione: string | null; tipo: Tipo
@@ -23,18 +24,20 @@ interface Progetto {
   dataInizio: string | null; dataFine: string | null
   clienteId: string | null; cliente: ClienteRef | null
   poId: string | null; po: PoRef | null
+  responsabileDevHubId: string | null; responsabileDevHub: DevHubRef | null
 }
 
 interface ClienteOption { id: string; nome: string }
 interface PoOption { id: string; firstName: string | null; lastName: string }
+interface DevHubOption { id: string; firstName: string | null; lastName: string }
 
 type FormData = {
   nome: string; descrizione: string; stato: StatoProgetto
-  clienteId: string; poId: string; colore: string
+  clienteId: string; poId: string; responsabileDevHubId: string; colore: string
   dataInizio: string; dataFine: string
 }
 const emptyForm = (): FormData => ({
-  nome: '', descrizione: '', stato: 'ATTIVO', clienteId: '', poId: '', colore: '#0D9488', dataInizio: '', dataFine: '',
+  nome: '', descrizione: '', stato: 'ATTIVO', clienteId: '', poId: '', responsabileDevHubId: '', colore: '#0D9488', dataInizio: '', dataFine: '',
 })
 
 function authHeaders(token: string) {
@@ -54,6 +57,11 @@ function toInputDate(iso: string | null) {
 function poName(po: PoRef | null) {
   if (!po) return null
   return [po.firstName, po.lastName].filter(Boolean).join(' ')
+}
+
+function devHubName(d: DevHubRef | null) {
+  if (!d) return null
+  return [d.firstName, d.lastName].filter(Boolean).join(' ')
 }
 
 // ─── Stato badge ─────────────────────────────────────────────────────────────
@@ -80,11 +88,11 @@ function StatoBadge({ stato, statiMap }: { stato: StatoProgetto; statiMap: Map<s
 
 interface ModalProps {
   tipo: Tipo; title: string; form: FormData; loading: boolean; apiError: string | null
-  clienti: ClienteOption[]; pos: PoOption[]; statiList: StatoProgettoConfig[]
+  clienti: ClienteOption[]; pos: PoOption[]; devHubs: DevHubOption[]; statiList: StatoProgettoConfig[]
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
-function Modal({ tipo, title, form, loading, apiError, clienti, pos, statiList, onChange, onSave, onClose }: ModalProps) {
+function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, statiList, onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
@@ -133,25 +141,35 @@ function Modal({ tipo, title, form, loading, apiError, clienti, pos, statiList, 
               </div>
             </div>
           ) : (
-            <div className="pr-field-row">
-              <div className="pr-field">
-                <label htmlFor="pr-po" className="pr-label">PO di riferimento</label>
-                <select id="pr-po" className="pr-input pr-select"
-                  value={form.poId} onChange={set('poId')}>
-                  <option value="">— Nessun PO —</option>
-                  {pos.map(p => <option key={p.id} value={p.id}>{[p.firstName, p.lastName].filter(Boolean).join(' ')}</option>)}
-                </select>
+            <>
+              <div className="pr-field-row">
+                <div className="pr-field">
+                  <label htmlFor="pr-po" className="pr-label">PO di riferimento</label>
+                  <select id="pr-po" className="pr-input pr-select"
+                    value={form.poId} onChange={set('poId')}>
+                    <option value="">— Nessun PO —</option>
+                    {pos.map(p => <option key={p.id} value={p.id}>{[p.firstName, p.lastName].filter(Boolean).join(' ')}</option>)}
+                  </select>
+                </div>
+                <div className="pr-field">
+                  <label htmlFor="pr-stato" className="pr-label">Stato</label>
+                  <select id="pr-stato" className="pr-input pr-select"
+                    value={form.stato} onChange={set('stato')}>
+                    {statiList.map(s => (
+                      <option key={s.chiave} value={s.chiave}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="pr-field">
-                <label htmlFor="pr-stato" className="pr-label">Stato</label>
-                <select id="pr-stato" className="pr-input pr-select"
-                  value={form.stato} onChange={set('stato')}>
-                  {statiList.map(s => (
-                    <option key={s.chiave} value={s.chiave}>{s.label}</option>
-                  ))}
+                <label htmlFor="pr-devhub" className="pr-label">Responsabile DevHub</label>
+                <select id="pr-devhub" className="pr-input pr-select"
+                  value={form.responsabileDevHubId} onChange={set('responsabileDevHubId')}>
+                  <option value="">— Nessun responsabile —</option>
+                  {devHubs.map(d => <option key={d.id} value={d.id}>{[d.firstName, d.lastName].filter(Boolean).join(' ')}</option>)}
                 </select>
               </div>
-            </div>
+            </>
           )}
 
           {tipo === 'PRODOTTO' && (
@@ -242,6 +260,7 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
   const [progetti,    setProgetti]    = useState<Progetto[]>([])
   const [clienti,     setClienti]     = useState<ClienteOption[]>([])
   const [pos,         setPos]         = useState<PoOption[]>([])
+  const [devHubs,     setDevHubs]     = useState<DevHubOption[]>([])
   const [statiConfig, setStatiConfig] = useState<StatoProgettoConfig[]>([])
   const [loading,     setLoading]     = useState(true)
   const [apiError,    setApiError]    = useState<string | null>(null)
@@ -262,20 +281,21 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
   const fetchAll = useCallback(async () => {
     setLoading(true); setApiError(null)
     try {
-      const [rP, rC, rPo, rS] = await Promise.all([
+      const [rP, rC, rPo, rDh, rS] = await Promise.all([
         fetch(`${API_URL}/progetti?tipo=${tipo}`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/clienti`,                { headers: authHeaders(token) }),
-        fetch(`${API_URL}/pm`,                     { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/users?role=PM`,      { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/users?role=DEVHUB`,  { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/stati-progetto`,     { headers: authHeaders(token) }),
       ])
       if (!rP.ok || !rC.ok) throw new Error()
-      const [p, c, po, s] = await Promise.all([
-        rP.json(), rC.json(), rPo.ok ? rPo.json() : Promise.resolve([]), rS.ok ? rS.json() : Promise.resolve([]),
+      const [p, c, po, dh, s] = await Promise.all([
+        rP.json(), rC.json(), rPo.ok ? rPo.json() : Promise.resolve([]), rDh.ok ? rDh.json() : Promise.resolve([]), rS.ok ? rS.json() : Promise.resolve([]),
       ])
       setProgetti((p as Progetto[]).sort((a, b) =>
         (a.cliente?.nome ?? '').localeCompare(b.cliente?.nome ?? '', 'it') ||
         a.nome.localeCompare(b.nome, 'it')
-      )); setClienti(c); setPos(po); setStatiConfig(s)
+      )); setClienti(c); setPos(po); setDevHubs(dh); setStatiConfig(s)
     } catch { setApiError(`Impossibile caricare i dati.`) }
     finally { setLoading(false) }
   }, [token, tipo])
@@ -289,7 +309,7 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
     setEditing(p)
     setForm({
       nome: p.nome, descrizione: p.descrizione ?? '', stato: p.stato,
-      clienteId: p.clienteId ?? '', poId: p.poId ?? '', colore: p.colore ?? '#0D9488',
+      clienteId: p.clienteId ?? '', poId: p.poId ?? '', responsabileDevHubId: p.responsabileDevHubId ?? '', colore: p.colore ?? '#0D9488',
       dataInizio: toInputDate(p.dataInizio), dataFine: toInputDate(p.dataFine),
     })
     setFormErr(null); setModal('edit')
@@ -366,6 +386,7 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
               <tr>
                 <th scope="col">{tipo === 'CLIENTE' ? 'Progetto' : 'Prodotto'}</th>
                 <th scope="col">{tipo === 'CLIENTE' ? 'Cliente' : 'PO'}</th>
+                {tipo === 'PRODOTTO' && <th scope="col">DevHub</th>}
                 <th scope="col">Stato</th>
                 {tipo === 'CLIENTE' && <th scope="col">Periodo</th>}
                 <th scope="col" className="pr-th--actions">Azioni</th>
@@ -386,6 +407,11 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
                       ? (p.cliente ? <span className="pr-cliente-tag">{p.cliente.nome}</span> : <span className="pr-empty-cell">—</span>)
                       : (p.po ? <span className="pr-po-tag">{poName(p.po)}</span> : <span className="pr-empty-cell">—</span>)}
                   </td>
+                  {tipo === 'PRODOTTO' && (
+                    <td className="pr-cell-text">
+                      {p.responsabileDevHub ? <span className="pr-po-tag">{devHubName(p.responsabileDevHub)}</span> : <span className="pr-empty-cell">—</span>}
+                    </td>
+                  )}
                   <td><StatoBadge stato={p.stato} statiMap={statiMap} /></td>
                   {tipo === 'CLIENTE' && (
                     <td className="pr-cell-text pr-cell-date">
@@ -424,7 +450,7 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
         <Modal
           tipo={tipo}
           title={modal === 'add' ? `Aggiungi ${entityLabel}` : `Modifica ${entityLabel}`}
-          form={form} loading={saving} apiError={formErr} clienti={clienti} pos={pos}
+          form={form} loading={saving} apiError={formErr} clienti={clienti} pos={pos} devHubs={devHubs}
           statiList={statiList}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
       )}
