@@ -278,24 +278,42 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const id = c.req.param('id')
     const prisma = c.get('prisma')
     try {
-      const [pmDiAttivita, poDiProgetti, responsabileDevHubDiProgetti, accountDiClienti, accountDiAttivita] = await Promise.all([
+      const [
+        pmDiAttivita, poDiProgetti, responsabileDevHubDiProgetti, accountDiClienti, accountDiAttivita,
+        progettiGanttProprietario, taskGanttCreatore, taskGanttAssegnatario, membroProgettiGantt,
+      ] = await Promise.all([
         prisma.attivitaPM.count({ where: { pmId: id } }),
         prisma.progetto.count({ where: { poId: id } }),
         prisma.progetto.count({ where: { responsabileDevHubId: id } }),
         prisma.cliente.count({ where: { accountId: id } }),
         prisma.attivita.count({ where: { accountId: id } }),
+        // Modelli Gantt (Project/Task) non ancora esposti via API ma già in produzione:
+        // vanno inclusi nel guard perché projects.owner_id è ON DELETE CASCADE (cancellerebbe
+        // il progetto in silenzio) e tasks.creator_id è ON DELETE RESTRICT (farebbe fallire
+        // la delete con un 500 non gestito).
+        prisma.project.count({ where: { ownerId: id } }),
+        prisma.task.count({ where: { creatorId: id } }),
+        prisma.task.count({ where: { assigneeId: id } }),
+        prisma.projectMember.count({ where: { userId: id } }),
       ])
       const inUso = pmDiAttivita + poDiProgetti + responsabileDevHubDiProgetti + accountDiClienti + accountDiAttivita
+        + progettiGanttProprietario + taskGanttCreatore + taskGanttAssegnatario + membroProgettiGantt
       if (inUso > 0) {
         return c.json({
           error: 'Utente in uso, impossibile eliminare',
-          dettagli: { pmDiAttivita, poDiProgetti, responsabileDevHubDiProgetti, accountDiClienti, accountDiAttivita },
+          dettagli: {
+            pmDiAttivita, poDiProgetti, responsabileDevHubDiProgetti, accountDiClienti, accountDiAttivita,
+            progettiGanttProprietario, taskGanttCreatore, taskGanttAssegnatario, membroProgettiGantt,
+          },
         }, 409)
       }
       await prisma.user.delete({ where: { id } })
       return c.body(null, 204)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Utente non trovato' }, 404)
+      if ((err as { code?: string }).code === 'P2003') {
+        return c.json({ error: 'Utente in uso, impossibile eliminare' }, 409)
+      }
       console.error('[users] DELETE error:', err)
       return c.json({ error: 'Errore nella cancellazione dell\'utente' }, 500)
     }
