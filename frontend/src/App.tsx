@@ -193,7 +193,7 @@ export default function App() {
     localStorage.getItem('auth_token')
   )
   const [page, setPage] = useState<NavPage>('dashboard')
-  const [roles, setRoles] = useState<Role[]>([])
+  const [fetchedRoles, setFetchedRoles] = useState<{ token: string; roles: Role[] } | null>(null)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
   const handleLogin  = (t: string) => setToken(t)
@@ -202,17 +202,15 @@ export default function App() {
     setToken(null)
   }
 
-  // Ruoli letti subito dal JWT (per evitare flash), poi rifiniti da /auth/me
-  // che legge dal DB — così un cambio ruoli lato Board si riflette senza attendere
-  // la scadenza (7gg) del token.
+  // Rifinisce i ruoli letti dal JWT (che potrebbero essere fino a 7gg stantii)
+  // interrogando /auth/me, che legge dal DB — così un cambio ruoli lato Board
+  // si riflette senza attendere la scadenza del token.
   useEffect(() => {
-    if (!token) { setRoles([]); return }
-    setRoles(decodeJwtPayload(token)?.roles ?? [])
-
+    if (!token) return
     let cancelled = false
     fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (!cancelled && data?.roles) setRoles(data.roles) })
+      .then((data) => { if (!cancelled && data?.roles) setFetchedRoles({ token, roles: data.roles }) })
       .catch(() => {})
     return () => { cancelled = true }
   }, [token])
@@ -220,6 +218,7 @@ export default function App() {
   if (!token) return <LoginPage onLogin={handleLogin} />
 
   const user = decodeJwtPayload(token)
+  const roles = fetchedRoles?.token === token ? fetchedRoles.roles : (user?.roles ?? [])
   const isBoard = roles.includes('BOARD')
 
   const navBtn = (id: NavPage, label: string, icon: ReactNode) => (
