@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import LoginPage             from './pages/LoginPage'
 import UtentiPage            from './pages/UtentiPage'
 import ElencoAttivitaPage    from './pages/ElencoAttivitaPage'
@@ -139,11 +139,23 @@ function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard' | 'attiv
   )
 }
 
-// ─── Utente loggato (decodificato dal JWT) ──────────────────────────────────
+// ─── Utente loggato (decodificato dal JWT, poi rifinito da /auth/me) ────────
+
+const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
+
+type Role = 'ACCOUNT' | 'PM' | 'BOARD' | 'DEVHUB'
+
+const ROLE_META: Record<Role, { label: string; className: string }> = {
+  ACCOUNT: { label: 'Account', className: 'db-role-chip--account' },
+  PM:      { label: 'PM',      className: 'db-role-chip--pm' },
+  BOARD:   { label: 'Board',   className: 'db-role-chip--board' },
+  DEVHUB:  { label: 'DevHub',  className: 'db-role-chip--devhub' },
+}
 
 interface JwtUser {
   name?: string
   email?: string
+  roles?: Role[]
 }
 
 function decodeJwtPayload(token: string): JwtUser | null {
@@ -163,6 +175,17 @@ function getInitials(user: JwtUser | null): string {
   return parts.slice(0, 2).map((p) => p[0]!.toUpperCase()).join('') || '?'
 }
 
+function RoleChips({ roles }: { roles: Role[] }) {
+  if (roles.length === 0) return <span className="db-role-chip-empty">Nessun ruolo assegnato</span>
+  return (
+    <div className="db-role-chips">
+      {roles.map((r) => (
+        <span key={r} className={`db-role-chip ${ROLE_META[r].className}`}>{ROLE_META[r].label}</span>
+      ))}
+    </div>
+  )
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -170,6 +193,8 @@ export default function App() {
     localStorage.getItem('auth_token')
   )
   const [page, setPage] = useState<NavPage>('dashboard')
+  const [roles, setRoles] = useState<Role[]>([])
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
 
   const handleLogin  = (t: string) => setToken(t)
   const handleLogout = () => {
@@ -177,9 +202,25 @@ export default function App() {
     setToken(null)
   }
 
+  // Ruoli letti subito dal JWT (per evitare flash), poi rifiniti da /auth/me
+  // che legge dal DB — così un cambio ruoli lato Board si riflette senza attendere
+  // la scadenza (7gg) del token.
+  useEffect(() => {
+    if (!token) { setRoles([]); return }
+    setRoles(decodeJwtPayload(token)?.roles ?? [])
+
+    let cancelled = false
+    fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (!cancelled && data?.roles) setRoles(data.roles) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [token])
+
   if (!token) return <LoginPage onLogin={handleLogin} />
 
   const user = decodeJwtPayload(token)
+  const isBoard = roles.includes('BOARD')
 
   const navBtn = (id: NavPage, label: string, icon: ReactNode) => (
     <button
@@ -211,8 +252,8 @@ export default function App() {
         </div>
 
         <div className="db-sidebar-foot">
-          {navBtn('utenti',        'Anagrafica Utenti',    <IconUsers />)}
-          {navBtn('impostazioni', 'Impostazioni',   <IconSettings />)}
+          {isBoard && navBtn('utenti',        'Anagrafica Utenti',    <IconUsers />)}
+          {isBoard && navBtn('impostazioni', 'Impostazioni',   <IconSettings />)}
           <button className="db-nav-btn db-nav-btn--logout" type="button"
             title="Esci" aria-label="Esci dall'applicazione" onClick={handleLogout}>
             <IconLogout />
@@ -231,8 +272,34 @@ export default function App() {
             <span className="db-header-page">{PAGE_LABELS[page]}</span>
           </div>
           <div className="db-header-right">
-            <div className="db-avatar" aria-label={user?.name ? `Profilo di ${user.name}` : 'Profilo utente'} title={user?.name ?? user?.email}>
-              {getInitials(user)}
+            <div className="db-user-menu">
+              <button
+                type="button"
+                className="db-avatar"
+                aria-label={user?.name ? `Profilo di ${user.name}` : 'Profilo utente'}
+                aria-haspopup="true"
+                aria-expanded={userMenuOpen}
+                title={user?.name ?? user?.email}
+                onClick={() => setUserMenuOpen((o) => !o)}
+              >
+                {getInitials(user)}
+              </button>
+
+              {userMenuOpen && (
+                <>
+                  <div className="db-user-menu-overlay" onClick={() => setUserMenuOpen(false)} />
+                  <div className="db-user-menu-panel" role="menu">
+                    <div className="db-user-menu-identity">
+                      <span className="db-user-menu-name">{user?.name || 'Utente'}</span>
+                      {user?.email && <span className="db-user-menu-email">{user.email}</span>}
+                    </div>
+                    <div className="db-user-menu-roles">
+                      <span className="db-user-menu-roles-label">Ruoli</span>
+                      <RoleChips roles={roles} />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </header>

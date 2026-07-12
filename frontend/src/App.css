@@ -182,11 +182,13 @@
 .db-avatar {
   width: 34px;
   height: 34px;
+  border: none;
   border-radius: 50%;
   background: linear-gradient(135deg, #0D9488 0%, #0891B2 100%);
   color: #FFFFFF;
   font-size: 0.68rem;
   font-weight: 700;
+  font-family: inherit;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -194,6 +196,90 @@
   user-select: none;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(13, 148, 136, 0.28);
+}
+
+/* ── User menu (dropdown ruoli) ────────────────────────────── */
+
+.db-user-menu {
+  position: relative;
+}
+
+.db-user-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: transparent;
+}
+
+.db-user-menu-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 50;
+  min-width: 220px;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  padding: 0.9rem 1rem;
+  animation: db-fade-up 0.15s ease both;
+}
+
+.db-user-menu-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid #F1F5F9;
+}
+
+.db-user-menu-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0F172A;
+}
+
+.db-user-menu-email {
+  font-size: 0.75rem;
+  color: #64748B;
+}
+
+.db-user-menu-roles-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #94A3B8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.4rem;
+}
+
+.db-role-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.db-role-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.db-role-chip--account { background: #EFF6FF; color: #2563EB; border-color: #BFDBFE; }
+.db-role-chip--pm      { background: #F0FDFA; color: #0D9488; border-color: #99F6E4; }
+.db-role-chip--board   { background: #F5F3FF; color: #7C3AED; border-color: #DDD6FE; }
+.db-role-chip--devhub  { background: #FFF7ED; color: #EA580C; border-color: #FED7AA; }
+
+.db-role-chip-empty {
+  font-size: 0.78rem;
+  color: #94A3B8;
+  font-style: italic;
 }
 
 /* ── Content ───────────────────────────────────────────────── */
