@@ -28,18 +28,6 @@ interface UserItem {
 type FormData = { firstName: string; lastName: string; email: string; roles: Role[] }
 const EMPTY_FORM: FormData = { firstName: '', lastName: '', email: '', roles: [] }
 
-interface DeleteConflict {
-  pmDiAttivita: number
-  poDiProgetti: number
-  responsabileDevHubDiProgetti: number
-  accountDiClienti: number
-  accountDiAttivita: number
-  progettiGanttProprietario?: number
-  taskGanttCreatore?: number
-  taskGanttAssegnatario?: number
-  membroProgettiGantt?: number
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function authHeaders(token: string) {
@@ -107,21 +95,30 @@ function RolePicker({ value, onChange }: { value: Role[]; onChange: (roles: Role
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
 interface ModalProps {
-  title:    string
-  form:     FormData
-  loading:  boolean
-  apiError: string | null
-  onChange: (f: FormData) => void
-  onSave:   () => void
-  onClose:  () => void
+  title:            string
+  form:             FormData
+  loading:          boolean
+  apiError:         string | null
+  emailReadOnly?:   boolean
+  reactivateNotice?: boolean
+  onChange:  (f: FormData) => void
+  onSave:    () => void
+  onReactivate?: () => void
+  onClose:   () => void
 }
 
-function Modal({ title, form, loading, apiError, onChange, onSave, onClose }: ModalProps) {
+function Modal({
+  title, form, loading, apiError, emailReadOnly, reactivateNotice,
+  onChange, onSave, onReactivate, onClose,
+}: ModalProps) {
   const set = (key: 'firstName' | 'lastName' | 'email') => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...form, [key]: e.target.value })
 
   const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'BUTTON') onSave()
+    if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'BUTTON') {
+      if (reactivateNotice) onReactivate?.()
+      else onSave()
+    }
     if (e.key === 'Escape') onClose()
   }
 
@@ -141,6 +138,12 @@ function Modal({ title, form, loading, apiError, onChange, onSave, onClose }: Mo
         <div className="ut-modal-body">
           {apiError && (
             <p className="ut-field-error ut-field-error--banner" role="alert">{apiError}</p>
+          )}
+          {reactivateNotice && (
+            <p className="ut-field-notice ut-field-error--banner" role="alert">
+              Un utente con questa email era stato eliminato in precedenza. Confermi di volerlo
+              riabilitare con i dati inseriti?
+            </p>
           )}
 
           <div className="ut-field-row">
@@ -162,7 +165,11 @@ function Modal({ title, form, loading, apiError, onChange, onSave, onClose }: Mo
             <label htmlFor="ut-email" className="ut-label">Email</label>
             <input id="ut-email" className="ut-input" type="email"
               value={form.email} onChange={set('email')}
-              placeholder="es. mario.rossi@azienda.it" autoComplete="email" />
+              placeholder="es. mario.rossi@azienda.it" autoComplete="email"
+              readOnly={emailReadOnly} aria-readonly={emailReadOnly} />
+            {emailReadOnly && (
+              <span className="ut-field-hint">L'email non è modificabile dopo la creazione dell'utente.</span>
+            )}
           </div>
 
           <div className="ut-field">
@@ -177,10 +184,17 @@ function Modal({ title, form, loading, apiError, onChange, onSave, onClose }: Mo
             disabled={loading}>
             Annulla
           </button>
-          <button className="ut-btn ut-btn--primary" type="button" onClick={onSave}
-            disabled={loading}>
-            {loading ? 'Salvataggio…' : 'Salva'}
-          </button>
+          {reactivateNotice ? (
+            <button className="ut-btn ut-btn--primary" type="button" onClick={onReactivate}
+              disabled={loading}>
+              {loading ? 'Riattivazione…' : 'Riabilita utente'}
+            </button>
+          ) : (
+            <button className="ut-btn ut-btn--primary" type="button" onClick={onSave}
+              disabled={loading}>
+              {loading ? 'Salvataggio…' : 'Salva'}
+            </button>
+          )}
         </div>
       </div>
     </SectionModal>
@@ -189,21 +203,9 @@ function Modal({ title, form, loading, apiError, onChange, onSave, onClose }: Mo
 
 // ─── Confirm delete dialog ────────────────────────────────────────────────────
 
-function ConfirmDelete({ user, loading, conflict, onConfirm, onClose }: {
-  user: UserItem; loading: boolean; conflict: DeleteConflict | null; onConfirm: () => void; onClose: () => void
+function ConfirmDelete({ user, loading, onConfirm, onClose }: {
+  user: UserItem; loading: boolean; onConfirm: () => void; onClose: () => void
 }) {
-  const conflictRows = conflict ? [
-    { label: 'PM di attività',                count: conflict.pmDiAttivita },
-    { label: 'PO di progetti',                count: conflict.poDiProgetti },
-    { label: 'Responsabile DevHub di progetti', count: conflict.responsabileDevHubDiProgetti },
-    { label: 'Account di clienti',            count: conflict.accountDiClienti },
-    { label: 'Account di attività',           count: conflict.accountDiAttivita },
-    { label: 'Proprietario di progetti (Gantt)', count: conflict.progettiGanttProprietario ?? 0 },
-    { label: 'Creatore di task (Gantt)',      count: conflict.taskGanttCreatore ?? 0 },
-    { label: 'Assegnatario di task (Gantt)',  count: conflict.taskGanttAssegnatario ?? 0 },
-    { label: 'Membro di progetti (Gantt)',    count: conflict.membroProgettiGantt ?? 0 },
-  ].filter(r => r.count > 0) : []
-
   return (
     <SectionModal onClose={onClose} labelledBy="ut-confirm-title">
       <div className="ut-modal ut-modal--sm">
@@ -217,38 +219,24 @@ function ConfirmDelete({ user, loading, conflict, onConfirm, onClose }: {
           </button>
         </div>
         <div className="ut-modal-body">
-          {conflict ? (
-            <>
-              <p className="ut-confirm-text">
-                <strong>{displayName(user)}</strong> è attualmente in uso e non può essere eliminato.
-              </p>
-              <ul className="ut-inuso-list">
-                {conflictRows.map(r => (
-                  <li key={r.label}>{r.label}: {r.count}</li>
-                ))}
-              </ul>
-              <p className="ut-confirm-sub" style={{ marginTop: '0.6rem' }}>
-                Riassegna prima questi riferimenti a un altro utente.
-              </p>
-            </>
-          ) : (
-            <p className="ut-confirm-text">
-              Sei sicuro di voler eliminare{' '}
-              <strong>{displayName(user)}</strong>?
-              <br />
-              <span className="ut-confirm-sub">Questa azione non è reversibile.</span>
-            </p>
-          )}
+          <p className="ut-confirm-text">
+            Sei sicuro di voler eliminare{' '}
+            <strong>{displayName(user)}</strong>?
+            <br />
+            <span className="ut-confirm-sub">
+              Non sarà più visibile in elenco né selezionabile come PM/Account/PO/DevHub, e non
+              potrà più accedere all'applicazione. I riferimenti alle attività/progetti già
+              assegnati restano intatti.
+            </span>
+          </p>
         </div>
         <div className="ut-modal-footer">
           <button className="ut-btn ut-btn--ghost" type="button" onClick={onClose}
-            disabled={loading}>{conflict ? 'Chiudi' : 'Annulla'}</button>
-          {!conflict && (
-            <button className="ut-btn ut-btn--danger" type="button" onClick={onConfirm}
-              disabled={loading}>
-              {loading ? 'Eliminazione…' : 'Elimina'}
-            </button>
-          )}
+            disabled={loading}>Annulla</button>
+          <button className="ut-btn ut-btn--danger" type="button" onClick={onConfirm}
+            disabled={loading}>
+            {loading ? 'Eliminazione…' : 'Elimina'}
+          </button>
         </div>
       </div>
     </SectionModal>
@@ -272,7 +260,11 @@ export default function UtentiPage({ token }: UtentiPageProps) {
 
   const [delTarget, setDelTarget] = useState<UserItem | null>(null)
   const [deleting,  setDeleting]  = useState(false)
-  const [delConflict, setDelConflict] = useState<DeleteConflict | null>(null)
+
+  // Quando la creazione (409) trova un'email già usata da un utente eliminato
+  // logicamente, mostriamo un avviso nella stessa modale e proponiamo di
+  // riattivarlo invece di crearne uno nuovo.
+  const [reactivateId, setReactivateId] = useState<string | null>(null)
 
   const fetchUsers = useCallback(async () => {
     setLoading(true)
@@ -295,6 +287,7 @@ export default function UtentiPage({ token }: UtentiPageProps) {
   const openAdd = () => {
     setForm(EMPTY_FORM)
     setFormErr(null)
+    setReactivateId(null)
     setModal('add')
   }
 
@@ -307,7 +300,13 @@ export default function UtentiPage({ token }: UtentiPageProps) {
       roles:     user.roles,
     })
     setFormErr(null)
+    setReactivateId(null)
     setModal('edit')
+  }
+
+  const closeModal = () => {
+    setModal(null)
+    setReactivateId(null)
   }
 
   const handleSave = async () => {
@@ -327,6 +326,10 @@ export default function UtentiPage({ token }: UtentiPageProps) {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
+        if (modal === 'add' && res.status === 409 && (data as { code?: string }).code === 'PREVIOUSLY_DELETED') {
+          setReactivateId((data as { user?: { id: string } }).user?.id ?? null)
+          return
+        }
         setFormErr((data as { error?: string }).error ?? `Errore ${res.status}`)
         return
       }
@@ -339,8 +342,32 @@ export default function UtentiPage({ token }: UtentiPageProps) {
     }
   }
 
+  const handleReactivate = async () => {
+    if (!reactivateId) return
+    setSaving(true)
+    setFormErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/users/${reactivateId}/riattiva`, {
+        method: 'PATCH',
+        headers: authHeaders(token),
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setFormErr((data as { error?: string }).error ?? `Errore ${res.status}`)
+        return
+      }
+      setModal(null)
+      setReactivateId(null)
+      await fetchUsers()
+    } catch {
+      setFormErr('Errore di rete. Riprova.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const openDelete = (user: UserItem) => {
-    setDelConflict(null)
     setDelTarget(user)
   }
 
@@ -352,11 +379,6 @@ export default function UtentiPage({ token }: UtentiPageProps) {
         method: 'DELETE',
         headers: authHeaders(token),
       })
-      if (res.status === 409) {
-        const data = await res.json().catch(() => ({}))
-        setDelConflict((data as { dettagli?: DeleteConflict }).dettagli ?? null)
-        return
-      }
       if (!res.ok && res.status !== 404) throw new Error()
       setDelTarget(null)
       await fetchUsers()
@@ -466,9 +488,12 @@ export default function UtentiPage({ token }: UtentiPageProps) {
           form={form}
           loading={saving}
           apiError={formErr}
+          emailReadOnly={modal === 'edit'}
+          reactivateNotice={!!reactivateId}
           onChange={setForm}
           onSave={handleSave}
-          onClose={() => setModal(null)}
+          onReactivate={handleReactivate}
+          onClose={closeModal}
         />
       )}
 
@@ -476,7 +501,6 @@ export default function UtentiPage({ token }: UtentiPageProps) {
         <ConfirmDelete
           user={delTarget}
           loading={deleting}
-          conflict={delConflict}
           onConfirm={handleDelete}
           onClose={() => setDelTarget(null)}
         />

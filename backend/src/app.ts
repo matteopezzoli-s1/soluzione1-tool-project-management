@@ -5,6 +5,7 @@ import {
   fetchGoogleProfile,
   signJWT,
   verifyJWT,
+  type JWTPayload,
 } from './auth'
 import { importCSV } from './services/importService'
 import { importRoadmapCSV } from './services/roadmapImportService'
@@ -39,18 +40,35 @@ async function readJSON<T>(c: { req: { json: () => Promise<unknown> } }): Promis
   return (await c.req.json().catch(() => ({}))) as T
 }
 
+// Un utente ha accesso solo se censito, non disabilitato (deletedAt) e con
+// almeno un ruolo assegnato: senza ruoli non c'è nulla che possa fare in app,
+// quindi lo trattiamo come non autorizzato allo stesso modo di un non censito.
+function isActiveUser(user: { deletedAt: Date | null; roles: string[] } | null): boolean {
+  return !!user && !user.deletedAt && user.roles.length > 0
+}
+
 function requireAuth(): MiddlewareHandler<Env> {
   return async (c, next) => {
     const header = c.req.header('authorization')
     if (!header?.startsWith('Bearer ')) {
       return c.json({ error: 'Token mancante' }, 401)
     }
+    let payload: JWTPayload
     try {
-      verifyJWT(header.slice(7), c.get('config').jwtSecret)
-      await next()
+      payload = verifyJWT(header.slice(7), c.get('config').jwtSecret)
     } catch {
       return c.json({ error: 'Token non valido o scaduto' }, 401)
     }
+    // Un JWT valido non basta: l'email deve corrispondere a un utente censito,
+    // non disabilitato e con almeno un ruolo, altrimenti niente accesso alle API.
+    if (!payload.userId) {
+      return c.json({ error: 'Utente non autorizzato' }, 403)
+    }
+    const user = await c.get('prisma').user.findUnique({ where: { id: payload.userId } })
+    if (!isActiveUser(user)) {
+      return c.json({ error: 'Utente non autorizzato' }, 403)
+    }
+    await next()
   }
 }
 
@@ -117,7 +135,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       const derivedFirstName = nameParts[0] ?? null
       const derivedLastName = nameParts.slice(1).join(' ') || null
 
-      const existing = await prisma.user.findUnique({ where: { email: profile.email } })
+      // Solo email già censite in anagrafica (creata da un utente Board), non
+      // disabilitate e con almeno un ruolo assegnato possono accedere: niente
+      // auto-creazione dell'utente al primo login Google, e un utente eliminato
+      // logicamente o senza ruoli è trattato come inesistente.
+      const found = await prisma.user.findUnique({ where: { email: profile.email } })
+      const existing = isActiveUser(found) ? found : null
       const user = existing
         ? await prisma.user.update({
             where: { id: existing.id },
@@ -129,25 +152,15 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
               lastName:  existing.lastName ?? derivedLastName,
             },
           })
-        : await prisma.user.create({
-            data: {
-              googleId:  profile.id,
-              email:     profile.email,
-              name:      profile.name,
-              avatarUrl: profile.picture,
-              firstName: derivedFirstName,
-              lastName:  derivedLastName,
-              roles:     [],
-            },
-          })
+        : null
 
       const token = signJWT({
         sub:     profile.id,
         email:   profile.email,
         name:    profile.name,
         picture: profile.picture,
-        userId:  user.id,
-        roles:   user.roles,
+        userId:  user?.id ?? null,
+        roles:   user?.roles ?? [],
       }, jwtSecret)
       return c.redirect(`${frontendUrl}?token=${token}`)
     } catch (err) {
@@ -162,17 +175,25 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!header?.startsWith('Bearer ')) {
       return c.json({ error: 'Token mancante' }, 401)
     }
+    let payload: JWTPayload
     try {
-      const payload = verifyJWT(header.slice(7), c.get('config').jwtSecret)
-      const user = await c.get('prisma').user.findUnique({
-        where: { id: payload.userId },
-        select: { id: true, email: true, name: true, firstName: true, lastName: true, avatarUrl: true, roles: true },
-      })
-      if (!user) return c.json({ error: 'Utente non trovato' }, 401)
-      return c.json({ user })
+      payload = verifyJWT(header.slice(7), c.get('config').jwtSecret)
     } catch {
       return c.json({ error: 'Token non valido o scaduto' }, 401)
     }
+    // Token valido ma email non censita in anagrafica, disabilitata o senza
+    // ruoli assegnati: 403 distinto dal 401, così il frontend sa se deve
+    // mostrare "sessione scaduta" o "utente non autorizzato".
+    if (!payload.userId) {
+      return c.json({ error: 'Utente non autorizzato', authorized: false }, 403)
+    }
+    const user = await c.get('prisma').user.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, email: true, name: true, firstName: true, lastName: true, avatarUrl: true, roles: true, deletedAt: true },
+    })
+    if (!isActiveUser(user)) return c.json({ error: 'Utente non autorizzato', authorized: false }, 403)
+    const { deletedAt: _deletedAt, ...publicUser } = user!
+    return c.json({ user: publicUser })
   })
 
   // ── Utenti (anagrafica unica con ruoli) ──────────────────────
@@ -183,7 +204,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     try {
       const role = c.req.query('role')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const where: Record<string, any> = {}
+      const where: Record<string, any> = { deletedAt: null }
       if (role?.trim()) {
         const roleVal = role.trim().toUpperCase()
         if (!VALID_ROLES.includes(roleVal as typeof VALID_ROLES[number])) {
@@ -231,7 +252,26 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       })
       return c.json(user, 201)
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2002') return c.json({ error: 'Email già presente' }, 409)
+      if ((err as { code?: string }).code === 'P2002') {
+        // L'email è unica anche per gli utenti eliminati logicamente: se il conflitto
+        // è con un utente disabilitato, segnaliamolo al frontend così può proporre
+        // la riattivazione invece di un banale "email già in uso".
+        const conflicting = email?.trim()
+          ? await c.get('prisma').user.findUnique({
+              where: { email: email.trim().toLowerCase() },
+              select: { id: true, firstName: true, lastName: true, email: true, roles: true, deletedAt: true },
+            })
+          : null
+        if (conflicting?.deletedAt) {
+          const { deletedAt: _deletedAt, ...previewUser } = conflicting
+          return c.json({
+            error: 'Utente precedentemente eliminato',
+            code: 'PREVIOUSLY_DELETED',
+            user: previewUser,
+          }, 409)
+        }
+        return c.json({ error: 'Email già presente' }, 409)
+      }
       console.error('[users] POST error:', err)
       return c.json({ error: 'Errore nella creazione dell\'utente' }, 500)
     }
@@ -239,15 +279,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/api/users/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { firstName, lastName, email, roles } = await readJSON<{
-      firstName?: string; lastName?: string; email?: string; roles?: string[]
+    // L'email non è modificabile da qui: è l'identità con cui l'utente accede via
+    // Google, e viene ignorata anche se il client la invia (il campo in UI è readonly).
+    const { firstName, lastName, roles } = await readJSON<{
+      firstName?: string; lastName?: string; roles?: string[]
     }>(c)
 
     if (!firstName?.trim() || !lastName?.trim()) {
       return c.json({ error: 'firstName e lastName sono obbligatori' }, 400)
-    }
-    if (email?.trim() && !EMAIL_RE.test(email.trim())) {
-      return c.json({ error: 'Email non valida' }, 400)
     }
     const rolesVal = [...new Set((roles ?? []).map(r => r.trim().toUpperCase()))]
     if (rolesVal.some(r => !VALID_ROLES.includes(r as typeof VALID_ROLES[number]))) {
@@ -260,7 +299,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         data: {
           firstName: firstName.trim(),
           lastName:  lastName.trim(),
-          email:     email?.trim().toLowerCase() || null,
           roles:     rolesVal as ('ACCOUNT' | 'PM' | 'BOARD' | 'DEVHUB')[],
         },
         select: { id: true, firstName: true, lastName: true, email: true, roles: true },
@@ -268,54 +306,64 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json(user)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Utente non trovato' }, 404)
-      if ((err as { code?: string }).code === 'P2002') return c.json({ error: 'Email già presente' }, 409)
       console.error('[users] PUT error:', err)
       return c.json({ error: 'Errore nell\'aggiornamento dell\'utente' }, 500)
     }
   })
 
+  // Eliminazione logica: l'utente resta in DB (mantiene tutti i riferimenti storici
+  // come PM/PO/Account su attività/progetti/clienti già assegnati) ma esce da elenco
+  // e tendine (vedi filtro deletedAt su GET /api/users) e non può più accedere
+  // (vedi controllo deletedAt in /auth/google/callback, /auth/me e requireAuth).
   hono.delete('/api/users/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const prisma = c.get('prisma')
     try {
-      const [
-        pmDiAttivita, poDiProgetti, responsabileDevHubDiProgetti, accountDiClienti, accountDiAttivita,
-        progettiGanttProprietario, taskGanttCreatore, taskGanttAssegnatario, membroProgettiGantt,
-      ] = await Promise.all([
-        prisma.attivitaPM.count({ where: { pmId: id } }),
-        prisma.progetto.count({ where: { poId: id } }),
-        prisma.progetto.count({ where: { responsabileDevHubId: id } }),
-        prisma.cliente.count({ where: { accountId: id } }),
-        prisma.attivita.count({ where: { accountId: id } }),
-        // Modelli Gantt (Project/Task) non ancora esposti via API ma già in produzione:
-        // vanno inclusi nel guard perché projects.owner_id è ON DELETE CASCADE (cancellerebbe
-        // il progetto in silenzio) e tasks.creator_id è ON DELETE RESTRICT (farebbe fallire
-        // la delete con un 500 non gestito).
-        prisma.project.count({ where: { ownerId: id } }),
-        prisma.task.count({ where: { creatorId: id } }),
-        prisma.task.count({ where: { assigneeId: id } }),
-        prisma.projectMember.count({ where: { userId: id } }),
-      ])
-      const inUso = pmDiAttivita + poDiProgetti + responsabileDevHubDiProgetti + accountDiClienti + accountDiAttivita
-        + progettiGanttProprietario + taskGanttCreatore + taskGanttAssegnatario + membroProgettiGantt
-      if (inUso > 0) {
-        return c.json({
-          error: 'Utente in uso, impossibile eliminare',
-          dettagli: {
-            pmDiAttivita, poDiProgetti, responsabileDevHubDiProgetti, accountDiClienti, accountDiAttivita,
-            progettiGanttProprietario, taskGanttCreatore, taskGanttAssegnatario, membroProgettiGantt,
-          },
-        }, 409)
-      }
-      await prisma.user.delete({ where: { id } })
+      await c.get('prisma').user.update({ where: { id }, data: { deletedAt: new Date() } })
       return c.body(null, 204)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Utente non trovato' }, 404)
-      if ((err as { code?: string }).code === 'P2003') {
-        return c.json({ error: 'Utente in uso, impossibile eliminare' }, 409)
-      }
       console.error('[users] DELETE error:', err)
-      return c.json({ error: 'Errore nella cancellazione dell\'utente' }, 500)
+      return c.json({ error: 'Errore nella disabilitazione dell\'utente' }, 500)
+    }
+  })
+
+  // Riattiva un utente eliminato logicamente, riusando lo stesso record (e quindi la
+  // stessa email) invece di crearne uno nuovo — invocato dal frontend quando POST
+  // /api/users risponde 409 PREVIOUSLY_DELETED e l'utente Board confirma la riattivazione.
+  hono.patch('/api/users/:id/riattiva', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { firstName, lastName, roles } = await readJSON<{
+      firstName?: string; lastName?: string; roles?: string[]
+    }>(c)
+
+    if (!firstName?.trim() || !lastName?.trim()) {
+      return c.json({ error: 'firstName e lastName sono obbligatori' }, 400)
+    }
+    const rolesVal = [...new Set((roles ?? []).map(r => r.trim().toUpperCase()))]
+    if (rolesVal.some(r => !VALID_ROLES.includes(r as typeof VALID_ROLES[number]))) {
+      return c.json({ error: 'Ruoli non validi' }, 400)
+    }
+
+    try {
+      const prisma = c.get('prisma')
+      const existing = await prisma.user.findUnique({ where: { id } })
+      if (!existing || !existing.deletedAt) {
+        return c.json({ error: 'Utente non trovato o non precedentemente eliminato' }, 404)
+      }
+      const user = await prisma.user.update({
+        where: { id },
+        data: {
+          firstName: firstName.trim(),
+          lastName:  lastName.trim(),
+          roles:     rolesVal as ('ACCOUNT' | 'PM' | 'BOARD' | 'DEVHUB')[],
+          deletedAt: null,
+        },
+        select: { id: true, firstName: true, lastName: true, email: true, roles: true },
+      })
+      return c.json(user)
+    } catch (err: unknown) {
+      console.error('[users] PATCH riattiva error:', err)
+      return c.json({ error: 'Errore nella riattivazione dell\'utente' }, 500)
     }
   })
 
@@ -1023,33 +1071,74 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   // ── Attività CRUD ───────────────────────────────────────────
 
+  // Stato fisso (non configurabile) delle attività BUCKET — a differenza delle
+  // STANDARD, che usano StatoAttivitaConfig, qui non c'è nulla da gestire in
+  // Impostazioni: solo Aperta/Chiusa, come i ruoli utente.
+  const BUCKET_STATI = ['APERTA', 'CHIUSA'] as const
+
+  async function resolveAttivitaTipoStato(
+    prisma: PrismaClient,
+    tipoInput: string | undefined,
+    statoInput: string | undefined,
+  ): Promise<{ tipoVal: 'STANDARD' | 'BUCKET'; statoVal: string } | { error: string }> {
+    const tipoVal = (tipoInput?.trim().toUpperCase() || 'STANDARD') as 'STANDARD' | 'BUCKET'
+    if (tipoVal !== 'STANDARD' && tipoVal !== 'BUCKET') return { error: 'Tipo non valido' }
+
+    if (tipoVal === 'BUCKET') {
+      const statoVal = statoInput?.trim().toUpperCase() || 'APERTA'
+      if (!BUCKET_STATI.includes(statoVal as typeof BUCKET_STATI[number])) {
+        return { error: 'Stato non valido per attività bucket (deve essere APERTA o CHIUSA)' }
+      }
+      return { tipoVal, statoVal }
+    }
+
+    const statoVal = statoInput?.trim() ?? 'IN_CORSO'
+    const statiValidi = await prisma.statoAttivitaConfig.findMany({ select: { chiave: true } })
+    if (!statiValidi.some(s => s.chiave === statoVal)) return { error: 'Stato non valido' }
+    return { tipoVal, statoVal }
+  }
+
   // GET /api/attivita — lista raggruppata per cliente+progetto
+  // ?tipo=STANDARD|BUCKET (default STANDARD, per non alterare il comportamento
+  // di chi già chiama questa rotta senza saperne nulla — Dashboard, Gantt).
+  // Le attività BUCKET hanno uno stato fisso APERTA/CHIUSA, non collegato a
+  // StatoAttivitaConfig: tutta la logica di filtro/esclusione basata sugli
+  // stati configurabili si applica solo al ramo STANDARD.
   hono.get('/api/attivita', requireAuth(), async (c) => {
     try {
       const prisma = c.get('prisma')
       const stato = c.req.query('stato')
       const soloAttivi = c.req.query('soloAttivi')
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const where: Record<string, any> = {}
-
-      const tuttiStati = await prisma.statoAttivitaConfig.findMany({
-        select: { chiave: true, isArchiviato: true, escludiDaConteggio: true },
-      })
-      const escludiChiavi = new Set(tuttiStati.filter(s => s.escludiDaConteggio).map(s => s.chiave))
-
-      let statoAttiviChiavi: string[] | undefined = undefined
-      if (soloAttivi === 'true') {
-        statoAttiviChiavi = tuttiStati.filter(s => !s.isArchiviato).map(s => s.chiave)
+      const tipoParam = (c.req.query('tipo')?.trim().toUpperCase() || 'STANDARD') as 'STANDARD' | 'BUCKET'
+      if (tipoParam !== 'STANDARD' && tipoParam !== 'BUCKET') {
+        return c.json({ error: 'Tipo non valido' }, 400)
       }
 
-      if (stato?.trim()) {
-        const chiavi = stato.split(',').map(s => s.trim()).filter(Boolean)
-        if (chiavi.length > 0) {
-          where['stato'] = { in: statoAttiviChiavi ? chiavi.filter(v => statoAttiviChiavi!.includes(v)) : chiavi }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const where: Record<string, any> = { tipo: tipoParam }
+
+      let escludiChiavi = new Set<string>()
+      if (tipoParam === 'STANDARD') {
+        const tuttiStati = await prisma.statoAttivitaConfig.findMany({
+          select: { chiave: true, isArchiviato: true, escludiDaConteggio: true },
+        })
+        escludiChiavi = new Set(tuttiStati.filter(s => s.escludiDaConteggio).map(s => s.chiave))
+
+        let statoAttiviChiavi: string[] | undefined = undefined
+        if (soloAttivi === 'true') {
+          statoAttiviChiavi = tuttiStati.filter(s => !s.isArchiviato).map(s => s.chiave)
         }
-      } else if (statoAttiviChiavi) {
-        where['stato'] = { in: statoAttiviChiavi }
+
+        if (stato?.trim()) {
+          const chiavi = stato.split(',').map(s => s.trim()).filter(Boolean)
+          if (chiavi.length > 0) {
+            where['stato'] = { in: statoAttiviChiavi ? chiavi.filter(v => statoAttiviChiavi!.includes(v)) : chiavi }
+          }
+        } else if (statoAttiviChiavi) {
+          where['stato'] = { in: statoAttiviChiavi }
+        }
+      } else if (soloAttivi === 'true') {
+        where['stato'] = 'APERTA'
       }
 
       const rows = await prisma.attivita.findMany({
@@ -1093,6 +1182,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           const pmNames = a.pms.map(p => resolvedName(p.pm.firstName, p.pm.lastName)).join(', ')
           return {
             id: a.id,
+            tipo: a.tipo,
             cliente: clienteNome,
             clienteId: a.clienteId ?? null,
             progetto: progettoNome,
@@ -1103,6 +1193,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             pmIds: a.pms.map(p => p.pmId),
             attivita: a.attivita,
             giornateVendute: a.giornateVendute !== null ? toNumber(a.giornateVendute) : null,
+            giornateFatturate: a.giornateFatturate !== null ? toNumber(a.giornateFatturate) : null,
             giornateConsuntivate: a.giornateConsuntivate !== null ? toNumber(a.giornateConsuntivate) : null,
             riferimentoOrdineVendita: a.riferimentoOrdineVendita,
             stato: a.stato,
@@ -1112,10 +1203,19 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           }
         })
 
-        const attivitaContabili = attivitaMapped.filter(a => !escludiChiavi.has(a.stato))
+        // BUCKET: "chiusa" esce dai totali come farebbe uno stato archiviato/
+        // escludiDaConteggio per le STANDARD (nessuna StatoAttivitaConfig coinvolta).
+        const isContabile = (a: typeof attivitaMapped[number]) =>
+          tipoParam === 'BUCKET' ? a.stato !== 'CHIUSA' : !escludiChiavi.has(a.stato)
+
+        const attivitaContabili = attivitaMapped.filter(isContabile)
         const totaleVendute = attivitaContabili.reduce((s, a) => s + (a.giornateVendute ?? 0), 0)
+        const totaleFatturate = attivitaContabili.reduce((s, a) => s + (a.giornateFatturate ?? 0), 0)
         const totaleConsuntivate = attivitaContabili.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0)
 
+        // Segnale di sforamento (risorse consuntivate oltre il venduto): mantenuto
+        // anche per le BUCKET come avviso secondario, ma per loro la metrica
+        // primaria è il residuo da fatturare (vendute - fatturate), non questo delta.
         const inSforamento = totaleConsuntivate > totaleVendute ||
           attivitaContabili.some(a =>
             (a.giornateConsuntivate ?? 0) > 0 &&
@@ -1128,7 +1228,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           account: g.account,
           projectManager: g.projectManager,
           totaleVendute: Math.round(totaleVendute * 100) / 100,
+          totaleFatturate: Math.round(totaleFatturate * 100) / 100,
           totaleConsuntivate: Math.round(totaleConsuntivate * 100) / 100,
+          totaleResiduoDaFatturare: Math.round((totaleVendute - totaleFatturate) * 100) / 100,
           inSforamento,
           attivita: attivitaMapped,
         }
@@ -1137,7 +1239,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       gruppi.sort((a, b) => a.cliente.localeCompare(b.cliente, 'it') || a.progetto.localeCompare(b.progetto, 'it'))
 
       const allAttivita = gruppi.flatMap(g => g.attivita)
-      const allContabili = allAttivita.filter(a => !escludiChiavi.has(a.stato))
+      const isContabileGlobale = (a: typeof allAttivita[number]) =>
+        tipoParam === 'BUCKET' ? a.stato !== 'CHIUSA' : !escludiChiavi.has(a.stato)
+      const allContabili = allAttivita.filter(isContabileGlobale)
       const riepilogo = {
         totaleProgetti: gruppi.length,
         totaleAttivita: allAttivita.length,
@@ -1145,8 +1249,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           (a.giornateConsuntivate ?? 0) > 0 &&
           (a.giornateVendute === null || (a.giornateConsuntivate ?? 0) > (a.giornateVendute ?? 0))
         ).length,
-        attivitaInApprovazione: allAttivita.filter(a => escludiChiavi.has(a.stato)).length,
+        attivitaInApprovazione: allAttivita.filter(a => !isContabileGlobale(a)).length,
         totaleGiornateVendute: Math.round(allContabili.reduce((s, a) => s + (a.giornateVendute ?? 0), 0) * 100) / 100,
+        totaleGiornateFatturate: Math.round(allContabili.reduce((s, a) => s + (a.giornateFatturate ?? 0), 0) * 100) / 100,
         totaleGiornateConsuntivate: Math.round(allContabili.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0) * 100) / 100,
       }
 
@@ -1161,13 +1266,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   hono.post('/api/attivita', requireAuth(), async (c) => {
     const prisma = c.get('prisma')
     const {
-      clienteId, progettoId, pmIds, attivita,
-      giornateVendute, giornateConsuntivate, riferimentoOrdineVendita,
+      clienteId, progettoId, pmIds, attivita, tipo,
+      giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
-      attivita?: string
-      giornateVendute?: number | null; giornateConsuntivate?: number | null
+      attivita?: string; tipo?: string
+      giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
     }>(c)
@@ -1188,11 +1293,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json({ error: 'cliente o progetto non trovato' }, 400)
     }
 
-    const statoVal = stato?.trim() ?? 'IN_CORSO'
-    const statiValidi = await prisma.statoAttivitaConfig.findMany({ select: { chiave: true } })
-    if (!statiValidi.some(s => s.chiave === statoVal)) {
-      return c.json({ error: 'Stato non valido' }, 400)
-    }
+    const resolved = await resolveAttivitaTipoStato(prisma, tipo, stato)
+    if ('error' in resolved) return c.json({ error: resolved.error }, 400)
+    const { tipoVal, statoVal } = resolved
 
     try {
       const row = await prisma.attivita.create({
@@ -1203,7 +1306,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           progettoId: progettoId.trim(),
           accountId: linkedCliente.accountId ?? null,
           attivita: attivita.trim(),
+          tipo: tipoVal,
           giornateVendute: giornateVendute != null ? giornateVendute : null,
+          giornateFatturate: giornateFatturate != null ? giornateFatturate : null,
           giornateConsuntivate: giornateConsuntivate != null ? giornateConsuntivate : null,
           riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
           stato: statoVal,
@@ -1221,17 +1326,20 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   // PUT /api/attivita/:id
+  // Il tipo (STANDARD/BUCKET) non è modificabile dopo la creazione — form ed
+  // endpoint di creazione sono già distinti nel frontend — quindi viene letto
+  // dal record esistente e ignorato se presente nel body.
   hono.put('/api/attivita/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
     const prisma = c.get('prisma')
     const {
       clienteId, progettoId, pmIds, attivita,
-      giornateVendute, giornateConsuntivate, riferimentoOrdineVendita,
+      giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
       attivita?: string
-      giornateVendute?: number | null; giornateConsuntivate?: number | null
+      giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
     }>(c)
@@ -1239,6 +1347,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
       return c.json({ error: 'cliente, progetto e attivita sono obbligatori' }, 400)
     }
+
+    const existing = await prisma.attivita.findUnique({ where: { id }, select: { tipo: true } })
+    if (!existing) return c.json({ error: 'Attività non trovata' }, 404)
 
     const [linkedCliente, linkedProgetto] = await Promise.all([
       prisma.cliente.findUnique({
@@ -1252,11 +1363,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json({ error: 'cliente o progetto non trovato' }, 400)
     }
 
-    const statoVal = stato?.trim() ?? 'IN_CORSO'
-    const statiValidi = await prisma.statoAttivitaConfig.findMany({ select: { chiave: true } })
-    if (!statiValidi.some(s => s.chiave === statoVal)) {
-      return c.json({ error: 'Stato non valido' }, 400)
-    }
+    const resolved = await resolveAttivitaTipoStato(prisma, existing.tipo, stato)
+    if ('error' in resolved) return c.json({ error: resolved.error }, 400)
+    const { statoVal } = resolved
 
     try {
       const row = await prisma.attivita.update({
@@ -1269,6 +1378,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           accountId: linkedCliente.accountId ?? null,
           attivita: attivita.trim(),
           giornateVendute: giornateVendute != null ? giornateVendute : null,
+          giornateFatturate: giornateFatturate != null ? giornateFatturate : null,
           giornateConsuntivate: giornateConsuntivate != null ? giornateConsuntivate : null,
           riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
           stato: statoVal,

@@ -80,7 +80,7 @@ export interface JWTPayload {
   email:   string
   name:    string
   picture: string
-  userId:  string
+  userId:  string | null
   roles?:  string[]
 }
 
