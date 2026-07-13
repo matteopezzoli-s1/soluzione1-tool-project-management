@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import LoginPage             from './pages/LoginPage'
+import NonAutorizzatoPage    from './pages/NonAutorizzatoPage'
 import UtentiPage            from './pages/UtentiPage'
 import ElencoAttivitaPage    from './pages/ElencoAttivitaPage'
 import ClientiPage           from './pages/ClientiPage'
@@ -194,6 +195,7 @@ export default function App() {
   )
   const [page, setPage] = useState<NavPage>('dashboard')
   const [fetchedRoles, setFetchedRoles] = useState<{ token: string; roles: Role[] } | null>(null)
+  const [fetchedAuth, setFetchedAuth] = useState<{ token: string; status: 'authorized' | 'unauthorized' } | null>(null)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
   const handleLogin  = (t: string) => setToken(t)
@@ -202,22 +204,44 @@ export default function App() {
     setToken(null)
   }
 
-  // Rifinisce i ruoli letti dal JWT (che potrebbero essere fino a 7gg stantii)
-  // interrogando /auth/me, che legge dal DB — così un cambio ruoli lato Board
-  // si riflette senza attendere la scadenza del token.
+  // Verifica lo stato dell'utente su /auth/me (fonte di verità sul DB):
+  // - 200 → utente censito e attivo, rifinisce anche i ruoli (che nel JWT
+  //   potrebbero essere fino a 7gg stantii) così un cambio ruoli/disabilitazione
+  //   lato Board si riflette senza attendere la scadenza del token
+  // - 403 → token valido ma utente non censito o disabilitato → pagina bloccata
+  // - 401 → token invalido/scaduto → si torna al login
+  // authStatus è derivato a render-time da fetchedAuth (mai settato in modo
+  // sincrono nel corpo dell'effect): finché fetchedAuth non è per il token
+  // corrente, lo stato resta "checking".
   useEffect(() => {
     if (!token) return
     let cancelled = false
     fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (!cancelled && data?.roles) setFetchedRoles({ token, roles: data.roles }) })
-      .catch(() => {})
+      .then(async (r) => {
+        if (cancelled) return
+        if (r.ok) {
+          const data = await r.json()
+          if (data?.roles) setFetchedRoles({ token, roles: data.roles })
+          setFetchedAuth({ token, status: 'authorized' })
+        } else if (r.status === 403) {
+          setFetchedAuth({ token, status: 'unauthorized' })
+        } else {
+          handleLogout()
+        }
+      })
+      .catch(() => { if (!cancelled) setFetchedAuth({ token, status: 'authorized' }) })
     return () => { cancelled = true }
   }, [token])
 
   if (!token) return <LoginPage onLogin={handleLogin} />
 
   const user = decodeJwtPayload(token)
+  const authStatus = fetchedAuth?.token === token ? fetchedAuth.status : 'checking'
+
+  if (authStatus === 'checking') return null
+  if (authStatus === 'unauthorized') {
+    return <NonAutorizzatoPage email={user?.email} onBackToLogin={handleLogout} />
+  }
   const roles = fetchedRoles?.token === token ? fetchedRoles.roles : (user?.roles ?? [])
   const isBoard = roles.includes('BOARD')
 
