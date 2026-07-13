@@ -1,0 +1,77 @@
+/* =============================================================
+   TPM — Pagina "Utente non autorizzato"
+   ============================================================= */
+
+.na-root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 24px;
+  font-family: var(--font-sans);
+  background-color: var(--c-bg-dark);
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(15, 118, 110, 0.35), transparent 45%),
+    radial-gradient(circle at 85% 80%, rgba(217, 119, 6, 0.18), transparent 45%);
+}
+
+.na-card {
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  background: var(--c-surface-dark);
+  border: 1px solid var(--c-border-dark);
+  border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-xl);
+  padding: 44px 36px;
+}
+
+.na-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  margin-bottom: 20px;
+  color: var(--c-amber-300);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.na-title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--c-text-dark);
+  margin-bottom: 12px;
+}
+
+.na-desc {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--c-text-muted);
+  margin-bottom: 28px;
+}
+
+.na-desc strong {
+  color: var(--c-text-dark);
+  font-weight: 600;
+}
+
+.na-btn {
+  width: 100%;
+  padding: 13px 20px;
+  border: none;
+  border-radius: var(--r-md);
+  background: var(--c-teal-600);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+
+.na-btn:hover {
+  background: var(--c-teal-700);
+}

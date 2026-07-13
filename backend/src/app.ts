@@ -5,6 +5,7 @@ import {
   fetchGoogleProfile,
   signJWT,
   verifyJWT,
+  type JWTPayload,
 } from './auth'
 import { importCSV } from './services/importService'
 import { importRoadmapCSV } from './services/roadmapImportService'
@@ -39,18 +40,35 @@ async function readJSON<T>(c: { req: { json: () => Promise<unknown> } }): Promis
   return (await c.req.json().catch(() => ({}))) as T
 }
 
+// Un utente ha accesso solo se censito, non disabilitato (deletedAt) e con
+// almeno un ruolo assegnato: senza ruoli non c'è nulla che possa fare in app,
+// quindi lo trattiamo come non autorizzato allo stesso modo di un non censito.
+function isActiveUser(user: { deletedAt: Date | null; roles: string[] } | null): boolean {
+  return !!user && !user.deletedAt && user.roles.length > 0
+}
+
 function requireAuth(): MiddlewareHandler<Env> {
   return async (c, next) => {
     const header = c.req.header('authorization')
     if (!header?.startsWith('Bearer ')) {
       return c.json({ error: 'Token mancante' }, 401)
     }
+    let payload: JWTPayload
     try {
-      verifyJWT(header.slice(7), c.get('config').jwtSecret)
-      await next()
+      payload = verifyJWT(header.slice(7), c.get('config').jwtSecret)
     } catch {
       return c.json({ error: 'Token non valido o scaduto' }, 401)
     }
+    // Un JWT valido non basta: l'email deve corrispondere a un utente censito,
+    // non disabilitato e con almeno un ruolo, altrimenti niente accesso alle API.
+    if (!payload.userId) {
+      return c.json({ error: 'Utente non autorizzato' }, 403)
+    }
+    const user = await c.get('prisma').user.findUnique({ where: { id: payload.userId } })
+    if (!isActiveUser(user)) {
+      return c.json({ error: 'Utente non autorizzato' }, 403)
+    }
+    await next()
   }
 }
 
@@ -117,7 +135,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       const derivedFirstName = nameParts[0] ?? null
       const derivedLastName = nameParts.slice(1).join(' ') || null
 
-      const existing = await prisma.user.findUnique({ where: { email: profile.email } })
+      // Solo email già censite in anagrafica (creata da un utente Board), non
+      // disabilitate e con almeno un ruolo assegnato possono accedere: niente
+      // auto-creazione dell'utente al primo login Google, e un utente eliminato
+      // logicamente o senza ruoli è trattato come inesistente.
+      const found = await prisma.user.findUnique({ where: { email: profile.email } })
+      const existing = isActiveUser(found) ? found : null
       const user = existing
         ? await prisma.user.update({
             where: { id: existing.id },
@@ -129,25 +152,15 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
               lastName:  existing.lastName ?? derivedLastName,
             },
           })
-        : await prisma.user.create({
-            data: {
-              googleId:  profile.id,
-              email:     profile.email,
-              name:      profile.name,
-              avatarUrl: profile.picture,
-              firstName: derivedFirstName,
-              lastName:  derivedLastName,
-              roles:     [],
-            },
-          })
+        : null
 
       const token = signJWT({
         sub:     profile.id,
         email:   profile.email,
         name:    profile.name,
         picture: profile.picture,
-        userId:  user.id,
-        roles:   user.roles,
+        userId:  user?.id ?? null,
+        roles:   user?.roles ?? [],
       }, jwtSecret)
       return c.redirect(`${frontendUrl}?token=${token}`)
     } catch (err) {
@@ -162,17 +175,25 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!header?.startsWith('Bearer ')) {
       return c.json({ error: 'Token mancante' }, 401)
     }
+    let payload: JWTPayload
     try {
-      const payload = verifyJWT(header.slice(7), c.get('config').jwtSecret)
-      const user = await c.get('prisma').user.findUnique({
-        where: { id: payload.userId },
-        select: { id: true, email: true, name: true, firstName: true, lastName: true, avatarUrl: true, roles: true },
-      })
-      if (!user) return c.json({ error: 'Utente non trovato' }, 401)
-      return c.json({ user })
+      payload = verifyJWT(header.slice(7), c.get('config').jwtSecret)
     } catch {
       return c.json({ error: 'Token non valido o scaduto' }, 401)
     }
+    // Token valido ma email non censita in anagrafica, disabilitata o senza
+    // ruoli assegnati: 403 distinto dal 401, così il frontend sa se deve
+    // mostrare "sessione scaduta" o "utente non autorizzato".
+    if (!payload.userId) {
+      return c.json({ error: 'Utente non autorizzato', authorized: false }, 403)
+    }
+    const user = await c.get('prisma').user.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, email: true, name: true, firstName: true, lastName: true, avatarUrl: true, roles: true, deletedAt: true },
+    })
+    if (!isActiveUser(user)) return c.json({ error: 'Utente non autorizzato', authorized: false }, 403)
+    const { deletedAt: _deletedAt, ...publicUser } = user!
+    return c.json({ user: publicUser })
   })
 
   // ── Utenti (anagrafica unica con ruoli) ──────────────────────
@@ -183,7 +204,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     try {
       const role = c.req.query('role')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const where: Record<string, any> = {}
+      const where: Record<string, any> = { deletedAt: null }
       if (role?.trim()) {
         const roleVal = role.trim().toUpperCase()
         if (!VALID_ROLES.includes(roleVal as typeof VALID_ROLES[number])) {
@@ -231,7 +252,26 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       })
       return c.json(user, 201)
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2002') return c.json({ error: 'Email già presente' }, 409)
+      if ((err as { code?: string }).code === 'P2002') {
+        // L'email è unica anche per gli utenti eliminati logicamente: se il conflitto
+        // è con un utente disabilitato, segnaliamolo al frontend così può proporre
+        // la riattivazione invece di un banale "email già in uso".
+        const conflicting = email?.trim()
+          ? await c.get('prisma').user.findUnique({
+              where: { email: email.trim().toLowerCase() },
+              select: { id: true, firstName: true, lastName: true, email: true, roles: true, deletedAt: true },
+            })
+          : null
+        if (conflicting?.deletedAt) {
+          const { deletedAt: _deletedAt, ...previewUser } = conflicting
+          return c.json({
+            error: 'Utente precedentemente eliminato',
+            code: 'PREVIOUSLY_DELETED',
+            user: previewUser,
+          }, 409)
+        }
+        return c.json({ error: 'Email già presente' }, 409)
+      }
       console.error('[users] POST error:', err)
       return c.json({ error: 'Errore nella creazione dell\'utente' }, 500)
     }
@@ -239,15 +279,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/api/users/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { firstName, lastName, email, roles } = await readJSON<{
-      firstName?: string; lastName?: string; email?: string; roles?: string[]
+    // L'email non è modificabile da qui: è l'identità con cui l'utente accede via
+    // Google, e viene ignorata anche se il client la invia (il campo in UI è readonly).
+    const { firstName, lastName, roles } = await readJSON<{
+      firstName?: string; lastName?: string; roles?: string[]
     }>(c)
 
     if (!firstName?.trim() || !lastName?.trim()) {
       return c.json({ error: 'firstName e lastName sono obbligatori' }, 400)
-    }
-    if (email?.trim() && !EMAIL_RE.test(email.trim())) {
-      return c.json({ error: 'Email non valida' }, 400)
     }
     const rolesVal = [...new Set((roles ?? []).map(r => r.trim().toUpperCase()))]
     if (rolesVal.some(r => !VALID_ROLES.includes(r as typeof VALID_ROLES[number]))) {
@@ -260,7 +299,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         data: {
           firstName: firstName.trim(),
           lastName:  lastName.trim(),
-          email:     email?.trim().toLowerCase() || null,
           roles:     rolesVal as ('ACCOUNT' | 'PM' | 'BOARD' | 'DEVHUB')[],
         },
         select: { id: true, firstName: true, lastName: true, email: true, roles: true },
@@ -268,54 +306,64 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json(user)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Utente non trovato' }, 404)
-      if ((err as { code?: string }).code === 'P2002') return c.json({ error: 'Email già presente' }, 409)
       console.error('[users] PUT error:', err)
       return c.json({ error: 'Errore nell\'aggiornamento dell\'utente' }, 500)
     }
   })
 
+  // Eliminazione logica: l'utente resta in DB (mantiene tutti i riferimenti storici
+  // come PM/PO/Account su attività/progetti/clienti già assegnati) ma esce da elenco
+  // e tendine (vedi filtro deletedAt su GET /api/users) e non può più accedere
+  // (vedi controllo deletedAt in /auth/google/callback, /auth/me e requireAuth).
   hono.delete('/api/users/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const prisma = c.get('prisma')
     try {
-      const [
-        pmDiAttivita, poDiProgetti, responsabileDevHubDiProgetti, accountDiClienti, accountDiAttivita,
-        progettiGanttProprietario, taskGanttCreatore, taskGanttAssegnatario, membroProgettiGantt,
-      ] = await Promise.all([
-        prisma.attivitaPM.count({ where: { pmId: id } }),
-        prisma.progetto.count({ where: { poId: id } }),
-        prisma.progetto.count({ where: { responsabileDevHubId: id } }),
-        prisma.cliente.count({ where: { accountId: id } }),
-        prisma.attivita.count({ where: { accountId: id } }),
-        // Modelli Gantt (Project/Task) non ancora esposti via API ma già in produzione:
-        // vanno inclusi nel guard perché projects.owner_id è ON DELETE CASCADE (cancellerebbe
-        // il progetto in silenzio) e tasks.creator_id è ON DELETE RESTRICT (farebbe fallire
-        // la delete con un 500 non gestito).
-        prisma.project.count({ where: { ownerId: id } }),
-        prisma.task.count({ where: { creatorId: id } }),
-        prisma.task.count({ where: { assigneeId: id } }),
-        prisma.projectMember.count({ where: { userId: id } }),
-      ])
-      const inUso = pmDiAttivita + poDiProgetti + responsabileDevHubDiProgetti + accountDiClienti + accountDiAttivita
-        + progettiGanttProprietario + taskGanttCreatore + taskGanttAssegnatario + membroProgettiGantt
-      if (inUso > 0) {
-        return c.json({
-          error: 'Utente in uso, impossibile eliminare',
-          dettagli: {
-            pmDiAttivita, poDiProgetti, responsabileDevHubDiProgetti, accountDiClienti, accountDiAttivita,
-            progettiGanttProprietario, taskGanttCreatore, taskGanttAssegnatario, membroProgettiGantt,
-          },
-        }, 409)
-      }
-      await prisma.user.delete({ where: { id } })
+      await c.get('prisma').user.update({ where: { id }, data: { deletedAt: new Date() } })
       return c.body(null, 204)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Utente non trovato' }, 404)
-      if ((err as { code?: string }).code === 'P2003') {
-        return c.json({ error: 'Utente in uso, impossibile eliminare' }, 409)
-      }
       console.error('[users] DELETE error:', err)
-      return c.json({ error: 'Errore nella cancellazione dell\'utente' }, 500)
+      return c.json({ error: 'Errore nella disabilitazione dell\'utente' }, 500)
+    }
+  })
+
+  // Riattiva un utente eliminato logicamente, riusando lo stesso record (e quindi la
+  // stessa email) invece di crearne uno nuovo — invocato dal frontend quando POST
+  // /api/users risponde 409 PREVIOUSLY_DELETED e l'utente Board confirma la riattivazione.
+  hono.patch('/api/users/:id/riattiva', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { firstName, lastName, roles } = await readJSON<{
+      firstName?: string; lastName?: string; roles?: string[]
+    }>(c)
+
+    if (!firstName?.trim() || !lastName?.trim()) {
+      return c.json({ error: 'firstName e lastName sono obbligatori' }, 400)
+    }
+    const rolesVal = [...new Set((roles ?? []).map(r => r.trim().toUpperCase()))]
+    if (rolesVal.some(r => !VALID_ROLES.includes(r as typeof VALID_ROLES[number]))) {
+      return c.json({ error: 'Ruoli non validi' }, 400)
+    }
+
+    try {
+      const prisma = c.get('prisma')
+      const existing = await prisma.user.findUnique({ where: { id } })
+      if (!existing || !existing.deletedAt) {
+        return c.json({ error: 'Utente non trovato o non precedentemente eliminato' }, 404)
+      }
+      const user = await prisma.user.update({
+        where: { id },
+        data: {
+          firstName: firstName.trim(),
+          lastName:  lastName.trim(),
+          roles:     rolesVal as ('ACCOUNT' | 'PM' | 'BOARD' | 'DEVHUB')[],
+          deletedAt: null,
+        },
+        select: { id: true, firstName: true, lastName: true, email: true, roles: true },
+      })
+      return c.json(user)
+    } catch (err: unknown) {
+      console.error('[users] PATCH riattiva error:', err)
+      return c.json({ error: 'Errore nella riattivazione dell\'utente' }, 500)
     }
   })
 
