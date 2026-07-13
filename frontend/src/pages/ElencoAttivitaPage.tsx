@@ -7,8 +7,16 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type StatoAttivita = string  // chiave DB, es. "IN_CORSO"
+type StatoAttivita = string  // chiave DB, es. "IN_CORSO" (STANDARD) o "APERTA"/"CHIUSA" (BUCKET)
 type GroupBy = 'cliente' | 'progetto'
+type TipoAttivita = 'STANDARD' | 'BUCKET'
+
+// Stato fisso delle attività BUCKET — non configurabile da Impostazioni,
+// stesso pattern dei ruoli utente fissi.
+const BUCKET_STATI: { chiave: string; label: string }[] = [
+  { chiave: 'APERTA', label: 'Aperta' },
+  { chiave: 'CHIUSA', label: 'Chiusa' },
+]
 
 interface StatoConfigItem {
   id: string; chiave: string; label: string
@@ -20,12 +28,14 @@ const StatiCtx = createContext<Map<string, StatoConfigItem>>(new Map())
 
 interface AttivitaItem {
   id: string
+  tipo: TipoAttivita
   cliente: string;        clienteId: string | null
   progetto: string;       progettoId: string | null
   account: string;        accountId: string | null
   projectManager: string; pmIds: string[]
   attivita: string
   giornateVendute: number | null
+  giornateFatturate: number | null
   giornateConsuntivate: number | null
   riferimentoOrdineVendita: string | null
   stato: StatoAttivita
@@ -40,7 +50,9 @@ interface GruppoAttivita {
   account: string
   projectManager: string
   totaleVendute: number
+  totaleFatturate: number
   totaleConsuntivate: number
+  totaleResiduoDaFatturare: number
   inSforamento: boolean
   attivita: AttivitaItem[]
 }
@@ -48,7 +60,9 @@ interface GruppoAttivita {
 interface GruppoCliente {
   cliente: string
   totaleVendute: number
+  totaleFatturate: number
   totaleConsuntivate: number
+  totaleResiduoDaFatturare: number
   inSforamento: boolean
   attivita: AttivitaItem[]
 }
@@ -59,6 +73,7 @@ interface Riepilogo {
   attivitaInSforamento: number
   attivitaInApprovazione: number
   totaleGiornateVendute: number
+  totaleGiornateFatturate: number
   totaleGiornateConsuntivate: number
 }
 
@@ -81,7 +96,7 @@ type AttivitaFormData = {
   clienteId: string; progettoId: string; pmIds: string[]
   attivita: string
   stato: StatoAttivita
-  giornateVendute: string; giornateConsuntivate: string
+  giornateVendute: string; giornateFatturate: string; giornateConsuntivate: string
   riferimentoOrdineVendita: string
   inizio: string; deadline: string; note: string
 }
@@ -89,7 +104,7 @@ type AttivitaFormData = {
 const EMPTY_FORM: AttivitaFormData = {
   clienteId: '', progettoId: '', pmIds: [],
   attivita: '', stato: 'IN_CORSO',
-  giornateVendute: '', giornateConsuntivate: '',
+  giornateVendute: '', giornateFatturate: '', giornateConsuntivate: '',
   riferimentoOrdineVendita: '', inizio: '', deadline: '', note: '',
 }
 
@@ -150,11 +165,12 @@ function getStatoPrevValente(attivita: AttivitaItem[], statiMap: Map<string, Sta
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
-function StatoBadge({ stato }: { stato: StatoAttivita }) {
+function StatoBadge({ stato, bucket }: { stato: StatoAttivita; bucket?: boolean }) {
   const statiMap = useContext(StatiCtx)
+  const bucketCfg = bucket ? BUCKET_STATI.find(s => s.chiave === stato) : undefined
   const cfg = statiMap.get(stato)
-  const label  = cfg?.label  ?? stato
-  const colore = cfg?.colore ?? '#94a3b8'
+  const label  = bucketCfg?.label ?? cfg?.label ?? stato
+  const colore = bucketCfg ? (bucketCfg.chiave === 'APERTA' ? '#16A34A' : '#94A3B8') : (cfg?.colore ?? '#94a3b8')
   return (
     <span
       className="ea-badge"
@@ -208,7 +224,10 @@ function InlineStatoEdit({ item, onChangeStato }: {
     }
   }, [open])
 
-  const statiList = [...statiMap.values()].sort((a, b) => a.ordine - b.ordine)
+  const isBucket = item.tipo === 'BUCKET'
+  const statiList = isBucket
+    ? BUCKET_STATI.map(s => ({ chiave: s.chiave, label: s.label }))
+    : [...statiMap.values()].sort((a, b) => a.ordine - b.ordine)
 
   const handleOpen = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -241,7 +260,7 @@ function InlineStatoEdit({ item, onChangeStato }: {
         aria-expanded={open}
         title="Clicca per cambiare stato"
       >
-        <StatoBadge stato={item.stato} />
+        <StatoBadge stato={item.stato} bucket={isBucket} />
         <svg className="ea-stato-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor"
           strokeWidth="2" width="10" height="10" aria-hidden="true">
           <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
@@ -263,7 +282,7 @@ function InlineStatoEdit({ item, onChangeStato }: {
               className={`ea-stato-dropdown-item${s.chiave === item.stato ? ' ea-stato-dropdown-item--active' : ''}`}
               onClick={e => handleSelect(e, s.chiave)}
             >
-              <StatoBadge stato={s.chiave} />
+              <StatoBadge stato={s.chiave} bucket={isBucket} />
               {s.chiave === item.stato && (
                 <svg viewBox="0 0 16 16" fill="currentColor" width="11" height="11" aria-hidden="true">
                   <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.35 2.35 4.492-6.738a.75.75 0 0 1 1.044-.206z" clipRule="evenodd"/>
@@ -366,7 +385,8 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
 
 // ─── Riepilogo globale ────────────────────────────────────────────────────────
 
-function RiepilogoBar({ r }: { r: Riepilogo }) {
+function RiepilogoBar({ r, vista }: { r: Riepilogo; vista: TipoAttivita }) {
+  const isBucket = vista === 'BUCKET'
   return (
     <div className="ea-summary" role="region" aria-label="Riepilogo globale">
       <div className="ea-summary-stat">
@@ -390,13 +410,22 @@ function RiepilogoBar({ r }: { r: Riepilogo }) {
         <span className={`ea-summary-val ${r.attivitaInApprovazione > 0 ? 'ea-summary-val--amber' : ''}`}>
           {r.attivitaInApprovazione}
         </span>
-        <span className="ea-summary-lbl">In approvazione</span>
+        <span className="ea-summary-lbl">{isBucket ? 'Chiuse' : 'In approvazione'}</span>
       </div>
       <div className="ea-summary-divider" aria-hidden="true" />
       <div className="ea-summary-stat">
         <span className="ea-summary-val ea-summary-val--mono">{fmt(r.totaleGiornateVendute)}</span>
         <span className="ea-summary-lbl">GG vendute</span>
       </div>
+      {isBucket && (
+        <>
+          <div className="ea-summary-divider" aria-hidden="true" />
+          <div className="ea-summary-stat">
+            <span className="ea-summary-val ea-summary-val--mono">{fmt(r.totaleGiornateFatturate)}</span>
+            <span className="ea-summary-lbl">GG fatturate</span>
+          </div>
+        </>
+      )}
       <div className="ea-summary-divider" aria-hidden="true" />
       <div className="ea-summary-stat">
         <span className="ea-summary-val ea-summary-val--mono">{fmt(r.totaleGiornateConsuntivate)}</span>
@@ -426,9 +455,13 @@ function AttivitaDetailModal({ item, onClose, onEdit }: {
   onClose: () => void
   onEdit: (item: AttivitaItem) => void
 }) {
+  const isBucket = item.tipo === 'BUCKET'
   const sfora = isSforamento(item)
   const delta = item.giornateVendute !== null && item.giornateConsuntivate !== null
     ? item.giornateVendute - item.giornateConsuntivate
+    : null
+  const residuoDaFatturare = item.giornateVendute !== null && item.giornateFatturate !== null
+    ? item.giornateVendute - item.giornateFatturate
     : null
 
   return (
@@ -436,7 +469,7 @@ function AttivitaDetailModal({ item, onClose, onEdit }: {
       <div className="ea-modal ea-modal--detail">
         <div className="ea-modal-header">
           <div className="ea-detail-header-top">
-            <StatoBadge stato={item.stato} />
+            <StatoBadge stato={item.stato} bucket={isBucket} />
             <button className="ea-modal-close" onClick={onClose} aria-label="Chiudi dettaglio" type="button">
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
                 width="18" height="18" aria-hidden="true">
@@ -487,20 +520,35 @@ function AttivitaDetailModal({ item, onClose, onEdit }: {
                 <span className="ea-drawer-budget-val">{fmt(item.giornateVendute)}</span>
                 <span className="ea-drawer-budget-lbl">Vendute</span>
               </div>
+              {isBucket && (
+                <div className="ea-drawer-budget-item">
+                  <span className="ea-drawer-budget-val">{fmt(item.giornateFatturate)}</span>
+                  <span className="ea-drawer-budget-lbl">Fatturate</span>
+                </div>
+              )}
               <div className="ea-drawer-budget-item">
                 <span className={`ea-drawer-budget-val ${sfora ? 'ea-drawer-budget-val--red' : ''}`}>
                   {fmt(item.giornateConsuntivate)}
                 </span>
                 <span className="ea-drawer-budget-lbl">Consuntivate</span>
               </div>
-              <div className="ea-drawer-budget-item">
-                <span className={`ea-drawer-budget-val ${delta !== null && delta < 0 ? 'ea-drawer-budget-val--red' : delta !== null && delta > 0 ? 'ea-drawer-budget-val--green' : ''}`}>
-                  {delta !== null ? (delta >= 0 ? `+${fmt(delta)}` : fmt(delta)) : '—'}
-                </span>
-                <span className="ea-drawer-budget-lbl">Delta</span>
-              </div>
+              {isBucket ? (
+                <div className="ea-drawer-budget-item">
+                  <span className="ea-drawer-budget-val">
+                    {residuoDaFatturare !== null ? fmt(residuoDaFatturare) : '—'}
+                  </span>
+                  <span className="ea-drawer-budget-lbl">Residuo da fatturare</span>
+                </div>
+              ) : (
+                <div className="ea-drawer-budget-item">
+                  <span className={`ea-drawer-budget-val ${delta !== null && delta < 0 ? 'ea-drawer-budget-val--red' : delta !== null && delta > 0 ? 'ea-drawer-budget-val--green' : ''}`}>
+                    {delta !== null ? (delta >= 0 ? `+${fmt(delta)}` : fmt(delta)) : '—'}
+                  </span>
+                  <span className="ea-drawer-budget-lbl">Delta</span>
+                </div>
+              )}
             </div>
-            {item.giornateVendute !== null && item.giornateConsuntivate !== null && (
+            {!isBucket && item.giornateVendute !== null && item.giornateConsuntivate !== null && (
               <div className="ea-drawer-progress-wrap">
                 <MargineDisplay vendute={item.giornateVendute} consuntivate={item.giornateConsuntivate} />
               </div>
@@ -573,6 +621,9 @@ interface ActivityRowsProps {
 }
 
 function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDeleteItem, onChangeStato, tableLabel }: ActivityRowsProps) {
+  // Le righe di una singola tabella sono sempre dello stesso tipo (la vista è
+  // Standard oppure Bucket, non mischiate): basta guardare la prima.
+  const isBucket = attivita[0]?.tipo === 'BUCKET'
   return (
     <div className="ea-group-body">
       <div className="ea-table-wrap">
@@ -583,8 +634,9 @@ function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDele
               {showProgetto && <th scope="col" className="ea-th ea-th--progetto">Progetto</th>}
               <th scope="col" className="ea-th">Stato</th>
               <th scope="col" className="ea-th ea-th--num">GG Vendute</th>
+              {isBucket && <th scope="col" className="ea-th ea-th--num">GG Fatturate</th>}
               <th scope="col" className="ea-th ea-th--num">GG Consuntivate</th>
-              <th scope="col" className="ea-th ea-th--num">Delta</th>
+              <th scope="col" className="ea-th ea-th--num">{isBucket ? 'Residuo da fatturare' : 'Delta'}</th>
               <th scope="col" className="ea-th">Deadline</th>
               <th scope="col" className="ea-th ea-th--ordine">Ord. Vendita</th>
               <th scope="col" className="ea-th ea-th--actions"></th>
@@ -595,6 +647,9 @@ function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDele
               const sfora = isSforamento(item)
               const d = item.giornateVendute !== null && item.giornateConsuntivate !== null
                 ? item.giornateVendute - item.giornateConsuntivate
+                : null
+              const residuo = item.giornateVendute !== null && item.giornateFatturate !== null
+                ? item.giornateVendute - item.giornateFatturate
                 : null
               return (
                 <tr
@@ -620,12 +675,21 @@ function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDele
                     <InlineStatoEdit item={item} onChangeStato={onChangeStato} />
                   </td>
                   <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(item.giornateVendute)}</td>
+                  {isBucket && (
+                    <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(item.giornateFatturate)}</td>
+                  )}
                   <td className={`ea-cell ea-cell--num ea-cell--mono ${sfora ? 'ea-cell--red' : ''}`}>
                     {fmt(item.giornateConsuntivate)}
                   </td>
-                  <td className={`ea-cell ea-cell--num ea-cell--mono ${d !== null && d < 0 ? 'ea-cell--red' : d !== null && d > 0 ? 'ea-cell--green' : ''}`}>
-                    {d !== null ? (d >= 0 ? `+${fmt(d)}` : fmt(d)) : '—'}
-                  </td>
+                  {isBucket ? (
+                    <td className="ea-cell ea-cell--num ea-cell--mono">
+                      {residuo !== null ? fmt(residuo) : '—'}
+                    </td>
+                  ) : (
+                    <td className={`ea-cell ea-cell--num ea-cell--mono ${d !== null && d < 0 ? 'ea-cell--red' : d !== null && d > 0 ? 'ea-cell--green' : ''}`}>
+                      {d !== null ? (d >= 0 ? `+${fmt(d)}` : fmt(d)) : '—'}
+                    </td>
+                  )}
                   <td className="ea-cell">{fmtDate(item.deadline)}</td>
                   <td className="ea-cell ea-cell--ordine">{item.riferimentoOrdineVendita || '—'}</td>
                   <td className="ea-cell ea-cell-actions" onClick={e => e.stopPropagation()}>
@@ -674,6 +738,7 @@ interface GroupCardProps {
 
 function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: GroupCardProps) {
   const statiMap  = useContext(StatiCtx)
+  const isBucket  = group.attivita[0]?.tipo === 'BUCKET'
   const statoPrev = getStatoPrevValente(group.attivita, statiMap)
   const delta = group.totaleVendute - group.totaleConsuntivate
 
@@ -723,24 +788,39 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
             <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleVendute)}</span>
             <span className="ea-group-stat-lbl">Vendute</span>
           </div>
+          {isBucket && (
+            <div className="ea-group-stat">
+              <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleFatturate)}</span>
+              <span className="ea-group-stat-lbl">Fatturate</span>
+            </div>
+          )}
           <div className="ea-group-stat">
             <span className="ea-group-stat-val ea-group-stat-val--mono">
               {fmt(group.totaleConsuntivate)}
             </span>
             <span className="ea-group-stat-lbl">Consuntivate</span>
           </div>
-          <div className="ea-group-stat">
-            <span className={`ea-group-stat-val ea-group-stat-val--mono ${delta < 0 ? 'ea-group-stat-val--red' : delta > 0 ? 'ea-group-stat-val--green' : ''}`}>
-              {delta >= 0 ? `+${fmt(delta)}` : fmt(delta)}
-            </span>
-            <span className="ea-group-stat-lbl">Delta</span>
-          </div>
+          {isBucket ? (
+            <div className="ea-group-stat">
+              <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleResiduoDaFatturare)}</span>
+              <span className="ea-group-stat-lbl">Residuo da fatturare</span>
+            </div>
+          ) : (
+            <>
+              <div className="ea-group-stat">
+                <span className={`ea-group-stat-val ea-group-stat-val--mono ${delta < 0 ? 'ea-group-stat-val--red' : delta > 0 ? 'ea-group-stat-val--green' : ''}`}>
+                  {delta >= 0 ? `+${fmt(delta)}` : fmt(delta)}
+                </span>
+                <span className="ea-group-stat-lbl">Delta</span>
+              </div>
 
-          <div className="ea-group-progress-wrap">
-            <MargineDisplay vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
-          </div>
+              <div className="ea-group-progress-wrap">
+                <MargineDisplay vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
+              </div>
 
-          <StatoBadge stato={statoPrev} />
+              <StatoBadge stato={statoPrev} />
+            </>
+          )}
 
           <span className="ea-group-count">{group.attivita.length} att.</span>
 
@@ -780,6 +860,7 @@ interface ClienteGroupCardProps {
 }
 
 function ClienteGroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: ClienteGroupCardProps) {
+  const isBucket = group.attivita[0]?.tipo === 'BUCKET'
   const delta = group.totaleVendute - group.totaleConsuntivate
 
   return (
@@ -803,22 +884,37 @@ function ClienteGroupCard({ group, expanded, onToggle, onSelectItem, onEditItem,
             <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleVendute)}</span>
             <span className="ea-group-stat-lbl">Vendute</span>
           </div>
+          {isBucket && (
+            <div className="ea-group-stat">
+              <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleFatturate)}</span>
+              <span className="ea-group-stat-lbl">Fatturate</span>
+            </div>
+          )}
           <div className="ea-group-stat">
             <span className="ea-group-stat-val ea-group-stat-val--mono">
               {fmt(group.totaleConsuntivate)}
             </span>
             <span className="ea-group-stat-lbl">Consuntivate</span>
           </div>
-          <div className="ea-group-stat">
-            <span className={`ea-group-stat-val ea-group-stat-val--mono ${delta < 0 ? 'ea-group-stat-val--red' : delta > 0 ? 'ea-group-stat-val--green' : ''}`}>
-              {delta >= 0 ? `+${fmt(delta)}` : fmt(delta)}
-            </span>
-            <span className="ea-group-stat-lbl">Delta</span>
-          </div>
+          {isBucket ? (
+            <div className="ea-group-stat">
+              <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleResiduoDaFatturare)}</span>
+              <span className="ea-group-stat-lbl">Residuo da fatturare</span>
+            </div>
+          ) : (
+            <>
+              <div className="ea-group-stat">
+                <span className={`ea-group-stat-val ea-group-stat-val--mono ${delta < 0 ? 'ea-group-stat-val--red' : delta > 0 ? 'ea-group-stat-val--green' : ''}`}>
+                  {delta >= 0 ? `+${fmt(delta)}` : fmt(delta)}
+                </span>
+                <span className="ea-group-stat-lbl">Delta</span>
+              </div>
 
-          <div className="ea-group-progress-wrap">
-            <MargineDisplay vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
-          </div>
+              <div className="ea-group-progress-wrap">
+                <MargineDisplay vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
+              </div>
+            </>
+          )}
 
           <span className="ea-group-count">{group.attivita.length} att.</span>
 
@@ -848,23 +944,41 @@ function ClienteGroupCard({ group, expanded, onToggle, onSelectItem, onEditItem,
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
-function exportCSV(gruppi: GruppoAttivita[]) {
+function exportCSV(gruppi: GruppoAttivita[], vista: TipoAttivita) {
+  const isBucket = vista === 'BUCKET'
   const rows: string[][] = [
-    ['Cliente', 'Progetto', 'Attività', 'Account', 'PM', 'Stato',
-      'GG Vendute', 'GG Consuntivate', 'Delta', 'Inizio', 'Deadline', 'Ordine Vendita', 'Note'],
+    isBucket
+      ? ['Cliente', 'Progetto', 'Attività', 'Account', 'PM', 'Stato',
+        'GG Vendute', 'GG Fatturate', 'GG Consuntivate', 'Residuo da fatturare', 'Inizio', 'Deadline', 'Ordine Vendita', 'Note']
+      : ['Cliente', 'Progetto', 'Attività', 'Account', 'PM', 'Stato',
+        'GG Vendute', 'GG Consuntivate', 'Delta', 'Inizio', 'Deadline', 'Ordine Vendita', 'Note'],
   ]
   for (const g of gruppi) {
     for (const a of g.attivita) {
-      const delta = a.giornateVendute !== null && a.giornateConsuntivate !== null
-        ? (a.giornateVendute - a.giornateConsuntivate).toFixed(1)
-        : ''
-      rows.push([
-        a.cliente, a.progetto, a.attivita, a.account, a.projectManager, a.stato,
-        a.giornateVendute !== null ? String(a.giornateVendute) : '',
-        a.giornateConsuntivate !== null ? String(a.giornateConsuntivate) : '',
-        delta, a.inizio ?? '', a.deadline ?? '',
-        a.riferimentoOrdineVendita ?? '', a.note ?? '',
-      ])
+      if (isBucket) {
+        const residuo = a.giornateVendute !== null && a.giornateFatturate !== null
+          ? (a.giornateVendute - a.giornateFatturate).toFixed(1)
+          : ''
+        rows.push([
+          a.cliente, a.progetto, a.attivita, a.account, a.projectManager, a.stato,
+          a.giornateVendute !== null ? String(a.giornateVendute) : '',
+          a.giornateFatturate !== null ? String(a.giornateFatturate) : '',
+          a.giornateConsuntivate !== null ? String(a.giornateConsuntivate) : '',
+          residuo, a.inizio ?? '', a.deadline ?? '',
+          a.riferimentoOrdineVendita ?? '', a.note ?? '',
+        ])
+      } else {
+        const delta = a.giornateVendute !== null && a.giornateConsuntivate !== null
+          ? (a.giornateVendute - a.giornateConsuntivate).toFixed(1)
+          : ''
+        rows.push([
+          a.cliente, a.progetto, a.attivita, a.account, a.projectManager, a.stato,
+          a.giornateVendute !== null ? String(a.giornateVendute) : '',
+          a.giornateConsuntivate !== null ? String(a.giornateConsuntivate) : '',
+          delta, a.inizio ?? '', a.deadline ?? '',
+          a.riferimentoOrdineVendita ?? '', a.note ?? '',
+        ])
+      }
     }
   }
   const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n')
@@ -949,6 +1063,7 @@ function PMMultiSelect({ pms, value, onChange }: {
 
 interface AttivitaModalProps {
   title: string
+  tipo: TipoAttivita
   form: AttivitaFormData
   loading: boolean
   apiError: string | null
@@ -960,9 +1075,12 @@ interface AttivitaModalProps {
   onClose: () => void
 }
 
-function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms, onChange, onSave, onClose }: AttivitaModalProps) {
+function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti, pms, onChange, onSave, onClose }: AttivitaModalProps) {
   const statiMap   = useContext(StatiCtx)
-  const statiList  = [...statiMap.values()].sort((a, b) => a.ordine - b.ordine)
+  const isBucket   = tipo === 'BUCKET'
+  const statiList  = isBucket
+    ? BUCKET_STATI.map(s => ({ chiave: s.chiave, label: s.label }))
+    : [...statiMap.values()].sort((a, b) => a.ordine - b.ordine)
   const [oreMode, setOreMode] = useState(false)
 
   const set = (key: keyof AttivitaFormData) =>
@@ -1093,6 +1211,16 @@ function AttivitaModal({ title, form, loading, apiError, clienti, progetti, pms,
               />
             </div>
           </div>
+
+          {isBucket && (
+            <div className="ea-form-row">
+              <div className="ea-form-field">
+                <label htmlFor="ea-f-fatturate" className="ea-form-label">GG Fatturate</label>
+                <input id="ea-f-fatturate" className="ea-form-input" type="number" min="0" step="0.5"
+                  value={form.giornateFatturate} onChange={set('giornateFatturate')} placeholder="0" />
+              </div>
+            </div>
+          )}
 
           <div className="ea-form-row">
             <div className="ea-form-field">
@@ -1550,6 +1678,19 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const [expanded,    setExpanded]    = useState<Set<string>>(new Set())
   const [selected,    setSelected]    = useState<AttivitaItem | null>(null)
 
+  // Vista Standard/Bucket: vista dedicata sullo stesso modello Attivita
+  // (tipo + giornateFatturate), non una sezione/entità separata — vedi
+  // discussione di design. Cambiare vista rifà il fetch con ?tipo= e
+  // svuota i filtri/l'espansione non pertinenti all'altra vista.
+  const [vista, setVista] = useState<TipoAttivita>('STANDARD')
+
+  const switchVista = (next: TipoAttivita) => {
+    if (next === vista) return
+    setVista(next)
+    setFiltroStato([])
+    setExpanded(new Set())
+  }
+
   // Group-by toggle: persisted in localStorage
   const [groupBy, setGroupBy] = useState<GroupBy>(() => {
     const saved = localStorage.getItem('activityGroupBy')
@@ -1590,7 +1731,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     setError(null)
     try {
       const [res, rC, rA, rP, rPr, rSt] = await Promise.all([
-        fetch(`${API_URL}/api/attivita`,       { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/attivita?tipo=${vista}`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/clienti`,            { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/users?role=ACCOUNT`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/users?role=PM`,      { headers: authHeaders(token) }),
@@ -1635,7 +1776,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     } finally {
       setLoading(false)
     }
-  }, [token])
+  }, [token, vista])
 
   useEffect(() => {
     queueMicrotask(() => { fetchData() })
@@ -1643,7 +1784,11 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
 
   // ── CRUD handlers ──
 
-  const openAdd = () => { setForm(EMPTY_FORM); setFormErr(null); setModal('add') }
+  const openAdd = () => {
+    setForm({ ...EMPTY_FORM, stato: vista === 'BUCKET' ? 'APERTA' : 'IN_CORSO' })
+    setFormErr(null)
+    setModal('add')
+  }
 
   const openEdit = (item: AttivitaItem) => {
     setEditing(item)
@@ -1654,6 +1799,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       attivita:                 item.attivita,
       stato:                    item.stato,
       giornateVendute:          item.giornateVendute  != null ? String(item.giornateVendute)  : '',
+      giornateFatturate:        item.giornateFatturate != null ? String(item.giornateFatturate) : '',
       giornateConsuntivate:     item.giornateConsuntivate != null ? String(item.giornateConsuntivate) : '',
       riferimentoOrdineVendita: item.riferimentoOrdineVendita ?? '',
       inizio:                   item.inizio   ? item.inizio.slice(0, 10)   : '',
@@ -1678,8 +1824,10 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         progettoId:               form.progettoId,
         pmIds:                    form.pmIds,
         attivita:                 form.attivita.trim(),
+        tipo:                     modal === 'edit' ? editing!.tipo : vista,
         stato:                    form.stato,
         giornateVendute:          form.giornateVendute          !== '' ? parseFloat(form.giornateVendute)          : null,
+        giornateFatturate:        form.giornateFatturate        !== '' ? parseFloat(form.giornateFatturate)        : null,
         giornateConsuntivate:     form.giornateConsuntivate     !== '' ? parseFloat(form.giornateConsuntivate)     : null,
         riferimentoOrdineVendita: form.riferimentoOrdineVendita.trim() || null,
         inizio:                   form.inizio   || null,
@@ -1710,8 +1858,10 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         progettoId:               item.progettoId,
         pmIds:                    item.pmIds ?? [],
         attivita:                 item.attivita,
+        tipo:                     item.tipo,
         stato:                    newStato,
         giornateVendute:          item.giornateVendute,
+        giornateFatturate:        item.giornateFatturate,
         giornateConsuntivate:     item.giornateConsuntivate,
         riferimentoOrdineVendita: item.riferimentoOrdineVendita,
         inizio:                   item.inizio,
@@ -1769,12 +1919,23 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     [pmsOpts]
   )
 
+  const isBucketVista = vista === 'BUCKET'
+
   const statoOptions = useMemo(
-    () => statiConfig
-      .filter(s => !soloAttivi || !s.isArchiviato)
-      .sort((a, b) => a.ordine - b.ordine)
-      .map(s => s.chiave),
-    [statiConfig, soloAttivi]
+    () => isBucketVista
+      ? []
+      : statiConfig
+          .filter(s => !soloAttivi || !s.isArchiviato)
+          .sort((a, b) => a.ordine - b.ordine)
+          .map(s => s.chiave),
+    [statiConfig, soloAttivi, isBucketVista]
+  )
+
+  // Per le BUCKET l'esclusione dai totali/conteggi è "chiusa" (fisso), non
+  // escludiDaConteggio (config STANDARD); "solo attivi" equivale a "solo aperte".
+  const isEscluso = useCallback((a: AttivitaItem) =>
+    isBucketVista ? a.stato === 'CHIUSA' : (statiMap.get(a.stato)?.escludiDaConteggio ?? false),
+    [isBucketVista, statiMap]
   )
 
   // Client-side filtering
@@ -1783,14 +1944,18 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     return data.gruppi
       .map(g => {
         let att = g.attivita
-        if (filtroAcc.length)   att = att.filter(a => filtroAcc.includes(a.account))
-        if (filtroPM.length)    att = att.filter(a => filtroPM.includes(a.projectManager))
-        if (filtroStato.length) att = att.filter(a => filtroStato.includes(a.stato))
-        if (soloAttivi)         att = att.filter(a => !(statiMap.get(a.stato)?.isArchiviato ?? false))
+        if (filtroAcc.length) att = att.filter(a => filtroAcc.includes(a.account))
+        if (filtroPM.length)  att = att.filter(a => filtroPM.includes(a.projectManager))
+        if (isBucketVista) {
+          if (soloAttivi) att = att.filter(a => a.stato === 'APERTA')
+        } else {
+          if (filtroStato.length) att = att.filter(a => filtroStato.includes(a.stato))
+          if (soloAttivi) att = att.filter(a => !(statiMap.get(a.stato)?.isArchiviato ?? false))
+        }
         return { ...g, attivita: att }
       })
       .filter(g => g.attivita.length > 0)
-  }, [data, filtroAcc, filtroPM, filtroStato, soloAttivi, statiMap])
+  }, [data, filtroAcc, filtroPM, filtroStato, soloAttivi, statiMap, isBucketVista])
 
   // Derived: group by cliente from filtered data
   const filteredGruppiCliente = useMemo((): GruppoCliente[] => {
@@ -1798,35 +1963,42 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     for (const g of filteredGruppi) {
       const key = g.cliente
       if (!map.has(key)) {
-        map.set(key, { cliente: g.cliente, totaleVendute: 0, totaleConsuntivate: 0, inSforamento: false, attivita: [] })
+        map.set(key, {
+          cliente: g.cliente, totaleVendute: 0, totaleFatturate: 0, totaleConsuntivate: 0,
+          totaleResiduoDaFatturare: 0, inSforamento: false, attivita: [],
+        })
       }
       const entry = map.get(key)!
       for (const a of g.attivita) {
-        const escludi = statiMap.get(a.stato)?.escludiDaConteggio ?? false
-        if (!escludi) {
+        if (!isEscluso(a)) {
           entry.totaleVendute += a.giornateVendute ?? 0
+          entry.totaleFatturate += a.giornateFatturate ?? 0
           entry.totaleConsuntivate += a.giornateConsuntivate ?? 0
           if (isSforamento(a)) entry.inSforamento = true
         }
       }
       entry.attivita.push(...g.attivita)
     }
+    for (const entry of map.values()) {
+      entry.totaleResiduoDaFatturare = Math.round((entry.totaleVendute - entry.totaleFatturate) * 100) / 100
+    }
     return [...map.values()].sort((a, b) => a.cliente.localeCompare(b.cliente, 'it'))
-  }, [filteredGruppi, statiMap])
+  }, [filteredGruppi, isEscluso])
 
   // Recompute riepilogo from filtered data
   const filteredRiepilogo = useMemo((): Riepilogo => {
     const all = filteredGruppi.flatMap(g => g.attivita)
-    const contabili = all.filter(a => !(statiMap.get(a.stato)?.escludiDaConteggio ?? false))
+    const contabili = all.filter(a => !isEscluso(a))
     return {
       totaleProgetti:             filteredGruppi.length,
       totaleAttivita:             all.length,
       attivitaInSforamento:       contabili.filter(isSforamento).length,
-      attivitaInApprovazione:     all.filter(a => statiMap.get(a.stato)?.escludiDaConteggio ?? false).length,
+      attivitaInApprovazione:     all.filter(isEscluso).length,
       totaleGiornateVendute:      contabili.reduce((s, a) => s + (a.giornateVendute ?? 0), 0),
+      totaleGiornateFatturate:    contabili.reduce((s, a) => s + (a.giornateFatturate ?? 0), 0),
       totaleGiornateConsuntivate: contabili.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0),
     }
-  }, [filteredGruppi, statiMap])
+  }, [filteredGruppi, isEscluso])
 
   const progettoKey  = (g: GruppoAttivita) => `${g.cliente}|||${g.progetto}`
   const clienteKey   = (g: GruppoCliente)  => `cliente::${g.cliente}`
@@ -1858,6 +2030,18 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       <div className="ea-topbar">
         <div className="ea-topbar-left">
           <h1 className="ea-title">Elenco Attività Progetti</h1>
+          <div className="ea-vista-tabs" role="tablist" aria-label="Tipo attività">
+            <button type="button" role="tab" aria-selected={vista === 'STANDARD'}
+              className={`ea-vista-tab${vista === 'STANDARD' ? ' ea-vista-tab--active' : ''}`}
+              onClick={() => switchVista('STANDARD')}>
+              Standard
+            </button>
+            <button type="button" role="tab" aria-selected={vista === 'BUCKET'}
+              className={`ea-vista-tab${vista === 'BUCKET' ? ' ea-vista-tab--active' : ''}`}
+              onClick={() => switchVista('BUCKET')}>
+              Bucket
+            </button>
+          </div>
         </div>
         <div className="ea-topbar-right">
           <button type="button" className="ea-btn ea-btn--primary" onClick={openAdd}>
@@ -1865,7 +2049,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
               width="15" height="15" aria-hidden="true">
               <path d="M10 4v12M4 10h12" strokeLinecap="round" />
             </svg>
-            Aggiungi attività
+            {isBucketVista ? 'Aggiungi attività bucket' : 'Aggiungi attività'}
           </button>
           <div className="ea-expand-btns">
             <button type="button" className="ea-btn ea-btn--ghost" onClick={expandAll}
@@ -1894,7 +2078,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
             type="button"
             className="ea-btn ea-btn--outline"
             disabled={loading || filteredGruppi.length === 0}
-            onClick={() => exportCSV(filteredGruppi)}
+            onClick={() => exportCSV(filteredGruppi, vista)}
             title="Esporta come file CSV/Excel"
           >
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
@@ -1936,16 +2120,18 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           onChange={setFiltroPM}
           getOptionLabel={o => o}
         />
-        <MultiSelect
-          label="Stato"
-          options={statoOptions}
-          value={filtroStato}
-          onChange={v => {
-            const valid = v.filter(s => statoOptions.includes(s))
-            setFiltroStato(valid)
-          }}
-          getOptionLabel={key => statiMap.get(key)?.label ?? key}
-        />
+        {!isBucketVista && (
+          <MultiSelect
+            label="Stato"
+            options={statoOptions}
+            value={filtroStato}
+            onChange={v => {
+              const valid = v.filter(s => statoOptions.includes(s))
+              setFiltroStato(valid)
+            }}
+            getOptionLabel={key => statiMap.get(key)?.label ?? key}
+          />
+        )}
         <div className="ea-filters-sep" aria-hidden="true" />
         <Toggle
           label="Raggruppa per Progetto"
@@ -1953,11 +2139,13 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           onChange={handleGroupByChange}
         />
         <Toggle
-          label={soloAttivi ? 'Solo attivi' : 'Tutti i progetti'}
+          label={isBucketVista
+            ? (soloAttivi ? 'Solo aperte' : 'Tutte')
+            : (soloAttivi ? 'Solo attivi' : 'Tutti i progetti')}
           checked={soloAttivi}
           onChange={v => {
             setSoloAttivi(v)
-            if (v) {
+            if (v && !isBucketVista) {
               const attiviChiavi = statiConfig.filter(s => !s.isArchiviato).map(s => s.chiave)
               setFiltroStato(prev => prev.filter(s => attiviChiavi.includes(s)))
             }
@@ -2002,7 +2190,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
 
       {/* ── Summary ── */}
       {!loading && !error && data && (
-        <RiepilogoBar r={filteredRiepilogo} />
+        <RiepilogoBar r={filteredRiepilogo} vista={vista} />
       )}
 
       {/* ── Empty state ── */}
@@ -2089,7 +2277,12 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       {/* ── Add / edit modal ── */}
       {(modal === 'add' || modal === 'edit') && (
         <AttivitaModal
-          title={modal === 'add' ? 'Aggiungi attività' : 'Modifica attività'}
+          title={
+            modal === 'add'
+              ? (isBucketVista ? 'Aggiungi attività bucket' : 'Aggiungi attività')
+              : (editing!.tipo === 'BUCKET' ? 'Modifica attività bucket' : 'Modifica attività')
+          }
+          tipo={modal === 'edit' ? editing!.tipo : vista}
           form={form}
           loading={saving}
           apiError={formErr}
