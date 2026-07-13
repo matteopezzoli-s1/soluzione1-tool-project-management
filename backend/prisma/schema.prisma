@@ -15,6 +15,11 @@ enum UserRole {
   DEVHUB
 }
 
+enum TipoAttivita {
+  STANDARD
+  BUCKET
+}
+
 model User {
   id             String     @id @default(cuid())
   googleId       String?    @unique @map("google_id")
@@ -314,14 +319,19 @@ model Progetto {
 // ── Elenco Attività ───────────────────────────────────────────
 
 model Attivita {
-  id                       String   @id @default(cuid())
+  id                       String       @id @default(cuid())
   cliente                  String
   progetto                 String
   attivita                 String
-  giornateVendute          Decimal? @map("giornate_vendute") @db.Decimal(10, 2)
-  giornateConsuntivate     Decimal? @map("giornate_consuntivate") @db.Decimal(10, 2)
-  riferimentoOrdineVendita String?  @map("riferimento_ordine_vendita")
-  stato                    String   @default("IN_CORSO")
+  // BUCKET: giornate vendute "a monte" da monitorare rispetto al fatturato,
+  // non rispetto al consuntivo (obiettivo: vendute ≈ fatturate). Per queste
+  // righe `stato` usa due valori fissi (APERTA/CHIUSA), non StatoAttivitaConfig.
+  tipo                     TipoAttivita @default(STANDARD)
+  giornateVendute          Decimal?     @map("giornate_vendute") @db.Decimal(10, 2)
+  giornateFatturate        Decimal?     @map("giornate_fatturate") @db.Decimal(10, 2)
+  giornateConsuntivate     Decimal?     @map("giornate_consuntivate") @db.Decimal(10, 2)
+  riferimentoOrdineVendita String?      @map("riferimento_ordine_vendita")
+  stato                    String       @default("IN_CORSO")
   inizio                   DateTime?
   deadline                 DateTime?
   note                     String?
