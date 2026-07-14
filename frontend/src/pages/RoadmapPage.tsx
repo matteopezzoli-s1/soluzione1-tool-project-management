@@ -404,9 +404,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
   const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('lista')
   const [anno, setAnno] = useState(currentYear)
-  const [filterProdotto, setFilterProdotto] = useState('')
-  const [filterStato, setFilterStato] = useState('')
-  const [filterTag, setFilterTag] = useState('')
+  const [filterProdotto, setFilterProdotto] = useState<string[]>([])
+  const [filterStato, setFilterStato] = useState<string[]>([])
+  const [filterTag, setFilterTag] = useState<string[]>([])
   const [filterDevHub, setFilterDevHub] = useState<string[]>([])
   const [search, setSearch] = useState('')
 
@@ -458,9 +458,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const displayItems = useMemo(() => {
     return items
       .filter(i => i.anno === anno)
-      .filter(i => !filterProdotto || i.progettoId === filterProdotto)
-      .filter(i => !filterStato || i.stato === filterStato)
-      .filter(i => !filterTag || i.tags.some(t => t.id === filterTag))
+      .filter(i => filterProdotto.length === 0 || filterProdotto.includes(i.progettoId))
+      .filter(i => filterStato.length === 0 || filterStato.includes(i.stato))
+      .filter(i => filterTag.length === 0 || i.tags.some(t => filterTag.includes(t.id)))
       .filter(i => filterDevHub.length === 0 || (i.devHubId !== null && filterDevHub.includes(i.devHubId)))
       .filter(i => !search.trim() || i.titolo.toLowerCase().includes(search.trim().toLowerCase()))
   }, [items, anno, filterProdotto, filterStato, filterTag, filterDevHub, search])
@@ -637,18 +637,24 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
         <select className="rm-input rm-select rm-filter" value={anno} onChange={e => setAnno(parseInt(e.target.value, 10))}>
           {anni.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
-        <select className="rm-input rm-select rm-filter" value={filterProdotto} onChange={e => setFilterProdotto(e.target.value)}>
-          <option value="">Tutti i prodotti</option>
-          {prodotti.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-        </select>
-        <select className="rm-input rm-select rm-filter" value={filterStato} onChange={e => setFilterStato(e.target.value)}>
-          <option value="">Tutti gli stati</option>
-          {statiList.map(s => <option key={s.chiave} value={s.chiave}>{s.label}</option>)}
-        </select>
-        <select className="rm-input rm-select rm-filter" value={filterTag} onChange={e => setFilterTag(e.target.value)}>
-          <option value="">Tutti i tag</option>
-          {tags.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-        </select>
+        <MultiSelect
+          label="Tutti i prodotti"
+          options={prodotti.map(p => ({ id: p.id, label: p.nome }))}
+          value={filterProdotto}
+          onChange={setFilterProdotto}
+        />
+        <MultiSelect
+          label="Tutti gli stati"
+          options={statiList.map(s => ({ id: s.chiave, label: s.label }))}
+          value={filterStato}
+          onChange={setFilterStato}
+        />
+        <MultiSelect
+          label="Tutti i tag"
+          options={tags.map(t => ({ id: t.id, label: t.label }))}
+          value={filterTag}
+          onChange={setFilterTag}
+        />
         <MultiSelect
           label="Tutti i DevHub"
           options={devHubs.map(d => ({ id: d.id, label: poFullName(d) }))}
