@@ -897,6 +897,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   const roadmapItemInclude = {
     progetto: { select: { id: true, nome: true, colore: true, poId: true } },
     tags: { include: { tag: true } },
+    devHub: { select: { id: true, firstName: true, lastName: true } },
   } as const
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -925,6 +926,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (progettoId?.trim()) where['progettoId'] = progettoId.trim()
       if (anno?.trim()) where['anno'] = parseInt(anno, 10)
       if (tag?.trim()) where['tags'] = { some: { tagId: tag.trim() } }
+      const devHubId = c.req.query('devHubId')
+      if (devHubId?.trim()) where['devHubId'] = { in: devHubId.split(',').map(v => v.trim()).filter(Boolean) }
       const items = await c.get('prisma').roadmapItem.findMany({
         where,
         orderBy: [{ anno: 'asc' }, { quarter: 'asc' }, { ordine: 'asc' }],
@@ -938,10 +941,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.post('/api/roadmap-items', requireAuth(), async (c) => {
-    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds } = await readJSON<{
+    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds, devHubId } = await readJSON<{
       progettoId?: string; anno?: number; quarter?: string | null; dataDeadline?: string | null
       titolo?: string; descrizione?: string; stato?: string; analisiUrl?: string
-      stimaGg?: number | null; ordine?: number; tagIds?: string[]
+      stimaGg?: number | null; ordine?: number; tagIds?: string[]; devHubId?: string
     }>(c)
     if (!progettoId?.trim()) return c.json({ error: 'progettoId è obbligatorio' }, 400)
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
@@ -965,6 +968,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           analisiUrl: analisiUrl?.trim() || null,
           stimaGg: stimaGg ?? null,
           ordine: ordine ?? 0,
+          devHubId: devHubId?.trim() || null,
           tags: Array.isArray(tagIds) && tagIds.length > 0
             ? { create: tagIds.map(tagId => ({ tagId })) }
             : undefined,
@@ -973,7 +977,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       })
       return c.json(flattenRoadmapItem(item), 201)
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Prodotto o tag non trovato' }, 400)
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Prodotto, tag o Responsabile DevHub non trovato' }, 400)
       console.error('[roadmap-items] POST error:', err)
       return c.json({ error: 'Errore nella creazione dell\'attività roadmap' }, 500)
     }
@@ -981,10 +985,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/api/roadmap-items/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds } = await readJSON<{
+    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds, devHubId } = await readJSON<{
       progettoId?: string; anno?: number; quarter?: string | null; dataDeadline?: string | null
       titolo?: string; descrizione?: string; stato?: string; analisiUrl?: string
-      stimaGg?: number | null; ordine?: number; tagIds?: string[]
+      stimaGg?: number | null; ordine?: number; tagIds?: string[]; devHubId?: string
     }>(c)
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
     if (!anno) return c.json({ error: 'L\'anno è obbligatorio' }, 400)
@@ -1009,12 +1013,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           analisiUrl: analisiUrl?.trim() || null,
           stimaGg: stimaGg ?? null,
           ordine: ordine ?? 0,
+          devHubId: devHubId?.trim() || null,
         },
         include: roadmapItemInclude,
       })
       return c.json(flattenRoadmapItem(item))
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività roadmap non trovata' }, 404)
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Responsabile DevHub non trovato' }, 400)
       console.error('[roadmap-items] PUT error:', err)
       return c.json({ error: 'Errore nell\'aggiornamento dell\'attività roadmap' }, 500)
     }
@@ -1148,6 +1154,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           clienteRel: { select: { id: true, nome: true, accountId: true, account: { select: { id: true, firstName: true, lastName: true } } } },
           progettoRel: { select: { id: true, nome: true } },
           pms: { include: { pm: { select: { id: true, firstName: true, lastName: true } } } },
+          devHubRel: { select: { id: true, firstName: true, lastName: true } },
         },
       })
 
@@ -1191,6 +1198,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             accountId: a.clienteRel?.accountId ?? null,
             projectManager: pmNames,
             pmIds: a.pms.map(p => p.pmId),
+            devHub: a.devHubRel ? resolvedName(a.devHubRel.firstName, a.devHubRel.lastName) : '',
+            devHubId: a.devHubId ?? null,
             attivita: a.attivita,
             giornateVendute: a.giornateVendute !== null ? toNumber(a.giornateVendute) : null,
             giornateFatturate: a.giornateFatturate !== null ? toNumber(a.giornateFatturate) : null,
@@ -1266,12 +1275,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   hono.post('/api/attivita', requireAuth(), async (c) => {
     const prisma = c.get('prisma')
     const {
-      clienteId, progettoId, pmIds, attivita, tipo,
+      clienteId, progettoId, pmIds, attivita, tipo, devHubId,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
-      attivita?: string; tipo?: string
+      attivita?: string; tipo?: string; devHubId?: string
       giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
@@ -1305,6 +1314,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           progetto: linkedProgetto.nome,
           progettoId: progettoId.trim(),
           accountId: linkedCliente.accountId ?? null,
+          devHubId: devHubId?.trim() || null,
           attivita: attivita.trim(),
           tipo: tipoVal,
           giornateVendute: giornateVendute != null ? giornateVendute : null,
@@ -1319,7 +1329,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         },
       })
       return c.json(row, 201)
-    } catch (err) {
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Responsabile DevHub non trovato' }, 400)
       console.error('[attivita] POST error:', err)
       return c.json({ error: 'Errore nella creazione dell\'attività' }, 500)
     }
@@ -1333,12 +1344,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const id = c.req.param('id')
     const prisma = c.get('prisma')
     const {
-      clienteId, progettoId, pmIds, attivita,
+      clienteId, progettoId, pmIds, attivita, devHubId,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
-      attivita?: string
+      attivita?: string; devHubId?: string
       giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
@@ -1376,6 +1387,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           progetto: linkedProgetto.nome,
           progettoId: progettoId.trim(),
           accountId: linkedCliente.accountId ?? null,
+          devHubId: devHubId?.trim() || null,
           attivita: attivita.trim(),
           giornateVendute: giornateVendute != null ? giornateVendute : null,
           giornateFatturate: giornateFatturate != null ? giornateFatturate : null,
@@ -1394,6 +1406,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json(row)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività non trovata' }, 404)
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Responsabile DevHub non trovato' }, 400)
       console.error('[attivita] PUT error:', err)
       return c.json({ error: 'Errore nell\'aggiornamento dell\'attività' }, 500)
     }

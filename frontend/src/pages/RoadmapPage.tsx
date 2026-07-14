@@ -23,12 +23,14 @@ interface RoadmapItem {
   titolo: string; descrizione: string | null; stato: string
   analisiUrl: string | null; stimaGg: number | null; ordine: number
   tags: TagRef[]
+  devHubId: string | null; devHub: PoRef | null
 }
 
 type FormData = {
   progettoId: string; titolo: string; descrizione: string
   anno: string; quarter: string; dataDeadline: string
   stato: string; stimaGg: string; analisiUrl: string; tagIds: string[]
+  devHubId: string
 }
 
 const QUARTERS: { key: string; label: string }[] = [
@@ -40,7 +42,7 @@ const QUARTERS: { key: string; label: string }[] = [
 ]
 
 function emptyForm(anno: number): FormData {
-  return { progettoId: '', titolo: '', descrizione: '', anno: String(anno), quarter: '', dataDeadline: '', stato: 'DA_FARE', stimaGg: '', analisiUrl: '', tagIds: [] }
+  return { progettoId: '', titolo: '', descrizione: '', anno: String(anno), quarter: '', dataDeadline: '', stato: 'DA_FARE', stimaGg: '', analisiUrl: '', tagIds: [], devHubId: '' }
 }
 
 function authHeaders(token: string) {
@@ -154,15 +156,66 @@ function TagPicker({ tags, selectedIds, onToggle }: { tags: TagRef[]; selectedId
   )
 }
 
+// ─── Multi-select (filtro DevHub) ─────────────────────────────────────────────
+
+function MultiSelect({ label, options, value, onChange }: {
+  label: string; options: { id: string; label: string }[]; value: string[]; onChange: (v: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const toggle = (id: string) =>
+    onChange(value.includes(id) ? value.filter(v => v !== id) : [...value, id])
+
+  const displayLabel = value.length === 0
+    ? label
+    : value.length === 1
+      ? options.find(o => o.id === value[0])?.label ?? label
+      : `${value.length} selezionati`
+
+  return (
+    <div className="rm-multiselect" ref={ref}>
+      <button type="button" className={`rm-input rm-select rm-filter rm-ms-btn${open ? ' rm-ms-btn--open' : ''}`}
+        onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}>
+        <span className={value.length > 0 ? 'rm-ms-btn-val--active' : ''}>{displayLabel}</span>
+      </button>
+      {open && (
+        <div className="rm-ms-dropdown" role="listbox" aria-multiselectable="true">
+          {value.length > 0 && (
+            <button type="button" className="rm-ms-clear" onClick={() => { onChange([]); setOpen(false) }}>
+              Rimuovi filtro
+            </button>
+          )}
+          {options.length === 0 && <span className="rm-field-hint">Nessun DevHub disponibile</span>}
+          {options.map(opt => (
+            <label key={opt.id} className="rm-ms-item">
+              <input type="checkbox" checked={value.includes(opt.id)} onChange={() => toggle(opt.id)} />
+              <span>{opt.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Modal add/edit ───────────────────────────────────────────────────────────
 
 interface ModalProps {
   title: string; form: FormData; loading: boolean; apiError: string | null
-  prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]; tags: TagRef[]
+  prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]; tags: TagRef[]; devHubs: PoRef[]
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
-function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, onChange, onSave, onClose }: ModalProps) {
+function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, devHubs, onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
@@ -242,6 +295,14 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
           </div>
 
           <div className="rm-field">
+            <label htmlFor="rm-devhub" className="rm-label">DevHub</label>
+            <select id="rm-devhub" className="rm-input rm-select" value={form.devHubId} onChange={set('devHubId')}>
+              <option value="">— Nessun assegnatario —</option>
+              {devHubs.map(d => <option key={d.id} value={d.id}>{poFullName(d)}</option>)}
+            </select>
+          </div>
+
+          <div className="rm-field">
             <span className="rm-label">Tag</span>
             <TagPicker tags={tags} selectedIds={form.tagIds} onToggle={toggleTag} />
           </div>
@@ -259,16 +320,16 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
 
 interface RoadmapCardProps {
   item: RoadmapItem; secondary: 'stato' | 'quarter'; statiMap: Map<string, StatoRoadmapConfig>
-  po: PoRef | undefined
+  po: PoRef | undefined; readOnly?: boolean
   onDragStart: () => void; onDrop: (e: React.DragEvent) => void; onOpen: () => void
 }
 
-function RoadmapCard({ item, secondary, statiMap, po, onDragStart, onDrop, onOpen }: RoadmapCardProps) {
+function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onDrop, onOpen }: RoadmapCardProps) {
   return (
-    <div className="rm-card" draggable
-      onDragStart={onDragStart}
-      onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
-      onDrop={e => { e.stopPropagation(); onDrop(e) }}>
+    <div className="rm-card" draggable={!readOnly}
+      onDragStart={readOnly ? undefined : onDragStart}
+      onDragOver={readOnly ? undefined : e => { e.preventDefault(); e.stopPropagation() }}
+      onDrop={readOnly ? undefined : e => { e.stopPropagation(); onDrop(e) }}>
       <div className="rm-card-head">
         <ProdottoBadge prodotto={item.progetto} />
         {item.analisiUrl && (
@@ -277,7 +338,9 @@ function RoadmapCard({ item, secondary, statiMap, po, onDragStart, onDrop, onOpe
           </a>
         )}
       </div>
-      <button className="rm-card-title" type="button" onClick={onOpen}>{item.titolo}</button>
+      {readOnly
+        ? <span className="rm-card-title">{item.titolo}</span>
+        : <button className="rm-card-title" type="button" onClick={onOpen}>{item.titolo}</button>}
       <TagList tags={item.tags} />
       <div className="rm-card-foot">
         {secondary === 'stato'
@@ -285,6 +348,7 @@ function RoadmapCard({ item, secondary, statiMap, po, onDragStart, onDrop, onOpe
           : <QuarterBadge quarter={item.quarter} />}
         {item.stimaGg !== null && <span className="rm-card-meta">{item.stimaGg}gg</span>}
         {item.dataDeadline && <span className="rm-card-meta">{fmtDate(item.dataDeadline)}</span>}
+        {item.devHub && <span className="rm-devhub-avatar rm-devhub-avatar--sm" title={`DevHub: ${poFullName(item.devHub)}`}>{poInitials(item.devHub)}</span>}
         {po && <span className="rm-po-avatar rm-po-avatar--sm" title={poFullName(po)}>{poInitials(po)}</span>}
       </div>
     </div>
@@ -324,14 +388,15 @@ function ConfirmDelete({ item, loading, onConfirm, onClose }: {
 
 // ─── RoadmapPage ──────────────────────────────────────────────────────────────
 
-interface RoadmapPageProps { token: string }
+interface RoadmapPageProps { token: string; readOnly?: boolean }
 
-export default function RoadmapPage({ token }: RoadmapPageProps) {
+export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const currentYear = new Date().getFullYear()
 
   const [items,       setItems]       = useState<RoadmapItem[]>([])
   const [prodotti,    setProdotti]    = useState<Prodotto[]>([])
   const [pms,         setPms]         = useState<PoRef[]>([])
+  const [devHubs,     setDevHubs]     = useState<PoRef[]>([])
   const [statiConfig, setStatiConfig] = useState<StatoRoadmapConfig[]>([])
   const [tags,        setTags]        = useState<TagRef[]>([])
   const [loading,     setLoading]     = useState(true)
@@ -339,9 +404,10 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
 
   const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('lista')
   const [anno, setAnno] = useState(currentYear)
-  const [filterProdotto, setFilterProdotto] = useState('')
-  const [filterStato, setFilterStato] = useState('')
-  const [filterTag, setFilterTag] = useState('')
+  const [filterProdotto, setFilterProdotto] = useState<string[]>([])
+  const [filterStato, setFilterStato] = useState<string[]>([])
+  const [filterTag, setFilterTag] = useState<string[]>([])
+  const [filterDevHub, setFilterDevHub] = useState<string[]>([])
   const [search, setSearch] = useState('')
 
   const [modal,     setModal]     = useState<'add' | 'edit' | null>(null)
@@ -363,19 +429,20 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
   const fetchAll = useCallback(async () => {
     setLoading(true); setApiError(null)
     try {
-      const [rI, rP, rPm, rS, rT] = await Promise.all([
+      const [rI, rP, rPm, rDh, rS, rT] = await Promise.all([
         fetch(`${API_URL}/api/roadmap-items`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/progetti?tipo=PRODOTTO`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/users?role=PM`,   { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/users?role=DEVHUB`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/stati-roadmap`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/roadmap-tags`,    { headers: authHeaders(token) }),
       ])
       if (!rI.ok || !rP.ok) throw new Error()
-      const [i, p, pm, s, t] = await Promise.all([
-        rI.json(), rP.json(), rPm.ok ? rPm.json() : Promise.resolve([]), rS.ok ? rS.json() : Promise.resolve([]),
-        rT.ok ? rT.json() : Promise.resolve([]),
+      const [i, p, pm, dh, s, t] = await Promise.all([
+        rI.json(), rP.json(), rPm.ok ? rPm.json() : Promise.resolve([]), rDh.ok ? rDh.json() : Promise.resolve([]),
+        rS.ok ? rS.json() : Promise.resolve([]), rT.ok ? rT.json() : Promise.resolve([]),
       ])
-      setItems(i); setProdotti(p); setPms(pm); setStatiConfig(s); setTags(t)
+      setItems(i); setProdotti(p); setPms(pm); setDevHubs(dh); setStatiConfig(s); setTags(t)
     } catch { setApiError('Impossibile caricare i dati della roadmap.') }
     finally { setLoading(false) }
   }, [token])
@@ -391,11 +458,12 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
   const displayItems = useMemo(() => {
     return items
       .filter(i => i.anno === anno)
-      .filter(i => !filterProdotto || i.progettoId === filterProdotto)
-      .filter(i => !filterStato || i.stato === filterStato)
-      .filter(i => !filterTag || i.tags.some(t => t.id === filterTag))
+      .filter(i => filterProdotto.length === 0 || filterProdotto.includes(i.progettoId))
+      .filter(i => filterStato.length === 0 || filterStato.includes(i.stato))
+      .filter(i => filterTag.length === 0 || i.tags.some(t => filterTag.includes(t.id)))
+      .filter(i => filterDevHub.length === 0 || (i.devHubId !== null && filterDevHub.includes(i.devHubId)))
       .filter(i => !search.trim() || i.titolo.toLowerCase().includes(search.trim().toLowerCase()))
-  }, [items, anno, filterProdotto, filterStato, filterTag, search])
+  }, [items, anno, filterProdotto, filterStato, filterTag, filterDevHub, search])
 
   const listaRows = useMemo(() => {
     return [...displayItems].sort((a, b) =>
@@ -466,7 +534,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
       progettoId: item.progettoId, titolo: item.titolo, descrizione: item.descrizione ?? '',
       anno: String(item.anno), quarter: item.quarter ?? '', dataDeadline: toInputDate(item.dataDeadline),
       stato: item.stato, stimaGg: item.stimaGg !== null ? String(item.stimaGg) : '', analisiUrl: item.analisiUrl ?? '',
-      tagIds: item.tags.map(t => t.id),
+      tagIds: item.tags.map(t => t.id), devHubId: item.devHubId ?? '',
     })
     setFormErr(null); setModal('edit')
   }
@@ -489,6 +557,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
         stimaGg: form.stimaGg ? parseFloat(form.stimaGg) : null,
         analisiUrl: form.analisiUrl,
         tagIds: form.tagIds,
+        devHubId: form.devHubId || null,
       }
       const res = await fetch(url, { method, headers: authHeaders(token), body: JSON.stringify(body) })
       if (!res.ok) {
@@ -531,20 +600,22 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
           <h1 className="rm-title">Roadmap Prodotti</h1>
           <p className="rm-subtitle">{loading ? '' : `${displayItems.length} attività · ${anno}`}</p>
         </div>
-        <div className="rm-topbar-actions">
-          <button className="rm-btn rm-btn--ghost" type="button" onClick={() => setShowImport(true)}>
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
-              <path d="M10 3v10M6 9l4 4 4-4M4 16.5h12" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Importa CSV
-          </button>
-          <button className="rm-btn rm-btn--primary" type="button" onClick={openAdd}>
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
-              <path d="M10 4v12M4 10h12" strokeLinecap="round" />
-            </svg>
-            Nuova attività
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="rm-topbar-actions">
+            <button className="rm-btn rm-btn--ghost" type="button" onClick={() => setShowImport(true)}>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
+                <path d="M10 3v10M6 9l4 4 4-4M4 16.5h12" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Importa CSV
+            </button>
+            <button className="rm-btn rm-btn--primary" type="button" onClick={openAdd}>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
+                <path d="M10 4v12M4 10h12" strokeLinecap="round" />
+              </svg>
+              Nuova attività
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="rm-toolbar">
@@ -566,18 +637,30 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
         <select className="rm-input rm-select rm-filter" value={anno} onChange={e => setAnno(parseInt(e.target.value, 10))}>
           {anni.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
-        <select className="rm-input rm-select rm-filter" value={filterProdotto} onChange={e => setFilterProdotto(e.target.value)}>
-          <option value="">Tutti i prodotti</option>
-          {prodotti.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-        </select>
-        <select className="rm-input rm-select rm-filter" value={filterStato} onChange={e => setFilterStato(e.target.value)}>
-          <option value="">Tutti gli stati</option>
-          {statiList.map(s => <option key={s.chiave} value={s.chiave}>{s.label}</option>)}
-        </select>
-        <select className="rm-input rm-select rm-filter" value={filterTag} onChange={e => setFilterTag(e.target.value)}>
-          <option value="">Tutti i tag</option>
-          {tags.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-        </select>
+        <MultiSelect
+          label="Tutti i prodotti"
+          options={prodotti.map(p => ({ id: p.id, label: p.nome }))}
+          value={filterProdotto}
+          onChange={setFilterProdotto}
+        />
+        <MultiSelect
+          label="Tutti gli stati"
+          options={statiList.map(s => ({ id: s.chiave, label: s.label }))}
+          value={filterStato}
+          onChange={setFilterStato}
+        />
+        <MultiSelect
+          label="Tutti i tag"
+          options={tags.map(t => ({ id: t.id, label: t.label }))}
+          value={filterTag}
+          onChange={setFilterTag}
+        />
+        <MultiSelect
+          label="Tutti i DevHub"
+          options={devHubs.map(d => ({ id: d.id, label: poFullName(d) }))}
+          value={filterDevHub}
+          onChange={setFilterDevHub}
+        />
         <input className="rm-input rm-filter rm-filter--search" type="text" placeholder="Cerca titolo…"
           value={search} onChange={e => setSearch(e.target.value)} />
       </div>
@@ -592,14 +675,16 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
             <path d="M6 30h8l6-16 8 28 6-16h8" stroke="#CBD5E1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <p className="rm-empty-text">Nessuna attività pianificata per {anno} con questi filtri.</p>
-          <button className="rm-btn rm-btn--primary" type="button" onClick={openAdd}>Aggiungi la prima attività</button>
+          {!readOnly && (
+            <button className="rm-btn rm-btn--primary" type="button" onClick={openAdd}>Aggiungi la prima attività</button>
+          )}
         </div>
       ) : view === 'lista' ? (
         <div className="rm-table-wrap">
           <table className="rm-table" aria-label="Elenco attività roadmap">
             <thead>
               <tr>
-                <th scope="col" className="rm-th--drag"></th>
+                {!readOnly && <th scope="col" className="rm-th--drag"></th>}
                 <th scope="col">Prodotto</th>
                 <th scope="col">Titolo</th>
                 <th scope="col">Tag</th>
@@ -608,24 +693,27 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
                 <th scope="col">Stato</th>
                 <th scope="col">Stima</th>
                 <th scope="col">PO</th>
+                <th scope="col">DevHub</th>
                 <th scope="col">Analisi</th>
-                <th scope="col" className="rm-th--actions">Azioni</th>
+                {!readOnly && <th scope="col" className="rm-th--actions">Azioni</th>}
               </tr>
             </thead>
             <tbody>
               {listaRows.map(item => (
-                <tr key={item.id} className="rm-row" draggable
-                  onDragStart={() => onRowDragStart(item.id)}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={() => onRowDrop(item.id)}>
-                  <td className="rm-cell-drag" aria-hidden="true">
-                    <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><circle cx="6" cy="5" r="1.4" /><circle cx="6" cy="10" r="1.4" /><circle cx="6" cy="15" r="1.4" /><circle cx="12" cy="5" r="1.4" /><circle cx="12" cy="10" r="1.4" /><circle cx="12" cy="15" r="1.4" /></svg>
-                  </td>
+                <tr key={item.id} className="rm-row" draggable={!readOnly}
+                  onDragStart={readOnly ? undefined : () => onRowDragStart(item.id)}
+                  onDragOver={readOnly ? undefined : e => e.preventDefault()}
+                  onDrop={readOnly ? undefined : () => onRowDrop(item.id)}>
+                  {!readOnly && (
+                    <td className="rm-cell-drag" aria-hidden="true">
+                      <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><circle cx="6" cy="5" r="1.4" /><circle cx="6" cy="10" r="1.4" /><circle cx="6" cy="15" r="1.4" /><circle cx="12" cy="5" r="1.4" /><circle cx="12" cy="10" r="1.4" /><circle cx="12" cy="15" r="1.4" /></svg>
+                    </td>
+                  )}
                   <td><ProdottoBadge prodotto={item.progetto} /></td>
                   <td className="rm-cell-titolo">{item.titolo}</td>
                   <td className="rm-cell-tags">
                     {item.tags.length > 0
-                      ? <TagList tags={item.tags} onRemove={tagId => removeTagFromItem(item.id, tagId)} />
+                      ? <TagList tags={item.tags} onRemove={readOnly ? undefined : tagId => removeTagFromItem(item.id, tagId)} />
                       : <span className="rm-empty-cell">—</span>}
                   </td>
                   <td className="rm-cell-text">{QUARTERS.find(q => q.key === (item.quarter ?? ''))?.label ?? item.quarter}</td>
@@ -638,24 +726,31 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
                       : <span className="rm-empty-cell">—</span> })()}
                   </td>
                   <td className="rm-cell-text">
+                    {item.devHub
+                      ? <span className="rm-devhub-avatar" title={poFullName(item.devHub)}>{poInitials(item.devHub)}</span>
+                      : <span className="rm-empty-cell">—</span>}
+                  </td>
+                  <td className="rm-cell-text">
                     {item.analisiUrl
                       ? <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link" aria-label="Apri analisi">
                           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15"><path d="M8 12l5-5M9 4h6v6M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" /></svg>
                         </a>
                       : <span className="rm-empty-cell">—</span>}
                   </td>
-                  <td className="rm-cell-actions">
-                    <button className="rm-icon-btn" type="button" aria-label={`Modifica ${item.titolo}`} onClick={() => openEdit(item)}>
-                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
-                        <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                    <button className="rm-icon-btn rm-icon-btn--danger" type="button" aria-label={`Elimina ${item.titolo}`} onClick={() => setDelTarget(item)}>
-                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
-                        <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  </td>
+                  {!readOnly && (
+                    <td className="rm-cell-actions">
+                      <button className="rm-icon-btn" type="button" aria-label={`Modifica ${item.titolo}`} onClick={() => openEdit(item)}>
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+                          <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                      <button className="rm-icon-btn rm-icon-btn--danger" type="button" aria-label={`Elimina ${item.titolo}`} onClick={() => setDelTarget(item)}>
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+                          <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -669,8 +764,8 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
               .sort((a, b) => a.ordine - b.ordine)
             return (
               <div key={col.key || 'backlog'} className="rm-col"
-                onDragOver={e => e.preventDefault()}
-                onDrop={() => onCardDrop(colItems, null, { quarter: col.key })}>
+                onDragOver={readOnly ? undefined : e => e.preventDefault()}
+                onDrop={readOnly ? undefined : () => onCardDrop(colItems, null, { quarter: col.key })}>
                 <div className="rm-col-head">
                   <span className="rm-col-label">{col.label}</span>
                   <span className="rm-col-count">{colItems.length}</span>
@@ -679,6 +774,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
                   {colItems.map(item => (
                     <RoadmapCard key={item.id} item={item} secondary="stato" statiMap={statiMap}
                       po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
+                      readOnly={readOnly}
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { quarter: col.key })}
                       onOpen={() => openEdit(item)} />
@@ -700,8 +796,8 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
               .sort((a, b) => a.ordine - b.ordine)
             return (
               <div key={col.chiave} className="rm-col"
-                onDragOver={e => e.preventDefault()}
-                onDrop={() => onCardDrop(colItems, null, { stato: col.chiave })}>
+                onDragOver={readOnly ? undefined : e => e.preventDefault()}
+                onDrop={readOnly ? undefined : () => onCardDrop(colItems, null, { stato: col.chiave })}>
                 <div className="rm-col-head">
                   <span className="rm-col-label">{col.label}</span>
                   <span className="rm-col-count">{colItems.length}</span>
@@ -710,6 +806,7 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
                   {colItems.map(item => (
                     <RoadmapCard key={item.id} item={item} secondary="quarter" statiMap={statiMap}
                       po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
+                      readOnly={readOnly}
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { stato: col.chiave })}
                       onOpen={() => openEdit(item)} />
@@ -721,16 +818,17 @@ export default function RoadmapPage({ token }: RoadmapPageProps) {
         </div>
       )}
 
-      {(modal === 'add' || modal === 'edit') && (
+      {!readOnly && (modal === 'add' || modal === 'edit') && (
         <ItemModal
           title={modal === 'add' ? 'Nuova attività roadmap' : 'Modifica attività roadmap'}
           form={form} loading={saving} apiError={formErr} prodotti={prodotti} statiList={statiList} tags={tags}
+          devHubs={devHubs}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
       )}
-      {delTarget && (
+      {!readOnly && delTarget && (
         <ConfirmDelete item={delTarget} loading={deleting} onConfirm={handleDelete} onClose={() => setDelTarget(null)} />
       )}
-      {showImport && (
+      {!readOnly && showImport && (
         <RoadmapImportCSVModal token={token} onClose={() => setShowImport(false)} onImportComplete={() => fetchAll()} />
       )}
     </div>
