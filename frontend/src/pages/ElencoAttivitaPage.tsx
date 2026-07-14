@@ -402,13 +402,6 @@ function RiepilogoBar({ r, vista }: { r: Riepilogo; vista: TipoAttivita }) {
       </div>
       <div className="ea-summary-divider" aria-hidden="true" />
       <div className="ea-summary-stat">
-        <span className={`ea-summary-val ${r.attivitaInSforamento > 0 ? 'ea-summary-val--red' : ''}`}>
-          {r.attivitaInSforamento}
-        </span>
-        <span className="ea-summary-lbl">In sforamento</span>
-      </div>
-      <div className="ea-summary-divider" aria-hidden="true" />
-      <div className="ea-summary-stat">
         <span className={`ea-summary-val ${r.attivitaInApprovazione > 0 ? 'ea-summary-val--amber' : ''}`}>
           {r.attivitaInApprovazione}
         </span>
@@ -459,7 +452,6 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
   onEdit: (item: AttivitaItem) => void
 }) {
   const isBucket = item.tipo === 'BUCKET'
-  const sfora = isSforamento(item)
   const delta = item.giornateVendute !== null && item.giornateConsuntivate !== null
     ? item.giornateVendute - item.giornateConsuntivate
     : null
@@ -482,14 +474,6 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
           </div>
           <h2 id="ea-detail-title" className="ea-modal-title">{item.attivita}</h2>
           <p className="ea-detail-sub">{item.cliente} — {item.progetto}</p>
-          {sfora && (
-            <div className="ea-drawer-alert" role="alert">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" aria-hidden="true">
-                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 6zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2z" clipRule="evenodd" />
-              </svg>
-              Budget superato
-            </div>
-          )}
         </div>
 
         <div className="ea-modal-body">
@@ -533,7 +517,7 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
                 </div>
               )}
               <div className="ea-drawer-budget-item">
-                <span className={`ea-drawer-budget-val ${sfora ? 'ea-drawer-budget-val--red' : ''}`}>
+                <span className="ea-drawer-budget-val">
                   {fmt(item.giornateConsuntivate)}
                 </span>
                 <span className="ea-drawer-budget-lbl">Consuntivate</span>
@@ -600,22 +584,6 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
   )
 }
 
-// ─── Sforamento dot ───────────────────────────────────────────────────────────
-
-function SforamentoDot() {
-  return (
-    <span
-      className="ea-group-sfora-dot"
-      aria-label="In sforamento"
-      title="Una o più attività sono in sforamento"
-    >
-      <svg viewBox="0 0 8 8" fill="currentColor" width="8" height="8" aria-hidden="true">
-        <circle cx="4" cy="4" r="4" />
-      </svg>
-    </span>
-  )
-}
-
 // ─── Activity rows (shared by both group types) ───────────────────────────────
 
 interface ActivityRowsProps {
@@ -654,7 +622,6 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
           </thead>
           <tbody>
             {attivita.map(item => {
-              const sfora = isSforamento(item)
               const d = item.giornateVendute !== null && item.giornateConsuntivate !== null
                 ? item.giornateVendute - item.giornateConsuntivate
                 : null
@@ -664,7 +631,7 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
               return (
                 <tr
                   key={item.id}
-                  className={`ea-row ${sfora ? 'ea-row--sfora' : ''}`}
+                  className="ea-row"
                   onClick={() => onSelectItem(item)}
                   tabIndex={0}
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectItem(item) } }}
@@ -672,12 +639,6 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
                   aria-label={`Dettaglio attività: ${item.attivita}`}
                 >
                   <td className="ea-cell ea-cell--attivita">
-                    {sfora && (
-                      <svg className="ea-row-warn" viewBox="0 0 16 16" fill="currentColor"
-                        width="13" height="13" aria-label="Sforamento budget">
-                        <path fillRule="evenodd" d="M6.789 2.074c.534-.927 1.888-.927 2.422 0l5.02 8.7c.534.927-.134 2.086-1.211 2.086H2.98c-1.077 0-1.745-1.159-1.211-2.087l5.02-8.699zM8 5a.6.6 0 0 1 .6.6v2.8a.6.6 0 0 1-1.2 0V5.6A.6.6 0 0 1 8 5zm0 7.2a.8.8 0 1 0 0-1.6.8.8 0 0 0 0 1.6z" clipRule="evenodd" />
-                      </svg>
-                    )}
                     {item.attivita}
                   </td>
                   {showProgetto && <td className="ea-cell ea-cell--progetto">{item.progetto}</td>}
@@ -690,7 +651,7 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
                   {isBucket && (
                     <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(item.giornateFatturate)}</td>
                   )}
-                  <td className={`ea-cell ea-cell--num ea-cell--mono ${sfora ? 'ea-cell--red' : ''}`}>
+                  <td className="ea-cell ea-cell--num ea-cell--mono">
                     {fmt(item.giornateConsuntivate)}
                   </td>
                   {isBucket ? (
@@ -770,7 +731,6 @@ function GroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditIt
       >
         <div className="ea-group-header-main">
           <div className="ea-group-identity">
-            {group.inSforamento && <SforamentoDot />}
             <div>
               <span className="ea-group-cliente">{group.cliente}</span>
               <span className="ea-group-progetto">{group.progetto}</span>
@@ -892,7 +852,6 @@ function ClienteGroupCard({ group, expanded, readOnly, onToggle, onSelectItem, o
       >
         <div className="ea-group-header-main">
           <div className="ea-group-identity">
-            {group.inSforamento ? <SforamentoDot /> : <span className="ea-group-sfora-dot ea-group-sfora-dot--placeholder" aria-hidden="true" />}
             <span className="ea-group-cliente ea-group-cliente--large">{group.cliente}</span>
           </div>
         </div>
@@ -1782,18 +1741,8 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
           id: p.id, nome: p.nome, clienteId: p.clienteId ?? null, clienteNome: p.cliente?.nome ?? null,
         }))
       )
-      // Auto-expand sforamento groups (both key formats for both view modes)
-      const sforamentoExpanded = new Set<string>()
-      for (const g of json.gruppi as GruppoAttivita[]) {
-        if (g.inSforamento) {
-          sforamentoExpanded.add(`${g.cliente}|||${g.progetto}`)
-          sforamentoExpanded.add(`cliente::${g.cliente}`)
-        }
-      }
-      if (opts.preserveExpanded) {
-        setExpanded(prev => { const next = new Set(prev); sforamentoExpanded.forEach(k => next.add(k)); return next })
-      } else {
-        setExpanded(sforamentoExpanded)
+      if (!opts.preserveExpanded) {
+        setExpanded(new Set())
       }
     } catch {
       setError('Impossibile caricare le attività. Verifica la connessione.')
