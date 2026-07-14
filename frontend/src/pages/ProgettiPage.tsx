@@ -141,36 +141,38 @@ function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, st
               </div>
             </div>
           ) : (
-            <>
-              <div className="pr-field-row">
-                <div className="pr-field">
-                  <label htmlFor="pr-po" className="pr-label">PO di riferimento</label>
-                  <select id="pr-po" className="pr-input pr-select"
-                    value={form.poId} onChange={set('poId')}>
-                    <option value="">— Nessun PO —</option>
-                    {pos.map(p => <option key={p.id} value={p.id}>{[p.firstName, p.lastName].filter(Boolean).join(' ')}</option>)}
-                  </select>
-                </div>
-                <div className="pr-field">
-                  <label htmlFor="pr-stato" className="pr-label">Stato</label>
-                  <select id="pr-stato" className="pr-input pr-select"
-                    value={form.stato} onChange={set('stato')}>
-                    {statiList.map(s => (
-                      <option key={s.chiave} value={s.chiave}>{s.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+            <div className="pr-field-row">
               <div className="pr-field">
-                <label htmlFor="pr-devhub" className="pr-label">Responsabile DevHub</label>
-                <select id="pr-devhub" className="pr-input pr-select"
-                  value={form.responsabileDevHubId} onChange={set('responsabileDevHubId')}>
-                  <option value="">— Nessun responsabile —</option>
-                  {devHubs.map(d => <option key={d.id} value={d.id}>{[d.firstName, d.lastName].filter(Boolean).join(' ')}</option>)}
+                <label htmlFor="pr-po" className="pr-label">PO di riferimento</label>
+                <select id="pr-po" className="pr-input pr-select"
+                  value={form.poId} onChange={set('poId')}>
+                  <option value="">— Nessun PO —</option>
+                  {pos.map(p => <option key={p.id} value={p.id}>{[p.firstName, p.lastName].filter(Boolean).join(' ')}</option>)}
                 </select>
               </div>
-            </>
+              <div className="pr-field">
+                <label htmlFor="pr-stato" className="pr-label">Stato</label>
+                <select id="pr-stato" className="pr-input pr-select"
+                  value={form.stato} onChange={set('stato')}>
+                  {statiList.map(s => (
+                    <option key={s.chiave} value={s.chiave}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           )}
+
+          {/* Responsabile DevHub: attributo del progetto indipendente dal tipo
+              (CLIENTE o PRODOTTO) — le attività/attività roadmap collegate lo
+              ereditano in sola lettura, non è più impostabile a livello loro. */}
+          <div className="pr-field">
+            <label htmlFor="pr-devhub" className="pr-label">Responsabile DevHub</label>
+            <select id="pr-devhub" className="pr-input pr-select"
+              value={form.responsabileDevHubId} onChange={set('responsabileDevHubId')}>
+              <option value="">— Nessun responsabile —</option>
+              {devHubs.map(d => <option key={d.id} value={d.id}>{[d.firstName, d.lastName].filter(Boolean).join(' ')}</option>)}
+            </select>
+          </div>
 
           {tipo === 'PRODOTTO' && (
             <div className="pr-field">
@@ -386,7 +388,7 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
               <tr>
                 <th scope="col">{tipo === 'CLIENTE' ? 'Progetto' : 'Prodotto'}</th>
                 <th scope="col">{tipo === 'CLIENTE' ? 'Cliente' : 'PO'}</th>
-                {tipo === 'PRODOTTO' && <th scope="col">DevHub</th>}
+                <th scope="col">DevHub</th>
                 <th scope="col">Stato</th>
                 {tipo === 'CLIENTE' && <th scope="col">Periodo</th>}
                 <th scope="col" className="pr-th--actions">Azioni</th>
@@ -407,11 +409,9 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
                       ? (p.cliente ? <span className="pr-cliente-tag">{p.cliente.nome}</span> : <span className="pr-empty-cell">—</span>)
                       : (p.po ? <span className="pr-po-tag">{poName(p.po)}</span> : <span className="pr-empty-cell">—</span>)}
                   </td>
-                  {tipo === 'PRODOTTO' && (
-                    <td className="pr-cell-text">
-                      {p.responsabileDevHub ? <span className="pr-po-tag">{devHubName(p.responsabileDevHub)}</span> : <span className="pr-empty-cell">—</span>}
-                    </td>
-                  )}
+                  <td className="pr-cell-text">
+                    {p.responsabileDevHub ? <span className="pr-po-tag">{devHubName(p.responsabileDevHub)}</span> : <span className="pr-empty-cell">—</span>}
+                  </td>
                   <td><StatoBadge stato={p.stato} statiMap={statiMap} /></td>
                   {tipo === 'CLIENTE' && (
                     <td className="pr-cell-text pr-cell-date">

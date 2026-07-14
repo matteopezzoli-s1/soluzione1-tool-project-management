@@ -1152,9 +1152,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         orderBy: [{ cliente: 'asc' }, { progetto: 'asc' }, { attivita: 'asc' }],
         include: {
           clienteRel: { select: { id: true, nome: true, accountId: true, account: { select: { id: true, firstName: true, lastName: true } } } },
-          progettoRel: { select: { id: true, nome: true } },
+          progettoRel: {
+            select: {
+              id: true, nome: true, responsabileDevHubId: true,
+              responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
           pms: { include: { pm: { select: { id: true, firstName: true, lastName: true } } } },
-          devHubRel: { select: { id: true, firstName: true, lastName: true } },
         },
       })
 
@@ -1198,8 +1202,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             accountId: a.clienteRel?.accountId ?? null,
             projectManager: pmNames,
             pmIds: a.pms.map(p => p.pmId),
-            devHub: a.devHubRel ? resolvedName(a.devHubRel.firstName, a.devHubRel.lastName) : '',
-            devHubId: a.devHubId ?? null,
+            // Il responsabile DevHub è un attributo del progetto, non della
+            // singola attività: qui esposto in sola lettura ereditandolo da
+            // progettoRel (impostabile da Progetti & Prodotti).
+            devHub: a.progettoRel?.responsabileDevHub
+              ? resolvedName(a.progettoRel.responsabileDevHub.firstName, a.progettoRel.responsabileDevHub.lastName)
+              : '',
+            devHubId: a.progettoRel?.responsabileDevHubId ?? null,
             attivita: a.attivita,
             giornateVendute: a.giornateVendute !== null ? toNumber(a.giornateVendute) : null,
             giornateFatturate: a.giornateFatturate !== null ? toNumber(a.giornateFatturate) : null,
@@ -1275,12 +1284,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   hono.post('/api/attivita', requireAuth(), async (c) => {
     const prisma = c.get('prisma')
     const {
-      clienteId, progettoId, pmIds, attivita, tipo, devHubId,
+      clienteId, progettoId, pmIds, attivita, tipo,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
-      attivita?: string; tipo?: string; devHubId?: string
+      attivita?: string; tipo?: string
       giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
@@ -1314,7 +1323,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           progetto: linkedProgetto.nome,
           progettoId: progettoId.trim(),
           accountId: linkedCliente.accountId ?? null,
-          devHubId: devHubId?.trim() || null,
           attivita: attivita.trim(),
           tipo: tipoVal,
           giornateVendute: giornateVendute != null ? giornateVendute : null,
@@ -1329,8 +1337,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         },
       })
       return c.json(row, 201)
-    } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Responsabile DevHub non trovato' }, 400)
+    } catch (err) {
       console.error('[attivita] POST error:', err)
       return c.json({ error: 'Errore nella creazione dell\'attività' }, 500)
     }
@@ -1344,12 +1351,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const id = c.req.param('id')
     const prisma = c.get('prisma')
     const {
-      clienteId, progettoId, pmIds, attivita, devHubId,
+      clienteId, progettoId, pmIds, attivita,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
-      attivita?: string; devHubId?: string
+      attivita?: string
       giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
@@ -1387,7 +1394,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           progetto: linkedProgetto.nome,
           progettoId: progettoId.trim(),
           accountId: linkedCliente.accountId ?? null,
-          devHubId: devHubId?.trim() || null,
           attivita: attivita.trim(),
           giornateVendute: giornateVendute != null ? giornateVendute : null,
           giornateFatturate: giornateFatturate != null ? giornateFatturate : null,
@@ -1406,7 +1412,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json(row)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività non trovata' }, 404)
-      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Responsabile DevHub non trovato' }, 400)
       console.error('[attivita] PUT error:', err)
       return c.json({ error: 'Errore nell\'aggiornamento dell\'attività' }, 500)
     }
