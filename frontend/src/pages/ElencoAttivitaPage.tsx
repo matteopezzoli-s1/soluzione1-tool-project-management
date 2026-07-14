@@ -402,13 +402,6 @@ function RiepilogoBar({ r, vista }: { r: Riepilogo; vista: TipoAttivita }) {
       </div>
       <div className="ea-summary-divider" aria-hidden="true" />
       <div className="ea-summary-stat">
-        <span className={`ea-summary-val ${r.attivitaInSforamento > 0 ? 'ea-summary-val--red' : ''}`}>
-          {r.attivitaInSforamento}
-        </span>
-        <span className="ea-summary-lbl">In sforamento</span>
-      </div>
-      <div className="ea-summary-divider" aria-hidden="true" />
-      <div className="ea-summary-stat">
         <span className={`ea-summary-val ${r.attivitaInApprovazione > 0 ? 'ea-summary-val--amber' : ''}`}>
           {r.attivitaInApprovazione}
         </span>
