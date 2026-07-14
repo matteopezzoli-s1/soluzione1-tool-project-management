@@ -658,20 +658,6 @@
   gap: 0.6rem;
 }
 
-.ea-group-sfora-dot {
-  color: #EF4444;
-  flex-shrink: 0;
-  margin-top: 5px;
-  cursor: default;
-}
-
-.ea-group-sfora-dot--placeholder {
-  display: inline-block;
-  width: 8px;
-  flex-shrink: 0;
-  margin-top: 5px;
-}
-
 .ea-group-cliente {
   display: block;
   font-size: 1rem;
@@ -837,15 +823,6 @@
   outline-offset: -2px;
 }
 
-.ea-row--sfora {
-  background: rgba(220,38,38,0.04);
-  border-left: 3px solid rgba(220,38,38,0.5);
-}
-
-.ea-row--sfora:hover {
-  background: rgba(220,38,38,0.07);
-}
-
 .ea-cell {
   padding: 0.7rem 0.875rem;
   color: #334155;
@@ -896,11 +873,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.ea-row-warn {
-  color: #F59E0B;
-  flex-shrink: 0;
 }
 
 /* ── Loading skeletons ─────────────────────────────────────── */
@@ -1047,20 +1019,6 @@
   font-size: 0.8rem;
   color: #94A3B8;
   font-weight: 500;
-}
-
-.ea-drawer-alert {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-top: 0.875rem;
-  background: #FEF2F2;
-  border: 1px solid rgba(220,38,38,0.2);
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #DC2626;
 }
 
 /* Drawer body */
