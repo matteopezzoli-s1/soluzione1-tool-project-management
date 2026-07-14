@@ -48,6 +48,30 @@
 .rm-filter { width: auto; min-width: 140px; }
 .rm-filter--search { min-width: 180px; flex: 1; max-width: 260px; }
 
+/* ── Multi-select filtro (DevHub) ──────────────────────────── */
+
+.rm-multiselect { position: relative; }
+.rm-ms-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  cursor: pointer; text-align: left; color: #64748B;
+}
+.rm-ms-btn-val--active { color: #1E293B; font-weight: 600; }
+.rm-ms-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 200px;
+  background: #fff; border: 1px solid #E2E8F0; border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12); padding: 0.4rem; max-height: 260px; overflow-y: auto;
+}
+.rm-ms-item {
+  display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.5rem; border-radius: 7px;
+  font-size: 0.85rem; color: #334155; cursor: pointer;
+}
+.rm-ms-item:hover { background: #F8FAFC; }
+.rm-ms-clear {
+  display: block; width: 100%; text-align: left; font-family: inherit; font-size: 0.78rem;
+  font-weight: 600; color: #0D9488; background: none; border: none; cursor: pointer;
+  padding: 0.4rem 0.5rem; border-bottom: 1px solid #E2E8F0; margin-bottom: 0.25rem;
+}
+
 /* ── Buttons ───────────────────────────────────────────────── */
 
 .rm-btn {
@@ -155,6 +179,12 @@
   background: #F0FDFA; color: #0D9488; font-size: 0.68rem; font-weight: 700;
 }
 .rm-po-avatar--sm { width: 20px; height: 20px; font-size: 0.62rem; margin-left: auto; }
+.rm-devhub-avatar {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: #FFF7ED; color: #EA580C; font-size: 0.68rem; font-weight: 700;
+}
+.rm-devhub-avatar--sm { width: 20px; height: 20px; font-size: 0.62rem; }
 .rm-analisi-link { display: inline-flex; color: #0D9488; }
 .rm-analisi-link:hover { color: #0F766E; }
 

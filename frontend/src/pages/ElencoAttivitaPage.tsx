@@ -33,6 +33,7 @@ interface AttivitaItem {
   progetto: string;       progettoId: string | null
   account: string;        accountId: string | null
   projectManager: string; pmIds: string[]
+  devHub: string;         devHubId: string | null
   attivita: string
   giornateVendute: number | null
   giornateFatturate: number | null
@@ -86,6 +87,7 @@ interface AttivitaResponse {
 
 interface PMOption      { id: string; firstName: string | null; lastName: string }
 interface AccountOption { id: string; firstName: string | null; lastName: string }
+interface DevHubOption  { id: string; firstName: string | null; lastName: string }
 interface ClienteOption {
   id: string; nome: string; accountId: string | null
   account: { id: string; firstName: string | null; lastName: string } | null
@@ -93,7 +95,7 @@ interface ClienteOption {
 interface ProgettoOption { id: string; nome: string; clienteId: string | null; clienteNome: string | null }
 
 type AttivitaFormData = {
-  clienteId: string; progettoId: string; pmIds: string[]
+  clienteId: string; progettoId: string; pmIds: string[]; devHubId: string
   attivita: string
   stato: StatoAttivita
   giornateVendute: string; giornateFatturate: string; giornateConsuntivate: string
@@ -102,7 +104,7 @@ type AttivitaFormData = {
 }
 
 const EMPTY_FORM: AttivitaFormData = {
-  clienteId: '', progettoId: '', pmIds: [],
+  clienteId: '', progettoId: '', pmIds: [], devHubId: '',
   attivita: '', stato: 'IN_CORSO',
   giornateVendute: '', giornateFatturate: '', giornateConsuntivate: '',
   riferimentoOrdineVendita: '', inizio: '', deadline: '', note: '',
@@ -450,8 +452,9 @@ function MargineDisplay({ vendute, consuntivate }: { vendute: number; consuntiva
 
 // ─── Activity detail modal (read-only) ───────────────────────────────────────
 
-function AttivitaDetailModal({ item, onClose, onEdit }: {
+function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
   item: AttivitaItem
+  readOnly?: boolean
   onClose: () => void
   onEdit: (item: AttivitaItem) => void
 }) {
@@ -504,6 +507,9 @@ function AttivitaDetailModal({ item, onClose, onEdit }: {
               </div>
               <div className="ea-drawer-row">
                 <dt>Project Manager</dt><dd>{item.projectManager || '—'}</dd>
+              </div>
+              <div className="ea-drawer-row">
+                <dt>DevHub</dt><dd>{item.devHub || '—'}</dd>
               </div>
               {item.riferimentoOrdineVendita && (
                 <div className="ea-drawer-row">
@@ -577,15 +583,17 @@ function AttivitaDetailModal({ item, onClose, onEdit }: {
 
         <div className="ea-modal-footer">
           <button className="ea-btn ea-btn--ghost" type="button" onClick={onClose}>Chiudi</button>
-          <button className="ea-btn ea-btn--primary" type="button"
-            onClick={() => { onClose(); onEdit(item) }}>
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
-              width="14" height="14" aria-hidden="true">
-              <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z"
-                strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Modifica
-          </button>
+          {!readOnly && (
+            <button className="ea-btn ea-btn--primary" type="button"
+              onClick={() => { onClose(); onEdit(item) }}>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+                width="14" height="14" aria-hidden="true">
+                <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z"
+                  strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Modifica
+            </button>
+          )}
         </div>
       </div>
     </SectionModal>
@@ -613,6 +621,7 @@ function SforamentoDot() {
 interface ActivityRowsProps {
   attivita: AttivitaItem[]
   showProgetto?: boolean
+  readOnly?: boolean
   onSelectItem: (item: AttivitaItem) => void
   onEditItem: (item: AttivitaItem) => void
   onDeleteItem: (item: AttivitaItem) => void
@@ -620,7 +629,7 @@ interface ActivityRowsProps {
   tableLabel: string
 }
 
-function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDeleteItem, onChangeStato, tableLabel }: ActivityRowsProps) {
+function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditItem, onDeleteItem, onChangeStato, tableLabel }: ActivityRowsProps) {
   // Le righe di una singola tabella sono sempre dello stesso tipo (la vista è
   // Standard oppure Bucket, non mischiate): basta guardare la prima.
   const isBucket = attivita[0]?.tipo === 'BUCKET'
@@ -639,7 +648,8 @@ function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDele
               <th scope="col" className="ea-th ea-th--num">{isBucket ? 'Residuo da fatturare' : 'Delta'}</th>
               <th scope="col" className="ea-th">Deadline</th>
               <th scope="col" className="ea-th ea-th--ordine">Ord. Vendita</th>
-              <th scope="col" className="ea-th ea-th--actions"></th>
+              <th scope="col" className="ea-th">DevHub</th>
+              {!readOnly && <th scope="col" className="ea-th ea-th--actions"></th>}
             </tr>
           </thead>
           <tbody>
@@ -672,7 +682,9 @@ function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDele
                   </td>
                   {showProgetto && <td className="ea-cell ea-cell--progetto">{item.progetto}</td>}
                   <td className="ea-cell ea-cell--stato" onClick={e => e.stopPropagation()}>
-                    <InlineStatoEdit item={item} onChangeStato={onChangeStato} />
+                    {readOnly
+                      ? <StatoBadge stato={item.stato} bucket={isBucket} />
+                      : <InlineStatoEdit item={item} onChangeStato={onChangeStato} />}
                   </td>
                   <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(item.giornateVendute)}</td>
                   {isBucket && (
@@ -692,28 +704,31 @@ function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDele
                   )}
                   <td className="ea-cell">{fmtDate(item.deadline)}</td>
                   <td className="ea-cell ea-cell--ordine">{item.riferimentoOrdineVendita || '—'}</td>
-                  <td className="ea-cell ea-cell-actions" onClick={e => e.stopPropagation()}>
-                    <button
-                      className="ea-icon-btn"
-                      type="button"
-                      aria-label={`Modifica ${item.attivita}`}
-                      onClick={() => onEditItem(item)}
-                    >
-                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
-                        <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                    <button
-                      className="ea-icon-btn ea-icon-btn--danger"
-                      type="button"
-                      aria-label={`Elimina ${item.attivita}`}
-                      onClick={() => onDeleteItem(item)}
-                    >
-                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
-                        <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  </td>
+                  <td className="ea-cell">{item.devHub || '—'}</td>
+                  {!readOnly && (
+                    <td className="ea-cell ea-cell-actions" onClick={e => e.stopPropagation()}>
+                      <button
+                        className="ea-icon-btn"
+                        type="button"
+                        aria-label={`Modifica ${item.attivita}`}
+                        onClick={() => onEditItem(item)}
+                      >
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
+                          <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                      <button
+                        className="ea-icon-btn ea-icon-btn--danger"
+                        type="button"
+                        aria-label={`Elimina ${item.attivita}`}
+                        onClick={() => onDeleteItem(item)}
+                      >
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
+                          <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </td>
+                  )}
                 </tr>
               )
             })}
@@ -729,6 +744,7 @@ function ActivityRows({ attivita, showProgetto, onSelectItem, onEditItem, onDele
 interface GroupCardProps {
   group: GruppoAttivita
   expanded: boolean
+  readOnly?: boolean
   onToggle: () => void
   onSelectItem: (item: AttivitaItem) => void
   onEditItem: (item: AttivitaItem) => void
@@ -736,7 +752,7 @@ interface GroupCardProps {
   onChangeStato: (item: AttivitaItem, newStato: string) => Promise<void>
 }
 
-function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: GroupCardProps) {
+function GroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: GroupCardProps) {
   const statiMap  = useContext(StatiCtx)
   const isBucket  = group.attivita[0]?.tipo === 'BUCKET'
   const statoPrev = getStatoPrevValente(group.attivita, statiMap)
@@ -836,6 +852,7 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
       {expanded && (
         <ActivityRows
           attivita={group.attivita}
+          readOnly={readOnly}
           tableLabel={`Attività ${group.progetto}`}
           onSelectItem={onSelectItem}
           onEditItem={onEditItem}
@@ -852,6 +869,7 @@ function GroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDele
 interface ClienteGroupCardProps {
   group: GruppoCliente
   expanded: boolean
+  readOnly?: boolean
   onToggle: () => void
   onSelectItem: (item: AttivitaItem) => void
   onEditItem: (item: AttivitaItem) => void
@@ -859,7 +877,7 @@ interface ClienteGroupCardProps {
   onChangeStato: (item: AttivitaItem, newStato: string) => Promise<void>
 }
 
-function ClienteGroupCard({ group, expanded, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: ClienteGroupCardProps) {
+function ClienteGroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: ClienteGroupCardProps) {
   const isBucket = group.attivita[0]?.tipo === 'BUCKET'
   const delta = group.totaleVendute - group.totaleConsuntivate
 
@@ -931,6 +949,7 @@ function ClienteGroupCard({ group, expanded, onToggle, onSelectItem, onEditItem,
         <ActivityRows
           attivita={group.attivita}
           showProgetto
+          readOnly={readOnly}
           tableLabel={`Attività ${group.cliente}`}
           onSelectItem={onSelectItem}
           onEditItem={onEditItem}
@@ -948,9 +967,9 @@ function exportCSV(gruppi: GruppoAttivita[], vista: TipoAttivita) {
   const isBucket = vista === 'BUCKET'
   const rows: string[][] = [
     isBucket
-      ? ['Cliente', 'Progetto', 'Attività', 'Account', 'PM', 'Stato',
+      ? ['Cliente', 'Progetto', 'Attività', 'Account', 'PM', 'DevHub', 'Stato',
         'GG Vendute', 'GG Fatturate', 'GG Consuntivate', 'Residuo da fatturare', 'Inizio', 'Deadline', 'Ordine Vendita', 'Note']
-      : ['Cliente', 'Progetto', 'Attività', 'Account', 'PM', 'Stato',
+      : ['Cliente', 'Progetto', 'Attività', 'Account', 'PM', 'DevHub', 'Stato',
         'GG Vendute', 'GG Consuntivate', 'Delta', 'Inizio', 'Deadline', 'Ordine Vendita', 'Note'],
   ]
   for (const g of gruppi) {
@@ -960,7 +979,7 @@ function exportCSV(gruppi: GruppoAttivita[], vista: TipoAttivita) {
           ? (a.giornateVendute - a.giornateFatturate).toFixed(1)
           : ''
         rows.push([
-          a.cliente, a.progetto, a.attivita, a.account, a.projectManager, a.stato,
+          a.cliente, a.progetto, a.attivita, a.account, a.projectManager, a.devHub, a.stato,
           a.giornateVendute !== null ? String(a.giornateVendute) : '',
           a.giornateFatturate !== null ? String(a.giornateFatturate) : '',
           a.giornateConsuntivate !== null ? String(a.giornateConsuntivate) : '',
@@ -972,7 +991,7 @@ function exportCSV(gruppi: GruppoAttivita[], vista: TipoAttivita) {
           ? (a.giornateVendute - a.giornateConsuntivate).toFixed(1)
           : ''
         rows.push([
-          a.cliente, a.progetto, a.attivita, a.account, a.projectManager, a.stato,
+          a.cliente, a.progetto, a.attivita, a.account, a.projectManager, a.devHub, a.stato,
           a.giornateVendute !== null ? String(a.giornateVendute) : '',
           a.giornateConsuntivate !== null ? String(a.giornateConsuntivate) : '',
           delta, a.inizio ?? '', a.deadline ?? '',
@@ -1070,12 +1089,13 @@ interface AttivitaModalProps {
   clienti: ClienteOption[]
   progetti: ProgettoOption[]
   pms: PMOption[]
+  devHubs: DevHubOption[]
   onChange: (f: AttivitaFormData) => void
   onSave: () => void
   onClose: () => void
 }
 
-function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti, pms, onChange, onSave, onClose }: AttivitaModalProps) {
+function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti, pms, devHubs, onChange, onSave, onClose }: AttivitaModalProps) {
   const statiMap   = useContext(StatiCtx)
   const isBucket   = tipo === 'BUCKET'
   const statiList  = isBucket
@@ -1169,6 +1189,16 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
                 value={form.stato} onChange={set('stato')}>
                 {statiList.map(s => (
                   <option key={s.chiave} value={s.chiave}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-devhub" className="ea-form-label">DevHub</label>
+              <select id="ea-f-devhub" className="ea-form-input ea-form-select"
+                value={form.devHubId} onChange={set('devHubId')}>
+                <option value="">— Nessun assegnatario —</option>
+                {devHubs.map(d => (
+                  <option key={d.id} value={d.id}>{[d.firstName, d.lastName].filter(Boolean).join(' ')}</option>
                 ))}
               </select>
             </div>
@@ -1665,14 +1695,15 @@ function ImportTimesheetModal({ token, allAttivita, onClose, onImported }: Impor
 
 // ─── ElencoAttivitaPage ───────────────────────────────────────────────────────
 
-interface ElencoAttivitaPageProps { token: string }
+interface ElencoAttivitaPageProps { token: string; readOnly?: boolean }
 
-export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
+export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPageProps) {
   const [data,        setData]        = useState<AttivitaResponse | null>(null)
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState<string | null>(null)
   const [filtroAcc,   setFiltroAcc]   = useState<string[]>([])
   const [filtroPM,    setFiltroPM]    = useState<string[]>([])
+  const [filtroDevHub, setFiltroDevHub] = useState<string[]>([])
   const [filtroStato, setFiltroStato] = useState<string[]>([])
   const [soloAttivi,  setSoloAttivi]  = useState(true)
   const [expanded,    setExpanded]    = useState<Set<string>>(new Set())
@@ -1714,6 +1745,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   const [clientiOpts,  setClientiOpts]  = useState<ClienteOption[]>([])
   const [accountsOpts, setAccountsOpts] = useState<AccountOption[]>([])
   const [pmsOpts,      setPmsOpts]      = useState<PMOption[]>([])
+  const [devHubsOpts,  setDevHubsOpts]  = useState<DevHubOption[]>([])
   const [progettiOpts, setProgettiOpts] = useState<ProgettoOption[]>([])
 
   // CRUD state
@@ -1730,20 +1762,22 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     if (!opts.silent) setLoading(true)
     setError(null)
     try {
-      const [res, rC, rA, rP, rPr, rSt] = await Promise.all([
+      const [res, rC, rA, rP, rDh, rPr, rSt] = await Promise.all([
         fetch(`${API_URL}/api/attivita?tipo=${vista}`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/clienti`,            { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/users?role=ACCOUNT`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/users?role=PM`,      { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/users?role=DEVHUB`,  { headers: authHeaders(token) }),
         fetch(`${API_URL}/progetti?tipo=CLIENTE`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/stati-attivita`, { headers: authHeaders(token) }),
       ])
       if (!res.ok) throw new Error(`Errore ${res.status}`)
-      const [json, clienti, accounts, pms, progettiRaw, stati] = await Promise.all([
+      const [json, clienti, accounts, pms, devHubs, progettiRaw, stati] = await Promise.all([
         res.json() as Promise<AttivitaResponse>,
         rC.ok  ? rC.json()  : Promise.resolve([]),
         rA.ok  ? rA.json()  : Promise.resolve([]),
         rP.ok  ? rP.json()  : Promise.resolve([]),
+        rDh.ok ? rDh.json() : Promise.resolve([]),
         rPr.ok ? rPr.json() : Promise.resolve([]),
         rSt.ok ? rSt.json() : Promise.resolve([]),
       ])
@@ -1751,6 +1785,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       setClientiOpts(clienti)
       setAccountsOpts(accounts)
       setPmsOpts(pms)
+      setDevHubsOpts(devHubs)
       setStatiConfig(stati)
       setProgettiOpts(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1796,6 +1831,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       clienteId:                item.clienteId  ?? '',
       progettoId:               item.progettoId ?? '',
       pmIds:                    item.pmIds       ?? [],
+      devHubId:                 item.devHubId    ?? '',
       attivita:                 item.attivita,
       stato:                    item.stato,
       giornateVendute:          item.giornateVendute  != null ? String(item.giornateVendute)  : '',
@@ -1823,6 +1859,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         clienteId:                form.clienteId,
         progettoId:               form.progettoId,
         pmIds:                    form.pmIds,
+        devHubId:                 form.devHubId || null,
         attivita:                 form.attivita.trim(),
         tipo:                     modal === 'edit' ? editing!.tipo : vista,
         stato:                    form.stato,
@@ -1857,6 +1894,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         clienteId:                item.clienteId,
         progettoId:               item.progettoId,
         pmIds:                    item.pmIds ?? [],
+        devHubId:                 item.devHubId,
         attivita:                 item.attivita,
         tipo:                     item.tipo,
         stato:                    newStato,
@@ -1919,6 +1957,14 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     [pmsOpts]
   )
 
+  const uniqueDevHubs = useMemo(() =>
+    devHubsOpts
+      .map(d => [d.firstName, d.lastName].filter(Boolean).join(' '))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'it')),
+    [devHubsOpts]
+  )
+
   const isBucketVista = vista === 'BUCKET'
 
   const statoOptions = useMemo(
@@ -1944,8 +1990,9 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
     return data.gruppi
       .map(g => {
         let att = g.attivita
-        if (filtroAcc.length) att = att.filter(a => filtroAcc.includes(a.account))
-        if (filtroPM.length)  att = att.filter(a => filtroPM.includes(a.projectManager))
+        if (filtroAcc.length)    att = att.filter(a => filtroAcc.includes(a.account))
+        if (filtroPM.length)     att = att.filter(a => filtroPM.includes(a.projectManager))
+        if (filtroDevHub.length) att = att.filter(a => filtroDevHub.includes(a.devHub))
         if (isBucketVista) {
           if (soloAttivi) att = att.filter(a => a.stato === 'APERTA')
         } else {
@@ -1955,7 +2002,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         return { ...g, attivita: att }
       })
       .filter(g => g.attivita.length > 0)
-  }, [data, filtroAcc, filtroPM, filtroStato, soloAttivi, statiMap, isBucketVista])
+  }, [data, filtroAcc, filtroPM, filtroDevHub, filtroStato, soloAttivi, statiMap, isBucketVista])
 
   // Derived: group by cliente from filtered data
   const filteredGruppiCliente = useMemo((): GruppoCliente[] => {
@@ -2019,7 +2066,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
   }
   const collapseAll = () => setExpanded(new Set())
 
-  const hasFilters = !!(filtroAcc.length || filtroPM.length || filtroStato.length > 0 || !soloAttivi)
+  const hasFilters = !!(filtroAcc.length || filtroPM.length || filtroDevHub.length || filtroStato.length > 0 || !soloAttivi)
   const isEmpty    = groupBy === 'progetto' ? filteredGruppi.length === 0 : filteredGruppiCliente.length === 0
 
   return (
@@ -2044,13 +2091,15 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           </div>
         </div>
         <div className="ea-topbar-right">
-          <button type="button" className="ea-btn ea-btn--primary" onClick={openAdd}>
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
-              width="15" height="15" aria-hidden="true">
-              <path d="M10 4v12M4 10h12" strokeLinecap="round" />
-            </svg>
-            {isBucketVista ? 'Aggiungi attività bucket' : 'Aggiungi attività'}
-          </button>
+          {!readOnly && (
+            <button type="button" className="ea-btn ea-btn--primary" onClick={openAdd}>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
+                width="15" height="15" aria-hidden="true">
+                <path d="M10 4v12M4 10h12" strokeLinecap="round" />
+              </svg>
+              {isBucketVista ? 'Aggiungi attività bucket' : 'Aggiungi attività'}
+            </button>
+          )}
           <div className="ea-expand-btns">
             <button type="button" className="ea-btn ea-btn--ghost" onClick={expandAll}
               disabled={loading || isEmpty}>
@@ -2061,19 +2110,21 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
               Collassa tutto
             </button>
           </div>
-          <button
-            type="button"
-            className="ea-btn ea-btn--outline"
-            disabled={loading}
-            onClick={() => setShowImport(true)}
-            title="Importa consuntivi da Zoho Projects"
-          >
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
-              width="15" height="15" aria-hidden="true">
-              <path d="M10 14V4M6 10l4 4 4-4M4 17h12" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Importa consuntivi
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              className="ea-btn ea-btn--outline"
+              disabled={loading}
+              onClick={() => setShowImport(true)}
+              title="Importa consuntivi da Zoho Projects"
+            >
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+                width="15" height="15" aria-hidden="true">
+                <path d="M10 14V4M6 10l4 4 4-4M4 17h12" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Importa consuntivi
+            </button>
+          )}
           <button
             type="button"
             className="ea-btn ea-btn--outline"
@@ -2120,6 +2171,13 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           onChange={setFiltroPM}
           getOptionLabel={o => o}
         />
+        <MultiSelect
+          label="DevHub"
+          options={uniqueDevHubs}
+          value={filtroDevHub}
+          onChange={setFiltroDevHub}
+          getOptionLabel={o => o}
+        />
         {!isBucketVista && (
           <MultiSelect
             label="Stato"
@@ -2153,7 +2211,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
         />
         {hasFilters && (
           <button type="button" className="ea-filters-reset" onClick={() => {
-            setFiltroAcc([]); setFiltroPM([]); setFiltroStato([]); setSoloAttivi(true)
+            setFiltroAcc([]); setFiltroPM([]); setFiltroDevHub([]); setFiltroStato([]); setSoloAttivi(true)
           }}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75"
               width="13" height="13" aria-hidden="true">
@@ -2208,7 +2266,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           </p>
           {hasFilters && (
             <button type="button" className="ea-btn ea-btn--ghost"
-              onClick={() => { setFiltroAcc([]); setFiltroPM([]); setFiltroStato([]); setSoloAttivi(true) }}>
+              onClick={() => { setFiltroAcc([]); setFiltroPM([]); setFiltroDevHub([]); setFiltroStato([]); setSoloAttivi(true) }}>
               Rimuovi filtri
             </button>
           )}
@@ -2226,6 +2284,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
                     <GroupCard
                       group={g}
                       expanded={expanded.has(key)}
+                      readOnly={readOnly}
                       onToggle={() => toggleGroup(key)}
                       onSelectItem={setSelected}
                       onEditItem={openEdit}
@@ -2242,6 +2301,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
                     <ClienteGroupCard
                       group={g}
                       expanded={expanded.has(key)}
+                      readOnly={readOnly}
                       onToggle={() => toggleGroup(key)}
                       onSelectItem={setSelected}
                       onEditItem={openEdit}
@@ -2269,13 +2329,14 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
       {selected && (
         <AttivitaDetailModal
           item={selected}
+          readOnly={readOnly}
           onClose={() => setSelected(null)}
           onEdit={openEdit}
         />
       )}
 
       {/* ── Add / edit modal ── */}
-      {(modal === 'add' || modal === 'edit') && (
+      {!readOnly && (modal === 'add' || modal === 'edit') && (
         <AttivitaModal
           title={
             modal === 'add'
@@ -2289,6 +2350,7 @@ export default function ElencoAttivitaPage({ token }: ElencoAttivitaPageProps) {
           clienti={clientiOpts}
           progetti={progettiOpts}
           pms={pmsOpts}
+          devHubs={devHubsOpts}
           onChange={setForm}
           onSave={handleSave}
           onClose={() => setModal(null)}

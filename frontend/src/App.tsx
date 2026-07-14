@@ -244,6 +244,7 @@ export default function App() {
   }
   const roles = fetchedRoles?.token === token ? fetchedRoles.roles : (user?.roles ?? [])
   const isBoard = roles.includes('BOARD')
+  const isDevHub = roles.includes('DEVHUB')
 
   const navBtn = (id: NavPage, label: string, icon: ReactNode) => (
     <button
@@ -332,8 +333,8 @@ export default function App() {
         {page === 'clienti'       && <ClientiPage           token={token} />}
         {page === 'progetti'      && <ProgettiPage          token={token} />}
         {page === 'utenti'        && <UtentiPage            token={token} />}
-        {page === 'attivita'      && <ElencoAttivitaPage    token={token} />}
-        {page === 'roadmap'       && <RoadmapPage           token={token} />}
+        {page === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={isDevHub} />}
+        {page === 'roadmap'       && <RoadmapPage           token={token} readOnly={isDevHub} />}
         {page === 'impostazioni'  && <ImpostazioniPage      token={token} />}
         {page === 'timeline'      && <GanttPage             token={token} />}
         {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'utenti' && page !== 'attivita' && page !== 'roadmap' && page !== 'impostazioni' && page !== 'timeline' && (
