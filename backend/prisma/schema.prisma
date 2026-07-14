@@ -45,7 +45,6 @@ model User {
   attivitaPM      AttivitaPM[]
   clientiAccount  Cliente[]   @relation("ClienteAccount")
   attivitaAccount Attivita[]  @relation("AttivitaAccount")
-  attivitaDevHub  Attivita[]  @relation("AttivitaDevHub")
   roadmapItemsDevHub RoadmapItem[] @relation("RoadmapItemDevHub")
 
   @@map("users")
@@ -349,9 +348,6 @@ model Attivita {
   accountId                String?         @map("account_id")
   accountRel               User?           @relation("AttivitaAccount", fields: [accountId], references: [id], onDelete: SetNull)
 
-  devHubId                 String?         @map("dev_hub_id")
-  devHubRel                User?           @relation("AttivitaDevHub", fields: [devHubId], references: [id], onDelete: SetNull)
-
   pms                      AttivitaPM[]
   milestones               GanttMilestone[]
 
@@ -360,7 +356,6 @@ model Attivita {
   @@index([clienteId])
   @@index([progettoId])
   @@index([accountId])
-  @@index([devHubId])
   @@map("attivita")
 }
 
