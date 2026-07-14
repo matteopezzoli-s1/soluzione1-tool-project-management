@@ -134,6 +134,7 @@
 .rm-row { border-bottom: 1px solid #F1F5F9; transition: background 120ms ease; cursor: grab; }
 .rm-row:last-child { border-bottom: none; }
 .rm-row:hover { background: #FAFCFF; }
+.rm-row--clickable { cursor: pointer; }
 .rm-table td { padding: 0.7rem 1rem; vertical-align: middle; }
 .rm-cell-drag { color: #CBD5E1; }
 .rm-cell-titolo { color: #1E293B; font-weight: 600; }
@@ -245,6 +246,21 @@
 .rm-modal-close:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
 .rm-modal-body { padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; max-height: 70vh; overflow-y: auto; }
 .rm-modal-footer { display: flex; justify-content: flex-end; gap: 0.6rem; padding: 0 1.5rem 1.25rem; }
+
+/* ── Detail modal (sola lettura) ────────────────────────────── */
+
+.rm-modal--detail .rm-modal-header { display: block; }
+.rm-detail-header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; }
+.rm-detail-desc { font-size: 0.88rem; color: #475569; line-height: 1.5; }
+.rm-detail-dl { display: flex; flex-direction: column; gap: 0; }
+.rm-detail-row {
+  display: grid; grid-template-columns: 110px 1fr; gap: 0.75rem;
+  padding: 0.55rem 0; border-bottom: 1px solid #F8FAFC; align-items: baseline;
+}
+.rm-detail-row:last-child { border-bottom: none; }
+.rm-detail-row dt { font-size: 0.77rem; font-weight: 600; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.03em; }
+.rm-detail-row dd { font-size: 0.88rem; color: #1E293B; }
+.rm-detail-tags { display: flex; flex-direction: column; gap: 0.4rem; }
 
 .rm-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .rm-field { display: flex; flex-direction: column; gap: 0.4rem; }
