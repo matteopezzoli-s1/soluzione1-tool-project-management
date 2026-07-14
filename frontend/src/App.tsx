@@ -246,11 +246,19 @@ export default function App() {
   const isBoard = roles.includes('BOARD')
   const isDevHub = roles.includes('DEVHUB')
 
+  // Dashboard, Anagrafica Clienti e Progetti & Prodotti sono nascoste per il
+  // ruolo DevHub. `page` può comunque puntare a una di queste (stato iniziale
+  // di default, o residuo da prima che i ruoli fossero noti): si calcola una
+  // pagina "effettiva" per contenuto/header/nav-attiva, senza bisogno di un
+  // effect (che violerebbe le regole degli hook dopo i return sopra).
+  const devHubHiddenPages: NavPage[] = ['dashboard', 'clienti', 'progetti']
+  const effectivePage: NavPage = isDevHub && devHubHiddenPages.includes(page) ? 'attivita' : page
+
   const navBtn = (id: NavPage, label: string, icon: ReactNode) => (
     <button
-      className={`db-nav-btn${page === id ? ' db-nav-btn--active' : ''}`}
+      className={`db-nav-btn${effectivePage === id ? ' db-nav-btn--active' : ''}`}
       type="button" title={label} aria-label={label}
-      aria-current={page === id ? 'page' : undefined}
+      aria-current={effectivePage === id ? 'page' : undefined}
       onClick={() => setPage(id)}
     >
       {icon}
@@ -267,12 +275,12 @@ export default function App() {
         </div>
 
         <div className="db-sidebar-nav">
-          {navBtn('dashboard',     'Dashboard',            <IconGrid />)}
+          {!isDevHub && navBtn('dashboard', 'Dashboard',            <IconGrid />)}
           {navBtn('attivita',      'Elenco Attività Progetti', <IconClipboard />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
-          {navBtn('clienti',       'Anagrafica Clienti',   <IconBuilding />)}
-          {navBtn('progetti',      'Progetti & Prodotti',  <IconFolder />)}
+          {!isDevHub && navBtn('clienti',   'Anagrafica Clienti',   <IconBuilding />)}
+          {!isDevHub && navBtn('progetti',  'Progetti & Prodotti',  <IconFolder />)}
         </div>
 
         <div className="db-sidebar-foot">
@@ -293,7 +301,7 @@ export default function App() {
           <div className="db-header-left">
             <span className="db-header-app">TPM</span>
             <span className="db-header-divider" aria-hidden="true">/</span>
-            <span className="db-header-page">{PAGE_LABELS[page]}</span>
+            <span className="db-header-page">{PAGE_LABELS[effectivePage]}</span>
           </div>
           <div className="db-header-right">
             <div className="db-user-menu">
@@ -329,16 +337,16 @@ export default function App() {
         </header>
 
         {/* Content */}
-        {page === 'dashboard'     && <DashboardPage         token={token} onNavigate={(p) => setPage(p as NavPage)} />}
-        {page === 'clienti'       && <ClientiPage           token={token} />}
-        {page === 'progetti'      && <ProgettiPage          token={token} />}
-        {page === 'utenti'        && <UtentiPage            token={token} />}
-        {page === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={isDevHub} />}
-        {page === 'roadmap'       && <RoadmapPage           token={token} readOnly={isDevHub} />}
-        {page === 'impostazioni'  && <ImpostazioniPage      token={token} />}
-        {page === 'timeline'      && <GanttPage             token={token} />}
-        {page !== 'dashboard' && page !== 'clienti' && page !== 'progetti' && page !== 'utenti' && page !== 'attivita' && page !== 'roadmap' && page !== 'impostazioni' && page !== 'timeline' && (
-          <PlaceholderPage page={page} />
+        {effectivePage === 'dashboard'     && <DashboardPage         token={token} onNavigate={(p) => setPage(p as NavPage)} />}
+        {effectivePage === 'clienti'       && <ClientiPage           token={token} />}
+        {effectivePage === 'progetti'      && <ProgettiPage          token={token} />}
+        {effectivePage === 'utenti'        && <UtentiPage            token={token} />}
+        {effectivePage === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={isDevHub} />}
+        {effectivePage === 'roadmap'       && <RoadmapPage           token={token} readOnly={isDevHub} />}
+        {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} />}
+        {effectivePage === 'timeline'      && <GanttPage             token={token} />}
+        {effectivePage !== 'dashboard' && effectivePage !== 'clienti' && effectivePage !== 'progetti' && effectivePage !== 'utenti' && effectivePage !== 'attivita' && effectivePage !== 'roadmap' && effectivePage !== 'impostazioni' && effectivePage !== 'timeline' && (
+          <PlaceholderPage page={effectivePage} />
         )}
       </div>
     </div>
