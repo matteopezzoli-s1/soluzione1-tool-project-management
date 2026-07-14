@@ -95,7 +95,7 @@ interface ClienteOption {
 interface ProgettoOption { id: string; nome: string; clienteId: string | null; clienteNome: string | null }
 
 type AttivitaFormData = {
-  clienteId: string; progettoId: string; pmIds: string[]; devHubId: string
+  clienteId: string; progettoId: string; pmIds: string[]
   attivita: string
   stato: StatoAttivita
   giornateVendute: string; giornateFatturate: string; giornateConsuntivate: string
@@ -104,7 +104,7 @@ type AttivitaFormData = {
 }
 
 const EMPTY_FORM: AttivitaFormData = {
-  clienteId: '', progettoId: '', pmIds: [], devHubId: '',
+  clienteId: '', progettoId: '', pmIds: [],
   attivita: '', stato: 'IN_CORSO',
   giornateVendute: '', giornateFatturate: '', giornateConsuntivate: '',
   riferimentoOrdineVendita: '', inizio: '', deadline: '', note: '',
@@ -1089,13 +1089,12 @@ interface AttivitaModalProps {
   clienti: ClienteOption[]
   progetti: ProgettoOption[]
   pms: PMOption[]
-  devHubs: DevHubOption[]
   onChange: (f: AttivitaFormData) => void
   onSave: () => void
   onClose: () => void
 }
 
-function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti, pms, devHubs, onChange, onSave, onClose }: AttivitaModalProps) {
+function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti, pms, onChange, onSave, onClose }: AttivitaModalProps) {
   const statiMap   = useContext(StatiCtx)
   const isBucket   = tipo === 'BUCKET'
   const statiList  = isBucket
@@ -1189,16 +1188,6 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
                 value={form.stato} onChange={set('stato')}>
                 {statiList.map(s => (
                   <option key={s.chiave} value={s.chiave}>{s.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="ea-form-field">
-              <label htmlFor="ea-f-devhub" className="ea-form-label">DevHub</label>
-              <select id="ea-f-devhub" className="ea-form-input ea-form-select"
-                value={form.devHubId} onChange={set('devHubId')}>
-                <option value="">— Nessun assegnatario —</option>
-                {devHubs.map(d => (
-                  <option key={d.id} value={d.id}>{[d.firstName, d.lastName].filter(Boolean).join(' ')}</option>
                 ))}
               </select>
             </div>
@@ -1831,7 +1820,6 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       clienteId:                item.clienteId  ?? '',
       progettoId:               item.progettoId ?? '',
       pmIds:                    item.pmIds       ?? [],
-      devHubId:                 item.devHubId    ?? '',
       attivita:                 item.attivita,
       stato:                    item.stato,
       giornateVendute:          item.giornateVendute  != null ? String(item.giornateVendute)  : '',
@@ -1859,7 +1847,6 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         clienteId:                form.clienteId,
         progettoId:               form.progettoId,
         pmIds:                    form.pmIds,
-        devHubId:                 form.devHubId || null,
         attivita:                 form.attivita.trim(),
         tipo:                     modal === 'edit' ? editing!.tipo : vista,
         stato:                    form.stato,
@@ -1894,7 +1881,6 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         clienteId:                item.clienteId,
         progettoId:               item.progettoId,
         pmIds:                    item.pmIds ?? [],
-        devHubId:                 item.devHubId,
         attivita:                 item.attivita,
         tipo:                     item.tipo,
         stato:                    newStato,
@@ -2350,7 +2336,6 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
           clienti={clientiOpts}
           progetti={progettiOpts}
           pms={pmsOpts}
-          devHubs={devHubsOpts}
           onChange={setForm}
           onSave={handleSave}
           onClose={() => setModal(null)}
