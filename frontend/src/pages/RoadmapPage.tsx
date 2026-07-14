@@ -338,9 +338,7 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onD
           </a>
         )}
       </div>
-      {readOnly
-        ? <span className="rm-card-title">{item.titolo}</span>
-        : <button className="rm-card-title" type="button" onClick={onOpen}>{item.titolo}</button>}
+      <button className="rm-card-title" type="button" onClick={onOpen}>{item.titolo}</button>
       <TagList tags={item.tags} />
       <div className="rm-card-foot">
         {secondary === 'stato'
@@ -352,6 +350,73 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onD
         {po && <span className="rm-po-avatar rm-po-avatar--sm" title={poFullName(po)}>{poInitials(po)}</span>}
       </div>
     </div>
+  )
+}
+
+// ─── Detail modal (sola lettura) ──────────────────────────────────────────────
+
+function ItemDetailModal({ item, statiMap, po, onClose }: {
+  item: RoadmapItem; statiMap: Map<string, StatoRoadmapConfig>; po: PoRef | undefined; onClose: () => void
+}) {
+  return (
+    <SectionModal onClose={onClose} labelledBy="rm-detail-title">
+      <div className="rm-modal rm-modal--detail">
+        <div className="rm-modal-header">
+          <div className="rm-detail-header-top">
+            <ProdottoBadge prodotto={item.progetto} />
+            <button className="rm-modal-close" onClick={onClose} aria-label="Chiudi dettaglio" type="button">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+                <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          <h2 id="rm-detail-title" className="rm-modal-title">{item.titolo}</h2>
+        </div>
+        <div className="rm-modal-body">
+          {item.descrizione && <p className="rm-detail-desc">{item.descrizione}</p>}
+
+          <dl className="rm-detail-dl">
+            <div className="rm-detail-row">
+              <dt>Stato</dt><dd><StatoBadge stato={item.stato} statiMap={statiMap} /></dd>
+            </div>
+            <div className="rm-detail-row">
+              <dt>Trimestre</dt><dd>{QUARTERS.find(q => q.key === (item.quarter ?? ''))?.label ?? item.quarter}</dd>
+            </div>
+            <div className="rm-detail-row">
+              <dt>Anno</dt><dd>{item.anno}</dd>
+            </div>
+            <div className="rm-detail-row">
+              <dt>Deadline</dt><dd>{fmtDateLong(item.dataDeadline) ?? '—'}</dd>
+            </div>
+            <div className="rm-detail-row">
+              <dt>Stima</dt><dd>{item.stimaGg !== null ? `${item.stimaGg}gg` : '—'}</dd>
+            </div>
+            <div className="rm-detail-row">
+              <dt>PO</dt><dd>{po ? poFullName(po) : '—'}</dd>
+            </div>
+            <div className="rm-detail-row">
+              <dt>DevHub</dt><dd>{item.devHub ? poFullName(item.devHub) : '—'}</dd>
+            </div>
+            {item.analisiUrl && (
+              <div className="rm-detail-row">
+                <dt>Analisi</dt>
+                <dd><a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link">Apri link ↗</a></dd>
+              </div>
+            )}
+          </dl>
+
+          {item.tags.length > 0 && (
+            <div className="rm-detail-tags">
+              <span className="rm-label">Tag</span>
+              <TagList tags={item.tags} />
+            </div>
+          )}
+        </div>
+        <div className="rm-modal-footer">
+          <button className="rm-btn rm-btn--ghost" type="button" onClick={onClose}>Chiudi</button>
+        </div>
+      </div>
+    </SectionModal>
   )
 }
 
@@ -412,6 +477,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
   const [modal,     setModal]     = useState<'add' | 'edit' | null>(null)
   const [editing,   setEditing]   = useState<RoadmapItem | null>(null)
+  const [selected,  setSelected]  = useState<RoadmapItem | null>(null)
   const [form,      setForm]      = useState<FormData>(emptyForm(currentYear))
   const [saving,    setSaving]    = useState(false)
   const [formErr,   setFormErr]   = useState<string | null>(null)
@@ -528,6 +594,8 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   // ── CRUD ──────────────────────────────────────────────────
 
   const openAdd = () => { setForm(emptyForm(anno)); setFormErr(null); setModal('add') }
+  // In sola lettura non c'è form di modifica: il click apre il dettaglio.
+  const openItem = (item: RoadmapItem) => { if (readOnly) setSelected(item); else openEdit(item) }
   const openEdit = (item: RoadmapItem) => {
     setEditing(item)
     setForm({
@@ -700,10 +768,15 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
             </thead>
             <tbody>
               {listaRows.map(item => (
-                <tr key={item.id} className="rm-row" draggable={!readOnly}
+                <tr key={item.id} className={`rm-row${readOnly ? ' rm-row--clickable' : ''}`} draggable={!readOnly}
                   onDragStart={readOnly ? undefined : () => onRowDragStart(item.id)}
                   onDragOver={readOnly ? undefined : e => e.preventDefault()}
-                  onDrop={readOnly ? undefined : () => onRowDrop(item.id)}>
+                  onDrop={readOnly ? undefined : () => onRowDrop(item.id)}
+                  onClick={readOnly ? () => setSelected(item) : undefined}
+                  tabIndex={readOnly ? 0 : undefined}
+                  role={readOnly ? 'button' : undefined}
+                  aria-label={readOnly ? `Dettaglio attività: ${item.titolo}` : undefined}
+                  onKeyDown={readOnly ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(item) } } : undefined}>
                   {!readOnly && (
                     <td className="rm-cell-drag" aria-hidden="true">
                       <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><circle cx="6" cy="5" r="1.4" /><circle cx="6" cy="10" r="1.4" /><circle cx="6" cy="15" r="1.4" /><circle cx="12" cy="5" r="1.4" /><circle cx="12" cy="10" r="1.4" /><circle cx="12" cy="15" r="1.4" /></svg>
@@ -730,7 +803,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       ? <span className="rm-devhub-avatar" title={poFullName(item.devHub)}>{poInitials(item.devHub)}</span>
                       : <span className="rm-empty-cell">—</span>}
                   </td>
-                  <td className="rm-cell-text">
+                  <td className="rm-cell-text" onClick={e => e.stopPropagation()}>
                     {item.analisiUrl
                       ? <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link" aria-label="Apri analisi">
                           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15"><path d="M8 12l5-5M9 4h6v6M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -777,7 +850,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       readOnly={readOnly}
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { quarter: col.key })}
-                      onOpen={() => openEdit(item)} />
+                      onOpen={() => openItem(item)} />
                   ))}
                 </div>
               </div>
@@ -809,7 +882,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       readOnly={readOnly}
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { stato: col.chiave })}
-                      onOpen={() => openEdit(item)} />
+                      onOpen={() => openItem(item)} />
                   ))}
                 </div>
               </div>
@@ -824,6 +897,14 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           form={form} loading={saving} apiError={formErr} prodotti={prodotti} statiList={statiList} tags={tags}
           devHubs={devHubs}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
+      )}
+      {selected && (
+        <ItemDetailModal
+          item={selected}
+          statiMap={statiMap}
+          po={pmById.get(prodottoById.get(selected.progettoId)?.poId ?? '')}
+          onClose={() => setSelected(null)}
+        />
       )}
       {!readOnly && delTarget && (
         <ConfirmDelete item={delTarget} loading={deleting} onConfirm={handleDelete} onClose={() => setDelTarget(null)} />
