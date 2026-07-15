@@ -198,10 +198,10 @@ function PresaleModal({
         <div className="ps-modal-head">
           <div className="ps-modal-head-txt">
             <span className="ps-eyebrow" style={{ color: accent }}>
-              {mode === 'add' ? 'Nuova trattativa' : 'Attività presale'}
+              {mode === 'add' ? 'Nuova attività presale' : 'Attività presale'}
             </span>
             <h2 id="ps-modal-title" className="ps-modal-title">
-              {mode === 'add' ? "Apri un'attività Presale" : (form.attivita || 'Modifica attività')}
+              {mode === 'add' ? 'Apri la segnalazione' : (form.attivita || 'Modifica attività')}
             </h2>
           </div>
           <button className="ps-modal-close" onClick={onClose} aria-label="Chiudi" type="button">

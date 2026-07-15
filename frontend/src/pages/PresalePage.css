@@ -119,7 +119,15 @@
 .ps-empty-sub { margin: 0 auto; color: var(--c-slate-600); font-size: 0.9rem; max-width: 460px; line-height: 1.5; }
 
 /* ── Modal (shell condivisa) ─────────────────────────────────── */
-.ps-modal { display: flex; flex-direction: column; max-height: 88vh; width: min(560px, 94vw); }
+.ps-modal {
+  display: flex; flex-direction: column;
+  max-height: 88vh; width: min(560px, 94vw);
+  background: #fff;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-xl);
+  animation: sm-modal-in 0.25s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
 .ps-modal--sm { width: min(440px, 94vw); }
 .ps-modal--detail { width: min(560px, 94vw); }
 .ps-modal--form { width: min(600px, 94vw); }
@@ -141,7 +149,7 @@
   transition: background var(--t-fast), color var(--t-fast);
 }
 .ps-modal-close:hover { background: var(--c-slate-100); color: var(--c-slate-800); }
-.ps-modal-body { padding: 1.1rem 1.35rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.15rem; }
+.ps-modal-body { flex: 1 1 auto; min-height: 0; padding: 1.1rem 1.35rem 1.35rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.1rem; }
 .ps-modal-footer {
   display: flex; justify-content: flex-end; gap: 0.55rem;
   padding: 0.9rem 1.35rem; border-top: 1px solid var(--c-slate-200);
