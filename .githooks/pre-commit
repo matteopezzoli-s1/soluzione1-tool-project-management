@@ -1,0 +1,20 @@
+#!/bin/sh
+# Pre-commit hook — esegue ESLint sul frontend quando ci sono file frontend
+# nello stage, così gli errori di lint vengono intercettati in locale invece
+# di far fallire la CI (ci.yml → frontend → npm run lint).
+#
+# Attivazione (una tantum per clone):  git config core.hooksPath .githooks
+# Per saltarlo su un singolo commit:    git commit --no-verify
+
+root="$(git rev-parse --show-toplevel)"
+
+if git diff --cached --name-only | grep -q '^frontend/'; then
+  echo "▶ pre-commit: eslint frontend…"
+  if ! (cd "$root/frontend" && npm run lint); then
+    echo "✖ Lint del frontend fallito — commit annullato."
+    echo "  Correggi gli errori, oppure usa 'git commit --no-verify' per saltare il controllo."
+    exit 1
+  fi
+fi
+
+exit 0
