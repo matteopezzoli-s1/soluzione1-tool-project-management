@@ -727,10 +727,6 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
       <div className="rm-toolbar">
         <div className="rm-view-toggle" role="tablist" aria-label="Vista roadmap">
-          <button role="tab" aria-selected={view === 'lista'} type="button"
-            className={`rm-view-btn${view === 'lista' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('lista')}>
-            Lista
-          </button>
           <button role="tab" aria-selected={view === 'kanban-trimestre'} type="button"
             className={`rm-view-btn${view === 'kanban-trimestre' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-trimestre')}>
             Kanban per trimestre
@@ -738,6 +734,10 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           <button role="tab" aria-selected={view === 'kanban-stati'} type="button"
             className={`rm-view-btn${view === 'kanban-stati' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-stati')}>
             Kanban per stati
+          </button>
+          <button role="tab" aria-selected={view === 'lista'} type="button"
+            className={`rm-view-btn${view === 'lista' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('lista')}>
+            Lista
           </button>
         </div>
 
