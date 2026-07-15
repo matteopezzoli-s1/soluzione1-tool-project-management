@@ -895,15 +895,29 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // ── Roadmap Items CRUD ──────────────────────────────────────
 
   const roadmapItemInclude = {
-    progetto: { select: { id: true, nome: true, colore: true, poId: true } },
+    progetto: {
+      select: {
+        id: true, nome: true, colore: true, poId: true,
+        responsabileDevHubId: true,
+        responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
+      },
+    },
     tags: { include: { tag: true } },
-    devHub: { select: { id: true, firstName: true, lastName: true } },
   } as const
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function flattenRoadmapItem(item: any) {
-    const { tags, ...rest } = item
-    return { ...rest, tags: (tags ?? []).map((t: { tag: unknown }) => t.tag) }
+    const { tags, progetto, ...rest } = item
+    const { responsabileDevHubId, responsabileDevHub, ...progettoRest } = progetto ?? {}
+    return {
+      ...rest,
+      progetto: progettoRest,
+      // Il DevHub è un attributo del prodotto/progetto, non della singola
+      // attività roadmap: viene ereditato dal Progetto associato.
+      devHub: responsabileDevHub ?? null,
+      devHubId: responsabileDevHubId ?? null,
+      tags: (tags ?? []).map((t: { tag: unknown }) => t.tag),
+    }
   }
 
   async function syncRoadmapItemTags(prisma: PrismaClient, roadmapItemId: string, tagIds: string[]) {
@@ -926,8 +940,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (progettoId?.trim()) where['progettoId'] = progettoId.trim()
       if (anno?.trim()) where['anno'] = parseInt(anno, 10)
       if (tag?.trim()) where['tags'] = { some: { tagId: tag.trim() } }
+      // Il filtro DevHub punta al responsabile del prodotto/progetto associato,
+      // non a un assegnatario della singola attività roadmap.
       const devHubId = c.req.query('devHubId')
-      if (devHubId?.trim()) where['devHubId'] = { in: devHubId.split(',').map(v => v.trim()).filter(Boolean) }
+      if (devHubId?.trim()) {
+        where['progetto'] = { responsabileDevHubId: { in: devHubId.split(',').map(v => v.trim()).filter(Boolean) } }
+      }
       const items = await c.get('prisma').roadmapItem.findMany({
         where,
         orderBy: [{ anno: 'asc' }, { quarter: 'asc' }, { ordine: 'asc' }],
@@ -941,10 +959,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.post('/api/roadmap-items', requireAuth(), async (c) => {
-    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds, devHubId } = await readJSON<{
+    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds } = await readJSON<{
       progettoId?: string; anno?: number; quarter?: string | null; dataDeadline?: string | null
       titolo?: string; descrizione?: string; stato?: string; analisiUrl?: string
-      stimaGg?: number | null; ordine?: number; tagIds?: string[]; devHubId?: string
+      stimaGg?: number | null; ordine?: number; tagIds?: string[]
     }>(c)
     if (!progettoId?.trim()) return c.json({ error: 'progettoId è obbligatorio' }, 400)
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
@@ -968,7 +986,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           analisiUrl: analisiUrl?.trim() || null,
           stimaGg: stimaGg ?? null,
           ordine: ordine ?? 0,
-          devHubId: devHubId?.trim() || null,
           tags: Array.isArray(tagIds) && tagIds.length > 0
             ? { create: tagIds.map(tagId => ({ tagId })) }
             : undefined,
@@ -977,7 +994,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       })
       return c.json(flattenRoadmapItem(item), 201)
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Prodotto, tag o Responsabile DevHub non trovato' }, 400)
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Prodotto o tag non trovato' }, 400)
       console.error('[roadmap-items] POST error:', err)
       return c.json({ error: 'Errore nella creazione dell\'attività roadmap' }, 500)
     }
@@ -985,10 +1002,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/api/roadmap-items/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds, devHubId } = await readJSON<{
+    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds } = await readJSON<{
       progettoId?: string; anno?: number; quarter?: string | null; dataDeadline?: string | null
       titolo?: string; descrizione?: string; stato?: string; analisiUrl?: string
-      stimaGg?: number | null; ordine?: number; tagIds?: string[]; devHubId?: string
+      stimaGg?: number | null; ordine?: number; tagIds?: string[]
     }>(c)
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
     if (!anno) return c.json({ error: 'L\'anno è obbligatorio' }, 400)
@@ -1013,14 +1030,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           analisiUrl: analisiUrl?.trim() || null,
           stimaGg: stimaGg ?? null,
           ordine: ordine ?? 0,
-          devHubId: devHubId?.trim() || null,
         },
         include: roadmapItemInclude,
       })
       return c.json(flattenRoadmapItem(item))
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività roadmap non trovata' }, 404)
-      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Responsabile DevHub non trovato' }, 400)
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'Prodotto o tag non trovato' }, 400)
       console.error('[roadmap-items] PUT error:', err)
       return c.json({ error: 'Errore nell\'aggiornamento dell\'attività roadmap' }, 500)
     }
