@@ -507,7 +507,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [loading,     setLoading]     = useState(true)
   const [apiError,    setApiError]    = useState<string | null>(null)
 
-  const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('lista')
+  const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('kanban-trimestre')
   const [anno, setAnno] = useState(currentYear)
   const [filterProdotto, setFilterProdotto] = useState<string[]>([])
   const [filterStato, setFilterStato] = useState<string[]>([])
@@ -633,7 +633,17 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
   // ── CRUD ──────────────────────────────────────────────────
 
-  const openAdd = () => { setForm(emptyForm(anno)); setFormErr(null); setModal('add') }
+  const openAdd = () => {
+    // Il default di stato deve essere uno stato realmente configurato, altrimenti
+    // il backend risponde "Stato non valido": preferisci DA_FARE, poi il primo
+    // stato non archiviato, infine il primo disponibile.
+    const stato = statiList.find(s => s.chiave === 'DA_FARE')?.chiave
+      ?? statiList.find(s => !s.isArchiviato)?.chiave
+      ?? statiList[0]?.chiave
+      ?? 'DA_FARE'
+    setForm({ ...emptyForm(anno), stato })
+    setFormErr(null); setModal('add')
+  }
   // In sola lettura non c'è form di modifica: il click apre il dettaglio.
   const openItem = (item: RoadmapItem) => { if (readOnly) setSelected(item); else openEdit(item) }
   const openEdit = (item: RoadmapItem) => {
