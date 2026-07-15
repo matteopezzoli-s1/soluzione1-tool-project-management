@@ -58,7 +58,26 @@ async function main() {
     ],
   })
 
-  console.log('Seed completato:', { user1: user1.email, user2: user2.email, project: project.name })
+  // ── Stati Presale (colonne del Kanban Presale) ──────────────────
+  // isPresale=true li rende colonne della board; escludiDaConteggio=true
+  // evita che le giornate proposte in trattativa inquinino i totali.
+  const statiPresale = [
+    { chiave: 'PRESALE_APERTURA',     label: 'Apertura',        colore: '#3B82F6', ordine: 1 },
+    { chiave: 'PRESALE_PRESA_CARICO', label: 'Presa in carico', colore: '#0D9488', ordine: 2 },
+    { chiave: 'PRESALE_STIMA',        label: 'Stima',           colore: '#8B5CF6', ordine: 3 },
+    { chiave: 'PRESALE_GIORNATE',     label: 'Giornate vendute',colore: '#F59E0B', ordine: 4 },
+    { chiave: 'PRESALE_CONFERMA',     label: 'Conferma',        colore: '#22C55E', ordine: 5 },
+  ]
+  for (const s of statiPresale) {
+    const data = { label: s.label, colore: s.colore, ordine: s.ordine, isPresale: true, escludiDaConteggio: true }
+    await prisma.statoAttivitaConfig.upsert({
+      where: { chiave: s.chiave },
+      update: data,
+      create: { chiave: s.chiave, ...data },
+    })
+  }
+
+  console.log('Seed completato:', { user1: user1.email, user2: user2.email, project: project.name, statiPresale: statiPresale.length })
 }
 
 main()

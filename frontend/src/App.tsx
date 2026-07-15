@@ -9,6 +9,7 @@ import ImpostazioniPage      from './pages/ImpostazioniPage'
 import GanttPage             from './pages/GanttPage'
 import DashboardPage         from './pages/DashboardPage'
 import RoadmapPage           from './pages/RoadmapPage'
+import PresalePage           from './pages/PresalePage'
 import './App.css'
 
 // ─── Sidebar icons ──────────────────────────────────────────────────────────
@@ -79,6 +80,15 @@ function IconRoadmap() {
   )
 }
 
+function IconPresale() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+      width="20" height="20" aria-hidden="true">
+      <path d="M2.5 4h15l-5.5 6.5V17l-4-2v-4.5L2.5 4z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 function IconSettings() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true">
@@ -109,7 +119,7 @@ function BrandMark() {
 
 // ─── Sezione placeholder ─────────────────────────────────────────────────────
 
-type NavPage = 'dashboard' | 'clienti' | 'progetti' | 'timeline' | 'attivita' | 'utenti' | 'roadmap' | 'impostazioni'
+type NavPage = 'dashboard' | 'clienti' | 'progetti' | 'timeline' | 'attivita' | 'presale' | 'utenti' | 'roadmap' | 'impostazioni'
 
 const PAGE_LABELS: Record<NavPage, string> = {
   dashboard:    'Dashboard',
@@ -117,12 +127,13 @@ const PAGE_LABELS: Record<NavPage, string> = {
   progetti:     'Progetti & Prodotti',
   timeline:     'Gantt Attività',
   attivita:     'Elenco Attività Progetti',
+  presale:      'Presale',
   utenti:       'Anagrafica Utenti',
   roadmap:      'Roadmap Prodotti',
   impostazioni: 'Impostazioni',
 }
 
-function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard' | 'attivita' | 'clienti' | 'progetti'> }) {
+function PlaceholderPage({ page }: { page: Exclude<NavPage, 'dashboard' | 'attivita' | 'presale' | 'clienti' | 'progetti'> }) {
   return (
     <div className="db-placeholder">
       <div className="db-placeholder-inner">
@@ -277,6 +288,7 @@ export default function App() {
         <div className="db-sidebar-nav">
           {!isDevHub && navBtn('dashboard', 'Dashboard',            <IconGrid />)}
           {navBtn('attivita',      'Elenco Attività Progetti', <IconClipboard />)}
+          {navBtn('presale',       'Presale',              <IconPresale />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
           {!isDevHub && navBtn('clienti',   'Anagrafica Clienti',   <IconBuilding />)}
@@ -342,10 +354,11 @@ export default function App() {
         {effectivePage === 'progetti'      && <ProgettiPage          token={token} />}
         {effectivePage === 'utenti'        && <UtentiPage            token={token} />}
         {effectivePage === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={isDevHub} />}
+        {effectivePage === 'presale'       && <PresalePage           token={token} />}
         {effectivePage === 'roadmap'       && <RoadmapPage           token={token} readOnly={isDevHub} />}
         {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} />}
         {effectivePage === 'timeline'      && <GanttPage             token={token} />}
-        {effectivePage !== 'dashboard' && effectivePage !== 'clienti' && effectivePage !== 'progetti' && effectivePage !== 'utenti' && effectivePage !== 'attivita' && effectivePage !== 'roadmap' && effectivePage !== 'impostazioni' && effectivePage !== 'timeline' && (
+        {effectivePage !== 'dashboard' && effectivePage !== 'clienti' && effectivePage !== 'progetti' && effectivePage !== 'utenti' && effectivePage !== 'attivita' && effectivePage !== 'presale' && effectivePage !== 'roadmap' && effectivePage !== 'impostazioni' && effectivePage !== 'timeline' && (
           <PlaceholderPage page={effectivePage} />
         )}
       </div>

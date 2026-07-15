@@ -13,6 +13,7 @@ export interface StatoConfig {
   colore: string
   isArchiviato: boolean
   escludiDaConteggio: boolean
+  isPresale?: boolean
   ordine: number
 }
 
@@ -23,6 +24,7 @@ interface FormState {
   colore: string
   isArchiviato: boolean
   escludiDaConteggio: boolean
+  isPresale: boolean
   ordine: string
 }
 
@@ -31,6 +33,7 @@ const EMPTY_FORM: FormState = {
   colore: '#3b82f6',
   isArchiviato: false,
   escludiDaConteggio: false,
+  isPresale: false,
   ordine: '99',
 }
 
@@ -158,7 +161,7 @@ function StatoModal({ title, form, chiavePreview, loading, apiError, showEscludi
                 <StatoBadgePreview stato={{
                   id: '', chiave: chiavePreview, label: form.label || 'Anteprima',
                   colore: form.colore, isArchiviato: form.isArchiviato,
-                  escludiDaConteggio: form.escludiDaConteggio, ordine: 0,
+                  escludiDaConteggio: form.escludiDaConteggio, isPresale: form.isPresale, ordine: 0,
                 }} />
               )}
             </div>
@@ -208,6 +211,32 @@ function StatoModal({ title, form, chiavePreview, loading, apiError, showEscludi
                   {form.escludiDaConteggio
                     ? <><span className="imp-tipo-tag imp-tipo-tag--amber">Escluso</span> — giornate non conteggiate nei totali</>
                     : <><span className="imp-tipo-tag imp-tipo-tag--active">Incluso</span> — giornate conteggiate nei totali</>
+                  }
+                </span>
+              </label>
+            </div>
+          )}
+
+          {/* Fase Presale — solo per stati attività */}
+          {showEscludi && (
+            <div className="imp-field">
+              <span className="imp-label">Fase Presale</span>
+              <label className="imp-toggle-wrap">
+                <input
+                  type="checkbox"
+                  className="imp-toggle-input"
+                  checked={form.isPresale}
+                  onChange={e => onChange({ ...form, isPresale: e.target.checked })}
+                  role="switch"
+                  aria-checked={form.isPresale}
+                />
+                <span className="imp-toggle-track" data-checked={form.isPresale}>
+                  <span className="imp-toggle-thumb" />
+                </span>
+                <span className="imp-toggle-label">
+                  {form.isPresale
+                    ? <><span className="imp-tipo-tag imp-tipo-tag--presale">Presale</span> — colonna della board Presale</>
+                    : <><span className="imp-tipo-tag imp-tipo-tag--active">Standard</span> — stato normale di attività</>
                   }
                 </span>
               </label>
@@ -441,7 +470,7 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
 
   const openEdit = (s: StatoConfig) => {
     setEditing(s)
-    setForm({ label: s.label, colore: s.colore, isArchiviato: s.isArchiviato, escludiDaConteggio: s.escludiDaConteggio, ordine: String(s.ordine) })
+    setForm({ label: s.label, colore: s.colore, isArchiviato: s.isArchiviato, escludiDaConteggio: s.escludiDaConteggio, isPresale: s.isPresale ?? false, ordine: String(s.ordine) })
     setFormErr(null)
     setModal('edit')
   }
@@ -460,6 +489,7 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
         colore:             form.colore || '#94a3b8',
         isArchiviato:       form.isArchiviato,
         escludiDaConteggio: sezione === 'attivita' ? form.escludiDaConteggio : false,
+        isPresale:          sezione === 'attivita' ? form.isPresale : false,
         ordine:             parseInt(form.ordine) || 99,
       }
       const res = await fetch(url, { method, headers: authHeadersJson(token), body: JSON.stringify(body) })
