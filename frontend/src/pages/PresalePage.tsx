@@ -887,7 +887,7 @@ export default function PresalePage({ token }: { token: string }) {
                   {colItems.map(item => (
                     <PresaleCard key={item.id} item={item} accent={col.colore} onDragStart={id => { dragIdRef.current = id }} onOpen={setSelected} />
                   ))}
-                  {colItems.length === 0 && <p className="ps-col-empty">—</p>}
+                  {colItems.length === 0 && <p className="ps-col-empty">Nessuna attività</p>}
                 </div>
               </div>
             )
