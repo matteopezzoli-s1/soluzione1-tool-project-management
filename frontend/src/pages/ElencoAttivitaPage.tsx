@@ -20,8 +20,14 @@ const BUCKET_STATI: { chiave: string; label: string }[] = [
 
 interface StatoConfigItem {
   id: string; chiave: string; label: string
-  colore: string; isArchiviato: boolean; escludiDaConteggio: boolean; ordine: number
+  colore: string; isArchiviato: boolean; escludiDaConteggio: boolean; isPresale?: boolean; ordine: number
 }
+
+// Le fasi Presale (isPresale) non vengono elencate una per una tra gli stati
+// attività: nell'elenco si mostrano come un unico "Presale (fase)" e nel filtro
+// come un'unica voce ombrello con questa chiave sentinella.
+const PRESALE_FILTER_KEY = '__PRESALE__'
+const PRESALE_COLORE = '#7C3AED'
 
 // Context per la mappa chiave→config (evita prop-drilling nei subcomponenti)
 const StatiCtx = createContext<Map<string, StatoConfigItem>>(new Map())
@@ -171,8 +177,20 @@ function StatoBadge({ stato, bucket }: { stato: StatoAttivita; bucket?: boolean 
   const statiMap = useContext(StatiCtx)
   const bucketCfg = bucket ? BUCKET_STATI.find(s => s.chiave === stato) : undefined
   const cfg = statiMap.get(stato)
-  const label  = bucketCfg?.label ?? cfg?.label ?? stato
-  const colore = bucketCfg ? (bucketCfg.chiave === 'APERTA' ? '#16A34A' : '#94A3B8') : (cfg?.colore ?? '#94a3b8')
+  let label: string
+  let colore: string
+  if (bucketCfg) {
+    label = bucketCfg.label
+    colore = bucketCfg.chiave === 'APERTA' ? '#16A34A' : '#94A3B8'
+  } else if (stato === PRESALE_FILTER_KEY) {
+    label = 'Presale'; colore = PRESALE_COLORE
+  } else if (cfg?.isPresale) {
+    // Attività nata da pre-sale: un unico "Presale" con la fase tra parentesi.
+    label = `Presale (${cfg.label})`; colore = PRESALE_COLORE
+  } else {
+    label = cfg?.label ?? stato
+    colore = cfg?.colore ?? '#94a3b8'
+  }
   return (
     <span
       className="ea-badge"
@@ -229,7 +247,9 @@ function InlineStatoEdit({ item, onChangeStato }: {
   const isBucket = item.tipo === 'BUCKET'
   const statiList = isBucket
     ? BUCKET_STATI.map(s => ({ chiave: s.chiave, label: s.label }))
-    : [...statiMap.values()].sort((a, b) => a.ordine - b.ordine)
+    // Le fasi presale si gestiscono dal Kanban Presale: qui le escludo dal
+    // cambio-stato inline (tengo solo quella corrente, se l'attività è presale).
+    : [...statiMap.values()].filter(s => !s.isPresale || s.chiave === item.stato).sort((a, b) => a.ordine - b.ordine)
 
   const handleOpen = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -1058,7 +1078,9 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
   const isBucket   = tipo === 'BUCKET'
   const statiList  = isBucket
     ? BUCKET_STATI.map(s => ({ chiave: s.chiave, label: s.label }))
-    : [...statiMap.values()].sort((a, b) => a.ordine - b.ordine)
+    // Escludo le fasi presale dalla tendina (si gestiscono dal Kanban Presale),
+    // ma tengo quella corrente se l'attività aperta è già in fase presale.
+    : [...statiMap.values()].filter(s => !s.isPresale || s.chiave === form.stato).sort((a, b) => a.ordine - b.ordine)
   const [oreMode, setOreMode] = useState(false)
 
   const set = (key: keyof AttivitaFormData) =>
@@ -1903,12 +1925,16 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
   const isBucketVista = vista === 'BUCKET'
 
   const statoOptions = useMemo(
-    () => isBucketVista
-      ? []
-      : statiConfig
-          .filter(s => !soloAttivi || !s.isArchiviato)
-          .sort((a, b) => a.ordine - b.ordine)
-          .map(s => s.chiave),
+    () => {
+      if (isBucketVista) return []
+      const normali = statiConfig
+        .filter(s => !s.isPresale)
+        .filter(s => !soloAttivi || !s.isArchiviato)
+        .sort((a, b) => a.ordine - b.ordine)
+        .map(s => s.chiave)
+      // Un'unica voce "Presale" invece delle singole fasi
+      return statiConfig.some(s => s.isPresale) ? [...normali, PRESALE_FILTER_KEY] : normali
+    },
     [statiConfig, soloAttivi, isBucketVista]
   )
 
@@ -1931,7 +1957,12 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         if (isBucketVista) {
           if (soloAttivi) att = att.filter(a => a.stato === 'APERTA')
         } else {
-          if (filtroStato.length) att = att.filter(a => filtroStato.includes(a.stato))
+          if (filtroStato.length) {
+            const wantPresale = filtroStato.includes(PRESALE_FILTER_KEY)
+            att = att.filter(a =>
+              filtroStato.includes(a.stato) ||
+              (wantPresale && (statiMap.get(a.stato)?.isPresale ?? false)))
+          }
           if (soloAttivi) att = att.filter(a => !(statiMap.get(a.stato)?.isArchiviato ?? false))
         }
         return { ...g, attivita: att }
@@ -2122,7 +2153,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
               const valid = v.filter(s => statoOptions.includes(s))
               setFiltroStato(valid)
             }}
-            getOptionLabel={key => statiMap.get(key)?.label ?? key}
+            getOptionLabel={key => key === PRESALE_FILTER_KEY ? 'Presale' : (statiMap.get(key)?.label ?? key)}
           />
         )}
         <div className="ea-filters-sep" aria-hidden="true" />
