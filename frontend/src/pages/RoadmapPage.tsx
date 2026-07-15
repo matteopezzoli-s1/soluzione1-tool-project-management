@@ -73,15 +73,16 @@ function toInputDate(iso: string | null) {
   return iso.split('T')[0]
 }
 
-// Ordinamento card Kanban: deadline più recenti in cima; le attività senza
-// deadline vanno sopra a tutte; a parità di data si mantiene l'ordine manuale.
-function byDeadlineDesc(a: RoadmapItem, b: RoadmapItem): number {
+// Ordinamento card Kanban: deadline in ordine crescente (le più vicine prima);
+// le attività senza deadline vanno in cima a tutte; a parità di data si
+// mantiene l'ordine manuale.
+function byDeadlineAsc(a: RoadmapItem, b: RoadmapItem): number {
   const da = a.dataDeadline ? new Date(a.dataDeadline).getTime() : null
   const db = b.dataDeadline ? new Date(b.dataDeadline).getTime() : null
   if (da === null && db === null) return a.ordine - b.ordine
   if (da === null) return -1
   if (db === null) return 1
-  if (db !== da) return db - da
+  if (da !== db) return da - db
   return a.ordine - b.ordine
 }
 
@@ -883,7 +884,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           {QUARTERS.map(col => {
             const colItems = [...displayItems]
               .filter(i => (i.quarter ?? '') === col.key)
-              .sort(byDeadlineDesc)
+              .sort(byDeadlineAsc)
             return (
               <div key={col.key || 'backlog'} className="rm-col"
                 onDragOver={readOnly ? undefined : e => e.preventDefault()}
@@ -915,7 +916,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           {statiList.map(col => {
             const colItems = [...displayItems]
               .filter(i => i.stato === col.chiave)
-              .sort(byDeadlineDesc)
+              .sort(byDeadlineAsc)
             return (
               <div key={col.chiave} className="rm-col"
                 onDragOver={readOnly ? undefined : e => e.preventDefault()}
