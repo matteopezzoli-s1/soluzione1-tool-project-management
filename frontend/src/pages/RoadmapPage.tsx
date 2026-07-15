@@ -30,7 +30,6 @@ type FormData = {
   progettoId: string; titolo: string; descrizione: string
   anno: string; quarter: string; dataDeadline: string
   stato: string; stimaGg: string; analisiUrl: string; tagIds: string[]
-  devHubId: string
 }
 
 const QUARTERS: { key: string; label: string }[] = [
@@ -42,7 +41,7 @@ const QUARTERS: { key: string; label: string }[] = [
 ]
 
 function emptyForm(anno: number): FormData {
-  return { progettoId: '', titolo: '', descrizione: '', anno: String(anno), quarter: '', dataDeadline: '', stato: 'DA_FARE', stimaGg: '', analisiUrl: '', tagIds: [], devHubId: '' }
+  return { progettoId: '', titolo: '', descrizione: '', anno: String(anno), quarter: '', dataDeadline: '', stato: 'DA_FARE', stimaGg: '', analisiUrl: '', tagIds: [] }
 }
 
 function authHeaders(token: string) {
@@ -74,6 +73,33 @@ function toInputDate(iso: string | null) {
   return iso.split('T')[0]
 }
 
+// Ordinamento card Kanban: deadline più recenti in cima; le attività senza
+// deadline vanno sopra a tutte; a parità di data si mantiene l'ordine manuale.
+function byDeadlineDesc(a: RoadmapItem, b: RoadmapItem): number {
+  const da = a.dataDeadline ? new Date(a.dataDeadline).getTime() : null
+  const db = b.dataDeadline ? new Date(b.dataDeadline).getTime() : null
+  if (da === null && db === null) return a.ordine - b.ordine
+  if (da === null) return -1
+  if (db === null) return 1
+  if (db !== da) return db - da
+  return a.ordine - b.ordine
+}
+
+// ─── Icone meta (card Kanban) ─────────────────────────────────────────────────
+
+function IconClock() {
+  return <svg className="rm-meta-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" width="13" height="13" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 6.2V10l2.6 1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+}
+function IconCalendar() {
+  return <svg className="rm-meta-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" width="13" height="13" aria-hidden="true"><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8h13M7 3v3M13 3v3" strokeLinecap="round" /></svg>
+}
+function IconFlag() {
+  return <svg className="rm-meta-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" width="13" height="13" aria-hidden="true"><path d="M5.5 17V3.5M5.5 4h8l-1.8 2.8L13.5 10h-8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+}
+function IconTag() {
+  return <svg className="rm-card-tags-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" width="13" height="13" aria-hidden="true"><path d="M9.5 3H3.5v6l7.5 7.5 6-6L9.5 3z" strokeLinecap="round" strokeLinejoin="round" /><circle cx="6.4" cy="6.4" r="1" fill="currentColor" stroke="none" /></svg>
+}
+
 // ─── Badges ───────────────────────────────────────────────────────────────────
 
 function ProdottoBadge({ prodotto }: { prodotto: ProdottoRef }) {
@@ -94,11 +120,6 @@ function StatoBadge({ stato, statiMap }: { stato: string; statiMap: Map<string, 
       {label}
     </span>
   )
-}
-
-function QuarterBadge({ quarter }: { quarter: string | null }) {
-  const label = QUARTERS.find(q => q.key === (quarter ?? ''))?.label ?? quarter
-  return <span className="rm-quarter-badge">{label}</span>
 }
 
 function TagBadge({ tag }: { tag: TagRef }) {
@@ -211,11 +232,11 @@ function MultiSelect({ label, options, value, onChange }: {
 
 interface ModalProps {
   title: string; form: FormData; loading: boolean; apiError: string | null
-  prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]; tags: TagRef[]; devHubs: PoRef[]
+  prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]; tags: TagRef[]
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
-function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, devHubs, onChange, onSave, onClose }: ModalProps) {
+function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
@@ -295,14 +316,6 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
           </div>
 
           <div className="rm-field">
-            <label htmlFor="rm-devhub" className="rm-label">DevHub</label>
-            <select id="rm-devhub" className="rm-input rm-select" value={form.devHubId} onChange={set('devHubId')}>
-              <option value="">— Nessun assegnatario —</option>
-              {devHubs.map(d => <option key={d.id} value={d.id}>{poFullName(d)}</option>)}
-            </select>
-          </div>
-
-          <div className="rm-field">
             <span className="rm-label">Tag</span>
             <TagPicker tags={tags} selectedIds={form.tagIds} onToggle={toggleTag} />
           </div>
@@ -321,34 +334,61 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
 interface RoadmapCardProps {
   item: RoadmapItem; secondary: 'stato' | 'quarter'; statiMap: Map<string, StatoRoadmapConfig>
   po: PoRef | undefined; readOnly?: boolean
-  onDragStart: () => void; onDrop: (e: React.DragEvent) => void; onOpen: () => void
+  onDragStart: () => void; onDrop: (e: React.DragEvent) => void; onOpen: () => void; onDelete: () => void
 }
 
-function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onDrop, onOpen }: RoadmapCardProps) {
+function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onDrop, onOpen, onDelete }: RoadmapCardProps) {
   return (
     <div className="rm-card" draggable={!readOnly}
       onDragStart={readOnly ? undefined : onDragStart}
       onDragOver={readOnly ? undefined : e => { e.preventDefault(); e.stopPropagation() }}
       onDrop={readOnly ? undefined : e => { e.stopPropagation(); onDrop(e) }}>
       <div className="rm-card-head">
-        <ProdottoBadge prodotto={item.progetto} />
-        {item.analisiUrl && (
-          <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link" aria-label="Apri analisi">
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14"><path d="M8 12l5-5M9 4h6v6M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </a>
+        <span className="rm-card-prod">
+          <span className="rm-card-prod-dot" style={{ background: item.progetto.colore ?? '#0D9488' }} aria-hidden="true" />
+          <span className="rm-card-prod-name" style={{ color: item.progetto.colore ?? '#0D9488' }}>{item.progetto.nome}</span>
+        </span>
+        {(item.analisiUrl || !readOnly) && (
+          <span className="rm-card-actions">
+            {item.analisiUrl && (
+              <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link" aria-label="Apri analisi">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14"><path d="M8 12l5-5M9 4h6v6M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </a>
+            )}
+            {!readOnly && (
+              <button className="rm-card-del" type="button" aria-label={`Elimina ${item.titolo}`}
+                onClick={e => { e.stopPropagation(); onDelete() }}>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14" aria-hidden="true"><path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </button>
+            )}
+          </span>
         )}
       </div>
       <button className="rm-card-title" type="button" onClick={onOpen}>{item.titolo}</button>
-      <TagList tags={item.tags} />
-      <div className="rm-card-foot">
+      <div className="rm-card-attrs">
         {secondary === 'stato'
-          ? <StatoBadge stato={item.stato} statiMap={statiMap} />
-          : <QuarterBadge quarter={item.quarter} />}
-        {item.stimaGg !== null && <span className="rm-card-meta">{item.stimaGg}gg</span>}
-        {item.dataDeadline && <span className="rm-card-meta">{fmtDate(item.dataDeadline)}</span>}
-        {item.devHub && <span className="rm-devhub-avatar rm-devhub-avatar--sm" title={`DevHub: ${poFullName(item.devHub)}`}>{poInitials(item.devHub)}</span>}
-        {po && <span className="rm-po-avatar rm-po-avatar--sm" title={poFullName(po)}>{poInitials(po)}</span>}
+          ? (() => { const cfg = statiMap.get(item.stato); return (
+              <span className="rm-meta-item">
+                <span className="rm-meta-dot" style={{ background: cfg?.colore ?? '#94a3b8' }} aria-hidden="true" />
+                {cfg?.label ?? item.stato}
+              </span>
+            ) })()
+          : (item.quarter && <span className="rm-meta-item"><IconCalendar />{QUARTERS.find(q => q.key === item.quarter)?.label ?? item.quarter}</span>)}
+        {item.stimaGg !== null && <span className="rm-meta-item"><IconClock />{item.stimaGg}gg</span>}
+        {item.dataDeadline && <span className="rm-meta-item"><IconFlag />{fmtDate(item.dataDeadline)}</span>}
+        {(item.devHub || po) && (
+          <span className="rm-card-people">
+            {item.devHub && <span className="rm-devhub-avatar rm-devhub-avatar--sm" title={`DevHub: ${poFullName(item.devHub)}`}>{poInitials(item.devHub)}</span>}
+            {po && <span className="rm-po-avatar rm-po-avatar--sm" title={poFullName(po)}>{poInitials(po)}</span>}
+          </span>
+        )}
       </div>
+      {item.tags.length > 0 && (
+        <div className="rm-card-tags">
+          <IconTag />
+          <TagList tags={item.tags} />
+        </div>
+      )}
     </div>
   )
 }
@@ -602,7 +642,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       progettoId: item.progettoId, titolo: item.titolo, descrizione: item.descrizione ?? '',
       anno: String(item.anno), quarter: item.quarter ?? '', dataDeadline: toInputDate(item.dataDeadline),
       stato: item.stato, stimaGg: item.stimaGg !== null ? String(item.stimaGg) : '', analisiUrl: item.analisiUrl ?? '',
-      tagIds: item.tags.map(t => t.id), devHubId: item.devHubId ?? '',
+      tagIds: item.tags.map(t => t.id),
     })
     setFormErr(null); setModal('edit')
   }
@@ -625,7 +665,6 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
         stimaGg: form.stimaGg ? parseFloat(form.stimaGg) : null,
         analisiUrl: form.analisiUrl,
         tagIds: form.tagIds,
-        devHubId: form.devHubId || null,
       }
       const res = await fetch(url, { method, headers: authHeaders(token), body: JSON.stringify(body) })
       if (!res.ok) {
@@ -688,10 +727,6 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
       <div className="rm-toolbar">
         <div className="rm-view-toggle" role="tablist" aria-label="Vista roadmap">
-          <button role="tab" aria-selected={view === 'lista'} type="button"
-            className={`rm-view-btn${view === 'lista' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('lista')}>
-            Lista
-          </button>
           <button role="tab" aria-selected={view === 'kanban-trimestre'} type="button"
             className={`rm-view-btn${view === 'kanban-trimestre' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-trimestre')}>
             Kanban per trimestre
@@ -699,6 +734,10 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           <button role="tab" aria-selected={view === 'kanban-stati'} type="button"
             className={`rm-view-btn${view === 'kanban-stati' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-stati')}>
             Kanban per stati
+          </button>
+          <button role="tab" aria-selected={view === 'lista'} type="button"
+            className={`rm-view-btn${view === 'lista' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('lista')}>
+            Lista
           </button>
         </div>
 
@@ -834,7 +873,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           {QUARTERS.map(col => {
             const colItems = [...displayItems]
               .filter(i => (i.quarter ?? '') === col.key)
-              .sort((a, b) => a.ordine - b.ordine)
+              .sort(byDeadlineDesc)
             return (
               <div key={col.key || 'backlog'} className="rm-col"
                 onDragOver={readOnly ? undefined : e => e.preventDefault()}
@@ -850,7 +889,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       readOnly={readOnly}
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { quarter: col.key })}
-                      onOpen={() => openItem(item)} />
+                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)} />
                   ))}
                 </div>
               </div>
@@ -866,7 +905,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           {statiList.map(col => {
             const colItems = [...displayItems]
               .filter(i => i.stato === col.chiave)
-              .sort((a, b) => a.ordine - b.ordine)
+              .sort(byDeadlineDesc)
             return (
               <div key={col.chiave} className="rm-col"
                 onDragOver={readOnly ? undefined : e => e.preventDefault()}
@@ -882,7 +921,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       readOnly={readOnly}
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { stato: col.chiave })}
-                      onOpen={() => openItem(item)} />
+                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)} />
                   ))}
                 </div>
               </div>
@@ -895,7 +934,6 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
         <ItemModal
           title={modal === 'add' ? 'Nuova attività roadmap' : 'Modifica attività roadmap'}
           form={form} loading={saving} apiError={formErr} prodotti={prodotti} statiList={statiList} tags={tags}
-          devHubs={devHubs}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
       )}
       {selected && (

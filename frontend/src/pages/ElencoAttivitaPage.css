@@ -1484,13 +1484,16 @@
 
   .ea-filters {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
+    /* in colonna, wrap + flex-basis:100% impilerebbe i filtri in più colonne
+       affiancate (overflow orizzontale): forziamo una sola colonna */
+    flex-wrap: nowrap;
   }
 
   .ea-simple-select-wrap,
   .ea-multiselect {
     width: 100%;
-    flex: 0 0 100%;
+    flex: 0 0 auto;
   }
 
   .ea-select-btn,

@@ -516,4 +516,6 @@
 
   .ut-table th:nth-child(2),
   .ut-table td:nth-child(2) { display: none; }
+
+  .ut-topbar { flex-direction: column; align-items: stretch; }
 }
