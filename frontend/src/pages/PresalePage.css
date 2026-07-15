@@ -234,6 +234,19 @@
 .ps-label { font-size: 0.78rem; font-weight: 600; color: var(--c-slate-600); }
 .ps-label span { color: var(--c-destructive); }
 .ps-field-hint { font-size: 0.78rem; color: var(--c-slate-400); }
+.ps-suggest {
+  margin: 0.1rem 0 0; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  font-size: 0.78rem; color: var(--c-slate-600);
+}
+.ps-suggest strong { color: var(--ps-accent, var(--c-teal-700)); font-weight: 700; }
+.ps-suggest-btn {
+  border: 1px solid color-mix(in srgb, var(--ps-accent, #0D9488) 30%, transparent);
+  background: color-mix(in srgb, var(--ps-accent, #0D9488) 10%, #fff);
+  color: var(--ps-accent, var(--c-teal-700));
+  font-family: inherit; font-size: 0.72rem; font-weight: 700; cursor: pointer;
+  padding: 0.1rem 0.5rem; border-radius: 999px; transition: background var(--t-fast);
+}
+.ps-suggest-btn:hover { background: color-mix(in srgb, var(--ps-accent, #0D9488) 18%, #fff); }
 .ps-input {
   width: 100%;
   padding: 0.6rem 0.75rem; border: 1px solid var(--c-slate-200); border-radius: var(--r-md);
