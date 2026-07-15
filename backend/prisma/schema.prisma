@@ -45,6 +45,8 @@ model User {
   attivitaPM      AttivitaPM[]
   clientiAccount  Cliente[]   @relation("ClienteAccount")
   attivitaAccount Attivita[]  @relation("AttivitaAccount")
+  attivitaPresaleAssegnate Attivita[] @relation("AttivitaPresaleAssegnatario")
+  attivitaStatoLog         AttivitaStatoLog[]
 
   @@map("users")
 }
@@ -347,14 +349,23 @@ model Attivita {
   accountId                String?         @map("account_id")
   accountRel               User?           @relation("AttivitaAccount", fields: [accountId], references: [id], onDelete: SetNull)
 
+  // ── Presale (valorizzati solo mentre l'attività è in uno stato isPresale) ──
+  presaleLinkRequisiti     String?         @map("presale_link_requisiti")
+  presaleLinkStima         String?         @map("presale_link_stima")
+  presaleGiornateStimate   Decimal?        @map("presale_giornate_stimate") @db.Decimal(10, 2)
+  presaleAssegnatarioId    String?         @map("presale_assegnatario_id")
+  presaleAssegnatario      User?           @relation("AttivitaPresaleAssegnatario", fields: [presaleAssegnatarioId], references: [id], onDelete: SetNull)
+
   pms                      AttivitaPM[]
   milestones               GanttMilestone[]
+  statoLog                 AttivitaStatoLog[]
 
   @@index([cliente, progetto])
   @@index([stato])
   @@index([clienteId])
   @@index([progettoId])
   @@index([accountId])
+  @@index([presaleAssegnatarioId])
   @@map("attivita")
 }
 
@@ -366,6 +377,23 @@ model AttivitaPM {
 
   @@id([attivitaId, pmId])
   @@map("attivita_pms")
+}
+
+// Storico dei passaggi di stato di un'attività — alimenta la timeline del
+// drawer Presale. Un record per transizione: chi ha spostato la card, da/a
+// quale fase, quando. statoDa è null solo per la riga di creazione.
+model AttivitaStatoLog {
+  id         String   @id @default(cuid())
+  attivitaId String   @map("attivita_id")
+  attivita   Attivita @relation(fields: [attivitaId], references: [id], onDelete: Cascade)
+  statoDa    String?  @map("stato_da")
+  statoA     String   @map("stato_a")
+  userId     String?  @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([attivitaId])
+  @@map("attivita_stato_log")
 }
 
 // ── Gantt Milestones ──────────────────────────────────────────
@@ -395,6 +423,7 @@ model StatoAttivitaConfig {
   colore             String   @default("#94a3b8")
   isArchiviato       Boolean  @default(false) @map("is_archiviato")
   escludiDaConteggio Boolean  @default(false) @map("escludi_da_conteggio")
+  isPresale          Boolean  @default(false) @map("is_presale")
   ordine             Int      @default(0)
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
