@@ -211,25 +211,38 @@ function PresaleModal({
           </button>
         </div>
 
-        {/* Stepper della pipeline — cliccabile: sposta la card nella fase scelta */}
+        {/* Stepper della pipeline.
+            In creazione una segnalazione nasce sempre nella prima fase: mostro
+            solo quel passo (statico). In modifica lo stepper è completo e
+            cliccabile per spostare la card di fase. */}
         <div className="ps-stepper" role="group" aria-label="Fase della trattativa">
-          {statiPresale.map((s, i) => {
-            const state = i < currentIdx ? 'done' : i === currentIdx ? 'current' : 'todo'
-            return (
-              <button
-                key={s.chiave}
-                type="button"
-                className={`ps-step ps-step--${state}`}
-                style={{ ['--ps-step-c' as string]: s.colore }}
-                onClick={() => onChange({ ...form, stato: s.chiave })}
-                aria-current={state === 'current' ? 'step' : undefined}
-                title={s.label}
-              >
-                <span className="ps-step-n">{state === 'done' ? '✓' : i + 1}</span>
-                <span className="ps-step-t">{s.label}</span>
-              </button>
-            )
-          })}
+          {mode === 'add' ? (
+            <span
+              className="ps-step ps-step--current ps-step--static"
+              style={{ ['--ps-step-c' as string]: statiPresale[0]?.colore }}
+            >
+              <span className="ps-step-n">1</span>
+              <span className="ps-step-t">{statiPresale[0]?.label ?? 'Prima fase'}</span>
+            </span>
+          ) : (
+            statiPresale.map((s, i) => {
+              const state = i < currentIdx ? 'done' : i === currentIdx ? 'current' : 'todo'
+              return (
+                <button
+                  key={s.chiave}
+                  type="button"
+                  className={`ps-step ps-step--${state}`}
+                  style={{ ['--ps-step-c' as string]: s.colore }}
+                  onClick={() => onChange({ ...form, stato: s.chiave })}
+                  aria-current={state === 'current' ? 'step' : undefined}
+                  title={s.label}
+                >
+                  <span className="ps-step-n">{state === 'done' ? '✓' : i + 1}</span>
+                  <span className="ps-step-t">{s.label}</span>
+                </button>
+              )
+            })
+          )}
         </div>
 
         <div className="ps-modal-body">
@@ -588,11 +601,13 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
-function PresaleCard({ item, accent, onDragStart, onOpen }: {
+function PresaleCard({ item, accent, nextLabel, onDragStart, onOpen, onAdvance }: {
   item: PresaleItem
   accent: string
+  nextLabel?: string
   onDragStart: (id: string) => void
   onOpen: (item: PresaleItem) => void
+  onAdvance?: () => void
 }) {
   return (
     <div
@@ -617,6 +632,17 @@ function PresaleCard({ item, accent, onDragStart, onOpen }: {
           {item.giornateVendute !== null && <span title="Giornate vendute">✓ {fmtNum(item.giornateVendute)}gg</span>}
           {item.presaleScadenzaStima && <span className="ps-card-deadline" title="Stima desiderata entro">🎯 {fmtDate(item.presaleScadenzaStima)}</span>}
         </div>
+      )}
+      {onAdvance && nextLabel && (
+        <button
+          type="button"
+          className="ps-card-advance"
+          style={{ ['--ps-card-c' as string]: accent }}
+          onClick={e => { e.stopPropagation(); onAdvance() }}
+          title={`Passa a: ${nextLabel}`}
+        >
+          Passa a {nextLabel} →
+        </button>
       )}
     </div>
   )
@@ -710,17 +736,27 @@ export default function PresalePage({ token }: { token: string }) {
     return clienti.filter(c => ids.has(c.id))
   }, [items, clienti])
 
-  // ── Drag & drop: drop su colonna = cambio stato (fase) ──
+  // ── Cambio fase (drop su colonna o bottone "avanza" sulla card) ──
+  // Sposta la card nella fase e apre subito il modal su quella fase, così si
+  // compilano i campi richiesti dalla nuova fase.
+  const changePhaseAndOpen = (item: PresaleItem, statoChiave: string) => {
+    const moved = { ...item, stato: statoChiave }
+    if (item.stato !== statoChiave) {
+      setItems(prev => prev.map(i => i.id === item.id ? moved : i))
+      fetch(`${API_URL}/api/attivita/${item.id}/stato`, {
+        method: 'PATCH', headers: authHeadersJson(token), body: JSON.stringify({ stato: statoChiave }),
+      }).then(res => { if (!res.ok) fetchAll() }).catch(() => fetchAll())
+    }
+    openEdit(moved)
+  }
+
   const onCardDrop = (statoChiave: string) => {
     const draggedId = dragIdRef.current
     dragIdRef.current = null
     if (!draggedId) return
     const item = items.find(i => i.id === draggedId)
     if (!item || item.stato === statoChiave) return
-    setItems(prev => prev.map(i => i.id === draggedId ? { ...i, stato: statoChiave } : i))
-    fetch(`${API_URL}/api/attivita/${draggedId}/stato`, {
-      method: 'PATCH', headers: authHeadersJson(token), body: JSON.stringify({ stato: statoChiave }),
-    }).then(res => { if (!res.ok) fetchAll() }).catch(() => fetchAll())
+    changePhaseAndOpen(item, statoChiave)
   }
 
   // ── CRUD ──
@@ -869,8 +905,9 @@ export default function PresalePage({ token }: { token: string }) {
         <div className="ps-loading">Caricamento…</div>
       ) : !noPresaleStates && (
         <div className="ps-board">
-          {statiPresale.map(col => {
+          {statiPresale.map((col, colIdx) => {
             const colItems = displayItems.filter(i => i.stato === col.chiave)
+            const next = statiPresale[colIdx + 1]
             return (
               <div
                 key={col.chiave}
@@ -885,7 +922,15 @@ export default function PresalePage({ token }: { token: string }) {
                 </div>
                 <div className="ps-col-body">
                   {colItems.map(item => (
-                    <PresaleCard key={item.id} item={item} accent={col.colore} onDragStart={id => { dragIdRef.current = id }} onOpen={setSelected} />
+                    <PresaleCard
+                      key={item.id}
+                      item={item}
+                      accent={col.colore}
+                      nextLabel={next?.label}
+                      onDragStart={id => { dragIdRef.current = id }}
+                      onOpen={setSelected}
+                      onAdvance={next ? () => changePhaseAndOpen(item, next.chiave) : undefined}
+                    />
                   ))}
                   {colItems.length === 0 && <p className="ps-col-empty">Nessuna attività</p>}
                 </div>

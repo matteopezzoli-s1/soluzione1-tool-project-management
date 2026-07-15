@@ -48,9 +48,9 @@ ALTER TABLE "attivita_stato_log" ADD CONSTRAINT "attivita_stato_log_user_id_fkey
 INSERT INTO "stato_attivita_config"
   ("id", "chiave", "label", "colore", "is_archiviato", "escludi_da_conteggio", "is_presale", "ordine", "created_at", "updated_at")
 VALUES
-  ('stato_presale_apertura',     'PRESALE_APERTURA',     'Apertura',         '#3B82F6', false, true, true, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  ('stato_presale_presa_carico', 'PRESALE_PRESA_CARICO', 'Presa in carico',  '#0D9488', false, true, true, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  ('stato_presale_stima',        'PRESALE_STIMA',        'Stima',            '#8B5CF6', false, true, true, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  ('stato_presale_giornate',     'PRESALE_GIORNATE',     'Giornate vendute', '#F59E0B', false, true, true, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  ('stato_presale_conferma',     'PRESALE_CONFERMA',     'Conferma',         '#22C55E', false, true, true, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  ('stato_presale_apertura',     'PRESALE_APERTURA',     'Analisi iniziale',       '#3B82F6', false, true, true, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('stato_presale_presa_carico', 'PRESALE_PRESA_CARICO', 'Presa in carico',        '#0D9488', false, true, true, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('stato_presale_stima',        'PRESALE_STIMA',        'Stima',                  '#8B5CF6', false, true, true, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('stato_presale_giornate',     'PRESALE_GIORNATE',     'Trattativa con cliente', '#F59E0B', false, true, true, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('stato_presale_conferma',     'PRESALE_CONFERMA',     'Conferma',               '#22C55E', false, true, true, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT ("chiave") DO NOTHING;
