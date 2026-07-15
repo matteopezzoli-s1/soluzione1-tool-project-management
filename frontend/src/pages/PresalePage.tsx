@@ -477,9 +477,10 @@ function Timeline({ token, attivitaId, statoByChiave }: {
   const [storico, setStorico] = useState<StoricoEntry[]>([])
   const [loading, setLoading] = useState(true)
 
+  // loading parte true (useState) e il componente viene rimontato per attività
+  // (key sull'uso della Timeline): niente setState sincrono nell'effect.
   useEffect(() => {
     let alive = true
-    setLoading(true)
     fetch(`${API_URL}/api/attivita/${attivitaId}/storico`, { headers: authHeaders(token) })
       .then(r => r.ok ? r.json() : { storico: [] })
       .then(d => { if (alive) setStorico(d.storico ?? []) })
@@ -570,7 +571,7 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
 
           <div className="ps-tl-section">
             <h3 className="ps-tl-title">Storico passaggi</h3>
-            <Timeline token={token} attivitaId={item.id} statoByChiave={statoByChiave} />
+            <Timeline key={item.id} token={token} attivitaId={item.id} statoByChiave={statoByChiave} />
           </div>
         </div>
         <div className="ps-modal-footer ps-modal-footer--split">
