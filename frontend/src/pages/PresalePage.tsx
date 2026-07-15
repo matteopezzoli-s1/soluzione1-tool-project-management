@@ -164,7 +164,7 @@ function PmChips({ pms, value, onChange }: {
 // ─── Add / Edit modal ─────────────────────────────────────────────────────────
 
 function PresaleModal({
-  mode, form, statiPresale, clienti, progetti, pms, devHubs,
+  mode, form, statiPresale, clienti, progetti, pms, devHubs, suggestedDevHub,
   loading, apiError, onChange, onSave, onClose,
 }: {
   mode: 'add' | 'edit'
@@ -174,6 +174,7 @@ function PresaleModal({
   progetti: ProgettoOption[]
   pms: UserRef[]
   devHubs: UserRef[]
+  suggestedDevHub: { id: string; nome: string } | null
   loading: boolean
   apiError: string | null
   onChange: (f: FormData) => void
@@ -349,6 +350,18 @@ function PresaleModal({
                   <option value="">— Nessuno —</option>
                   {devHubs.map(u => <option key={u.id} value={u.id}>{userLabel(u)}</option>)}
                 </select>
+                {suggestedDevHub && form.presaleAssegnatarioId !== suggestedDevHub.id && (
+                  <p className="ps-suggest">
+                    Responsabile DevHub del progetto: <strong>{suggestedDevHub.nome}</strong>
+                    <button
+                      type="button"
+                      className="ps-suggest-btn"
+                      onClick={() => onChange({ ...form, presaleAssegnatarioId: suggestedDevHub.id })}
+                    >
+                      Usa
+                    </button>
+                  </p>
+                )}
               </div>
             )}
 
@@ -665,6 +678,8 @@ export default function PresalePage({ token }: { token: string }) {
 
   const [modal, setModal] = useState<'add' | 'edit' | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  // Responsabile DevHub del progetto (se definito): suggerito come assegnatario
+  const [suggestedDevHub, setSuggestedDevHub] = useState<{ id: string; nome: string } | null>(null)
   const [form, setForm] = useState<FormData>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [formErr, setFormErr] = useState<string | null>(null)
@@ -764,11 +779,13 @@ export default function PresalePage({ token }: { token: string }) {
     setForm({ ...EMPTY_FORM, stato: statiPresale[0]?.chiave ?? '' })
     setFormErr(null)
     setEditingId(null)
+    setSuggestedDevHub(null)
     setModal('add')
   }
 
   const openEdit = (item: PresaleItem) => {
     setEditingId(item.id)
+    setSuggestedDevHub(item.devHubId ? { id: item.devHubId, nome: item.devHub } : null)
     setForm({
       clienteId: item.clienteId ?? '',
       progettoId: item.progettoId ?? '',
@@ -949,6 +966,7 @@ export default function PresalePage({ token }: { token: string }) {
           progetti={progetti}
           pms={pms}
           devHubs={devHubs}
+          suggestedDevHub={suggestedDevHub}
           loading={saving}
           apiError={formErr}
           onChange={setForm}
