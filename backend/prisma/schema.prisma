@@ -45,7 +45,6 @@ model User {
   attivitaPM      AttivitaPM[]
   clientiAccount  Cliente[]   @relation("ClienteAccount")
   attivitaAccount Attivita[]  @relation("AttivitaAccount")
-  roadmapItemsDevHub RoadmapItem[] @relation("RoadmapItemDevHub")
 
   @@map("users")
 }
@@ -449,9 +448,6 @@ model RoadmapItem {
   stimaGg      Decimal?  @map("stima_gg") @db.Decimal(10, 2)
   ordine       Int       @default(0)
 
-  devHubId     String?   @map("dev_hub_id")
-  devHub       User?     @relation("RoadmapItemDevHub", fields: [devHubId], references: [id], onDelete: SetNull)
-
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -460,7 +456,6 @@ model RoadmapItem {
   @@index([progettoId])
   @@index([anno, quarter])
   @@index([stato])
-  @@index([devHubId])
   @@map("roadmap_items")
 }
 
