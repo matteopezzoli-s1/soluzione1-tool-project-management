@@ -20,6 +20,7 @@ interface PresaleItem {
   presaleLinkRequisiti: string | null
   presaleLinkStima: string | null
   presaleGiornateStimate: number | null
+  presaleScadenzaStima: string | null
   presaleAssegnatario: string
   presaleAssegnatarioId: string | null
   inizio: string | null
@@ -47,6 +48,7 @@ type FormData = {
   pmIds: string[]
   presaleAssegnatarioId: string
   presaleGiornateStimate: string
+  presaleScadenzaStima: string
   giornateVendute: string
   presaleLinkRequisiti: string
   presaleLinkStima: string
@@ -58,7 +60,7 @@ type FormData = {
 const EMPTY_FORM: FormData = {
   clienteId: '', progettoId: '', attivita: '', stato: '',
   pmIds: [], presaleAssegnatarioId: '',
-  presaleGiornateStimate: '', giornateVendute: '',
+  presaleGiornateStimate: '', presaleScadenzaStima: '', giornateVendute: '',
   presaleLinkRequisiti: '', presaleLinkStima: '',
   note: '', inizio: '', deadline: '',
 }
@@ -100,18 +102,18 @@ function numOrNull(s: string): number | null {
 // (al massimo) i campi della fase precedente rimasti vuoti. Mappato per chiave
 // dello stato; per stati presale custom (fuori mappa) si mostrano tutti.
 type PresaleField =
-  | 'pmIds' | 'presaleLinkRequisiti' | 'presaleAssegnatarioId'
+  | 'pmIds' | 'presaleLinkRequisiti' | 'presaleScadenzaStima' | 'presaleAssegnatarioId'
   | 'presaleGiornateStimate' | 'presaleLinkStima' | 'giornateVendute'
 
 const FASE_CAMPI: Record<string, PresaleField[]> = {
-  PRESALE_APERTURA:     ['presaleLinkRequisiti', 'pmIds'],
+  PRESALE_APERTURA:     ['presaleLinkRequisiti', 'presaleScadenzaStima', 'pmIds'],
   PRESALE_PRESA_CARICO: ['presaleAssegnatarioId'],
   PRESALE_STIMA:        ['presaleGiornateStimate', 'presaleLinkStima'],
   PRESALE_GIORNATE:     ['giornateVendute'],
   PRESALE_CONFERMA:     [],
 }
 const TUTTI_CAMPI: PresaleField[] = [
-  'pmIds', 'presaleLinkRequisiti', 'presaleAssegnatarioId',
+  'pmIds', 'presaleLinkRequisiti', 'presaleScadenzaStima', 'presaleAssegnatarioId',
   'presaleGiornateStimate', 'presaleLinkStima', 'giornateVendute',
 ]
 
@@ -305,6 +307,19 @@ function PresaleModal({
                   value={form.presaleLinkRequisiti}
                   onChange={e => onChange({ ...form, presaleLinkRequisiti: e.target.value })}
                   placeholder="https://drive.google.com/…"
+                />
+              </div>
+            )}
+
+            {visibili.has('presaleScadenzaStima') && (
+              <div className="ps-field">
+                <label className="ps-label" htmlFor="ps-scad-stima">Stima desiderata entro il</label>
+                <input
+                  id="ps-scad-stima"
+                  className="ps-input"
+                  type="date"
+                  value={form.presaleScadenzaStima}
+                  onChange={e => onChange({ ...form, presaleScadenzaStima: e.target.value })}
                 />
               </div>
             )}
@@ -535,6 +550,7 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
             {item.account && <div className="ps-dl-row"><dt>Account</dt><dd>{item.account}</dd></div>}
             {item.projectManager && <div className="ps-dl-row"><dt>PM</dt><dd>{item.projectManager}</dd></div>}
             {item.presaleAssegnatario && <div className="ps-dl-row"><dt>Assegnatario DevHub</dt><dd>{item.presaleAssegnatario}</dd></div>}
+            {item.presaleScadenzaStima && <div className="ps-dl-row"><dt>Stima desiderata entro</dt><dd>{fmtDate(item.presaleScadenzaStima)}</dd></div>}
             {item.presaleGiornateStimate !== null && <div className="ps-dl-row"><dt>Giornate stimate</dt><dd>{fmtNum(item.presaleGiornateStimate)}</dd></div>}
             {item.giornateVendute !== null && <div className="ps-dl-row"><dt>Giornate vendute</dt><dd>{fmtNum(item.giornateVendute)}</dd></div>}
             {item.presaleLinkRequisiti && (
@@ -594,11 +610,11 @@ function PresaleCard({ item, accent, onDragStart, onOpen }: {
         {item.presaleAssegnatario && <span className="ps-tag ps-tag--dev">{item.presaleAssegnatario}</span>}
         {item.projectManager && <span className="ps-tag">{item.projectManager}</span>}
       </div>
-      {(item.presaleGiornateStimate !== null || item.giornateVendute !== null || item.deadline) && (
+      {(item.presaleGiornateStimate !== null || item.giornateVendute !== null || item.presaleScadenzaStima) && (
         <div className="ps-card-foot">
           {item.presaleGiornateStimate !== null && <span title="Giornate stimate">≈ {fmtNum(item.presaleGiornateStimate)}gg</span>}
           {item.giornateVendute !== null && <span title="Giornate vendute">✓ {fmtNum(item.giornateVendute)}gg</span>}
-          {item.deadline && <span className="ps-card-deadline" title="Deadline">📅 {fmtDate(item.deadline)}</span>}
+          {item.presaleScadenzaStima && <span className="ps-card-deadline" title="Stima desiderata entro">🎯 {fmtDate(item.presaleScadenzaStima)}</span>}
         </div>
       )}
     </div>
@@ -724,6 +740,7 @@ export default function PresalePage({ token }: { token: string }) {
       pmIds: item.pmIds,
       presaleAssegnatarioId: item.presaleAssegnatarioId ?? '',
       presaleGiornateStimate: item.presaleGiornateStimate !== null ? String(item.presaleGiornateStimate) : '',
+      presaleScadenzaStima: item.presaleScadenzaStima ?? '',
       giornateVendute: item.giornateVendute !== null ? String(item.giornateVendute) : '',
       presaleLinkRequisiti: item.presaleLinkRequisiti ?? '',
       presaleLinkStima: item.presaleLinkStima ?? '',
@@ -752,6 +769,7 @@ export default function PresalePage({ token }: { token: string }) {
         pmIds: form.pmIds,
         presaleAssegnatarioId: form.presaleAssegnatarioId || null,
         presaleGiornateStimate: numOrNull(form.presaleGiornateStimate),
+        presaleScadenzaStima: form.presaleScadenzaStima || null,
         giornateVendute: numOrNull(form.giornateVendute),
         presaleLinkRequisiti: form.presaleLinkRequisiti.trim() || null,
         presaleLinkStima: form.presaleLinkStima.trim() || null,
