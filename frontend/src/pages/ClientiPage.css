@@ -93,7 +93,7 @@
 
 /* ── Table ─────────────────────────────────────────────────── */
 
-.cl-table-wrap { background: #fff; border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; }
+.cl-table-wrap { background: #fff; border: 1px solid #E2E8F0; border-radius: 16px; overflow-x: auto; }
 .cl-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 .cl-table thead { background: #F8FAFC; border-bottom: 1px solid #E2E8F0; }
 .cl-table th {
@@ -228,4 +228,5 @@
   .cl-page { padding: 1.25rem 1rem; }
   .cl-field-row { grid-template-columns: 1fr; }
   .cl-table th:nth-child(3), .cl-table td:nth-child(3) { display: none; }
+  .cl-topbar { flex-direction: column; align-items: stretch; }
 }

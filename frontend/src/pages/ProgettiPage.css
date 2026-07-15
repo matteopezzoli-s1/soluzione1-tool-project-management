@@ -106,7 +106,7 @@
 
 /* ── Table ─────────────────────────────────────────────────── */
 
-.pr-table-wrap { background: #fff; border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; }
+.pr-table-wrap { background: #fff; border: 1px solid #E2E8F0; border-radius: 16px; overflow-x: auto; }
 .pr-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 .pr-table thead { background: #F8FAFC; border-bottom: 1px solid #E2E8F0; }
 .pr-table th {
@@ -246,4 +246,5 @@
   .pr-page { padding: 1.25rem 1rem; }
   .pr-field-row { grid-template-columns: 1fr; }
   .pr-table th:nth-child(4), .pr-table td:nth-child(4) { display: none; }
+  .pr-topbar { flex-direction: column; align-items: stretch; }
 }
