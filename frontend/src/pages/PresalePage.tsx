@@ -95,6 +95,42 @@ function numOrNull(s: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+// ─── Campi per fase ───────────────────────────────────────────────────────────
+// Ogni fase presale mostra solo i campi che il suo owner deve compilare, più
+// (al massimo) i campi della fase precedente rimasti vuoti. Mappato per chiave
+// dello stato; per stati presale custom (fuori mappa) si mostrano tutti.
+type PresaleField =
+  | 'pmIds' | 'presaleLinkRequisiti' | 'presaleAssegnatarioId'
+  | 'presaleGiornateStimate' | 'presaleLinkStima' | 'giornateVendute'
+
+const FASE_CAMPI: Record<string, PresaleField[]> = {
+  PRESALE_APERTURA:     ['presaleLinkRequisiti', 'pmIds'],
+  PRESALE_PRESA_CARICO: ['presaleAssegnatarioId'],
+  PRESALE_STIMA:        ['presaleGiornateStimate', 'presaleLinkStima'],
+  PRESALE_GIORNATE:     ['giornateVendute'],
+  PRESALE_CONFERMA:     [],
+}
+const TUTTI_CAMPI: PresaleField[] = [
+  'pmIds', 'presaleLinkRequisiti', 'presaleAssegnatarioId',
+  'presaleGiornateStimate', 'presaleLinkStima', 'giornateVendute',
+]
+
+function campoVuoto(form: FormData, f: PresaleField): boolean {
+  if (f === 'pmIds') return form.pmIds.length === 0
+  return (form[f] ?? '').toString().trim() === ''
+}
+
+function campiVisibili(stato: string, statiPresale: StatoConfig[], form: FormData): Set<PresaleField> {
+  const propri = FASE_CAMPI[stato]
+  if (propri === undefined) return new Set(TUTTI_CAMPI) // fase custom → mostra tutto
+  const visibili = new Set(propri)
+  const idx = statiPresale.findIndex(s => s.chiave === stato)
+  const prec = idx > 0 ? statiPresale[idx - 1] : undefined
+  const campiPrec = prec ? (FASE_CAMPI[prec.chiave] ?? []) : []
+  for (const f of campiPrec) if (campoVuoto(form, f)) visibili.add(f)
+  return visibili
+}
+
 // ─── PM chips (multi-select) ────────────────────────────────────────────────
 
 function PmChips({ pms, value, onChange }: {
@@ -146,6 +182,10 @@ function PresaleModal({
     () => progetti.filter(p => !form.clienteId || p.clienteId === form.clienteId),
     [progetti, form.clienteId],
   )
+  const visibili = useMemo(
+    () => campiVisibili(form.stato, statiPresale, form),
+    [form, statiPresale],
+  )
 
   return (
     <SectionModal onClose={onClose} labelledBy="ps-modal-title">
@@ -164,44 +204,49 @@ function PresaleModal({
         <div className="ps-modal-body">
           {apiError && <p className="ps-error-banner" role="alert">{apiError}</p>}
 
-          <div className="ps-field">
-            <label className="ps-label" htmlFor="ps-cliente">Cliente <span aria-hidden="true">*</span></label>
-            <select
-              id="ps-cliente"
-              className="ps-input"
-              value={form.clienteId}
-              onChange={e => onChange({ ...form, clienteId: e.target.value, progettoId: '' })}
-            >
-              <option value="">— Seleziona cliente —</option>
-              {clienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </select>
-          </div>
+          {/* Identità attività — solo in creazione (in modifica è già definita) */}
+          {mode === 'add' && (
+            <>
+              <div className="ps-field">
+                <label className="ps-label" htmlFor="ps-cliente">Cliente <span aria-hidden="true">*</span></label>
+                <select
+                  id="ps-cliente"
+                  className="ps-input"
+                  value={form.clienteId}
+                  onChange={e => onChange({ ...form, clienteId: e.target.value, progettoId: '' })}
+                >
+                  <option value="">— Seleziona cliente —</option>
+                  {clienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                </select>
+              </div>
 
-          <div className="ps-field">
-            <label className="ps-label" htmlFor="ps-progetto">Progetto <span aria-hidden="true">*</span></label>
-            <select
-              id="ps-progetto"
-              className="ps-input"
-              value={form.progettoId}
-              onChange={e => onChange({ ...form, progettoId: e.target.value })}
-              disabled={!form.clienteId}
-            >
-              <option value="">{form.clienteId ? '— Seleziona progetto —' : '— Prima scegli il cliente —'}</option>
-              {progettiFiltrati.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-            </select>
-          </div>
+              <div className="ps-field">
+                <label className="ps-label" htmlFor="ps-progetto">Progetto <span aria-hidden="true">*</span></label>
+                <select
+                  id="ps-progetto"
+                  className="ps-input"
+                  value={form.progettoId}
+                  onChange={e => onChange({ ...form, progettoId: e.target.value })}
+                  disabled={!form.clienteId}
+                >
+                  <option value="">{form.clienteId ? '— Seleziona progetto —' : '— Prima scegli il cliente —'}</option>
+                  {progettiFiltrati.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+              </div>
 
-          <div className="ps-field">
-            <label className="ps-label" htmlFor="ps-attivita">Attività <span aria-hidden="true">*</span></label>
-            <input
-              id="ps-attivita"
-              className="ps-input"
-              type="text"
-              value={form.attivita}
-              onChange={e => onChange({ ...form, attivita: e.target.value })}
-              placeholder="es. Analisi requisiti nuovo modulo"
-            />
-          </div>
+              <div className="ps-field">
+                <label className="ps-label" htmlFor="ps-attivita">Attività <span aria-hidden="true">*</span></label>
+                <input
+                  id="ps-attivita"
+                  className="ps-input"
+                  type="text"
+                  value={form.attivita}
+                  onChange={e => onChange({ ...form, attivita: e.target.value })}
+                  placeholder="es. Analisi requisiti nuovo modulo"
+                />
+              </div>
+            </>
+          )}
 
           <div className="ps-field">
             <label className="ps-label" htmlFor="ps-stato">Fase</label>
@@ -215,25 +260,43 @@ function PresaleModal({
             </select>
           </div>
 
-          <div className="ps-field">
-            <span className="ps-label">PM</span>
-            <PmChips pms={pms} value={form.pmIds} onChange={ids => onChange({ ...form, pmIds: ids })} />
-          </div>
+          {visibili.has('pmIds') && (
+            <div className="ps-field">
+              <span className="ps-label">PM</span>
+              <PmChips pms={pms} value={form.pmIds} onChange={ids => onChange({ ...form, pmIds: ids })} />
+            </div>
+          )}
 
-          <div className="ps-field">
-            <label className="ps-label" htmlFor="ps-assegnatario">Assegnatario DevHub</label>
-            <select
-              id="ps-assegnatario"
-              className="ps-input"
-              value={form.presaleAssegnatarioId}
-              onChange={e => onChange({ ...form, presaleAssegnatarioId: e.target.value })}
-            >
-              <option value="">— Nessuno —</option>
-              {devHubs.map(u => <option key={u.id} value={u.id}>{userLabel(u)}</option>)}
-            </select>
-          </div>
+          {visibili.has('presaleLinkRequisiti') && (
+            <div className="ps-field">
+              <label className="ps-label" htmlFor="ps-req">Link Drive — analisi requisiti</label>
+              <input
+                id="ps-req"
+                className="ps-input"
+                type="url"
+                value={form.presaleLinkRequisiti}
+                onChange={e => onChange({ ...form, presaleLinkRequisiti: e.target.value })}
+                placeholder="https://drive.google.com/…"
+              />
+            </div>
+          )}
 
-          <div className="ps-field-grid">
+          {visibili.has('presaleAssegnatarioId') && (
+            <div className="ps-field">
+              <label className="ps-label" htmlFor="ps-assegnatario">Assegnatario DevHub</label>
+              <select
+                id="ps-assegnatario"
+                className="ps-input"
+                value={form.presaleAssegnatarioId}
+                onChange={e => onChange({ ...form, presaleAssegnatarioId: e.target.value })}
+              >
+                <option value="">— Nessuno —</option>
+                {devHubs.map(u => <option key={u.id} value={u.id}>{userLabel(u)}</option>)}
+              </select>
+            </div>
+          )}
+
+          {visibili.has('presaleGiornateStimate') && (
             <div className="ps-field">
               <label className="ps-label" htmlFor="ps-stimate">Giornate stimate</label>
               <input
@@ -244,6 +307,23 @@ function PresaleModal({
                 onChange={e => onChange({ ...form, presaleGiornateStimate: e.target.value })}
               />
             </div>
+          )}
+
+          {visibili.has('presaleLinkStima') && (
+            <div className="ps-field">
+              <label className="ps-label" htmlFor="ps-stima">Link Drive — analisi di stima</label>
+              <input
+                id="ps-stima"
+                className="ps-input"
+                type="url"
+                value={form.presaleLinkStima}
+                onChange={e => onChange({ ...form, presaleLinkStima: e.target.value })}
+                placeholder="https://drive.google.com/…"
+              />
+            </div>
+          )}
+
+          {visibili.has('giornateVendute') && (
             <div className="ps-field">
               <label className="ps-label" htmlFor="ps-vendute">Giornate vendute</label>
               <input
@@ -254,44 +334,7 @@ function PresaleModal({
                 onChange={e => onChange({ ...form, giornateVendute: e.target.value })}
               />
             </div>
-          </div>
-
-          <div className="ps-field">
-            <label className="ps-label" htmlFor="ps-req">Link Drive — analisi requisiti</label>
-            <input
-              id="ps-req"
-              className="ps-input"
-              type="url"
-              value={form.presaleLinkRequisiti}
-              onChange={e => onChange({ ...form, presaleLinkRequisiti: e.target.value })}
-              placeholder="https://drive.google.com/…"
-            />
-          </div>
-
-          <div className="ps-field">
-            <label className="ps-label" htmlFor="ps-stima">Link Drive — analisi di stima</label>
-            <input
-              id="ps-stima"
-              className="ps-input"
-              type="url"
-              value={form.presaleLinkStima}
-              onChange={e => onChange({ ...form, presaleLinkStima: e.target.value })}
-              placeholder="https://drive.google.com/…"
-            />
-          </div>
-
-          <div className="ps-field-grid">
-            <div className="ps-field">
-              <label className="ps-label" htmlFor="ps-inizio">Inizio</label>
-              <input id="ps-inizio" className="ps-input" type="date"
-                value={form.inizio} onChange={e => onChange({ ...form, inizio: e.target.value })} />
-            </div>
-            <div className="ps-field">
-              <label className="ps-label" htmlFor="ps-deadline">Deadline</label>
-              <input id="ps-deadline" className="ps-input" type="date"
-                value={form.deadline} onChange={e => onChange({ ...form, deadline: e.target.value })} />
-            </div>
-          </div>
+          )}
 
           <div className="ps-field">
             <label className="ps-label" htmlFor="ps-note">Note</label>
@@ -448,28 +491,28 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
             {statoCfg?.label ?? item.stato}
           </span>
 
+          {/* Solo i dati effettivamente compilati finora — le fasi non ancora
+              raggiunte non mostrano righe vuote. */}
           <dl className="ps-dl">
             <div className="ps-dl-row"><dt>Cliente</dt><dd>{item.cliente}</dd></div>
             <div className="ps-dl-row"><dt>Progetto</dt><dd>{item.progetto}</dd></div>
-            <div className="ps-dl-row"><dt>Account</dt><dd>{item.account || '—'}</dd></div>
-            <div className="ps-dl-row"><dt>PM</dt><dd>{item.projectManager || '—'}</dd></div>
-            <div className="ps-dl-row"><dt>Assegnatario DevHub</dt><dd>{item.presaleAssegnatario || '—'}</dd></div>
-            <div className="ps-dl-row"><dt>Giornate stimate</dt><dd>{fmtNum(item.presaleGiornateStimate)}</dd></div>
-            <div className="ps-dl-row"><dt>Giornate vendute</dt><dd>{fmtNum(item.giornateVendute)}</dd></div>
-            <div className="ps-dl-row"><dt>Inizio</dt><dd>{fmtDate(item.inizio)}</dd></div>
-            <div className="ps-dl-row"><dt>Deadline</dt><dd>{fmtDate(item.deadline)}</dd></div>
-            <div className="ps-dl-row">
-              <dt>Analisi requisiti</dt>
-              <dd>{item.presaleLinkRequisiti
-                ? <a href={item.presaleLinkRequisiti} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a>
-                : '—'}</dd>
-            </div>
-            <div className="ps-dl-row">
-              <dt>Analisi di stima</dt>
-              <dd>{item.presaleLinkStima
-                ? <a href={item.presaleLinkStima} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a>
-                : '—'}</dd>
-            </div>
+            {item.account && <div className="ps-dl-row"><dt>Account</dt><dd>{item.account}</dd></div>}
+            {item.projectManager && <div className="ps-dl-row"><dt>PM</dt><dd>{item.projectManager}</dd></div>}
+            {item.presaleAssegnatario && <div className="ps-dl-row"><dt>Assegnatario DevHub</dt><dd>{item.presaleAssegnatario}</dd></div>}
+            {item.presaleGiornateStimate !== null && <div className="ps-dl-row"><dt>Giornate stimate</dt><dd>{fmtNum(item.presaleGiornateStimate)}</dd></div>}
+            {item.giornateVendute !== null && <div className="ps-dl-row"><dt>Giornate vendute</dt><dd>{fmtNum(item.giornateVendute)}</dd></div>}
+            {item.presaleLinkRequisiti && (
+              <div className="ps-dl-row">
+                <dt>Analisi requisiti</dt>
+                <dd><a href={item.presaleLinkRequisiti} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a></dd>
+              </div>
+            )}
+            {item.presaleLinkStima && (
+              <div className="ps-dl-row">
+                <dt>Analisi di stima</dt>
+                <dd><a href={item.presaleLinkStima} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a></dd>
+              </div>
+            )}
             {item.note && <div className="ps-dl-row"><dt>Note</dt><dd className="ps-dl-note">{item.note}</dd></div>}
           </dl>
 
