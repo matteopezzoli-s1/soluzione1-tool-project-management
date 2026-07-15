@@ -362,6 +362,7 @@ function StatiTable({ stati, loading, showEscludi, onEdit, onDelete }: StatiTabl
               <td className="imp-cell imp-cell--stato">
                 <ColorDot colore={s.colore} />
                 <StatoBadgePreview stato={s} />
+                {s.isPresale && <span className="imp-tipo-tag imp-tipo-tag--presale">Presale</span>}
               </td>
               <td className="imp-cell imp-cell--chiave">
                 <code className="imp-code">{s.chiave}</code>

@@ -1932,10 +1932,13 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         .filter(s => !soloAttivi || !s.isArchiviato)
         .sort((a, b) => a.ordine - b.ordine)
         .map(s => s.chiave)
-      // Un'unica voce "Presale" invece delle singole fasi
-      return statiConfig.some(s => s.isPresale) ? [...normali, PRESALE_FILTER_KEY] : normali
+      // La voce "Presale" compare solo se c'è almeno un'attività attualmente in
+      // fase presale: così, finché la funzionalità non è usata, l'elenco è
+      // identico a prima (impatto zero, filtro incluso).
+      const hasPresaleAttiva = (data?.gruppi ?? []).some(g => g.attivita.some(a => statiMap.get(a.stato)?.isPresale))
+      return hasPresaleAttiva ? [...normali, PRESALE_FILTER_KEY] : normali
     },
-    [statiConfig, soloAttivi, isBucketVista]
+    [statiConfig, soloAttivi, isBucketVista, data, statiMap]
   )
 
   // Per le BUCKET l'esclusione dai totali/conteggi è "chiusa" (fisso), non
