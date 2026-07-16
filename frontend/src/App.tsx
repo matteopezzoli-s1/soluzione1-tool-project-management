@@ -287,8 +287,8 @@ export default function App() {
 
         <div className="db-sidebar-nav">
           {!isDevHub && navBtn('dashboard', 'Dashboard',            <IconGrid />)}
-          {navBtn('attivita',      'Elenco Attività Progetti', <IconClipboard />)}
           {navBtn('presale',       'Presale',              <IconPresale />)}
+          {navBtn('attivita',      'Elenco Attività Progetti', <IconClipboard />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
           {!isDevHub && navBtn('clienti',   'Anagrafica Clienti',   <IconBuilding />)}
