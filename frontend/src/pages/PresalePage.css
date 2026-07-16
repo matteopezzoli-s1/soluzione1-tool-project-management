@@ -228,6 +228,27 @@
 }
 .ps-section-tick { width: 7px; height: 7px; border-radius: 2px; display: inline-block; }
 .ps-section-hint { margin: 0; font-size: 0.85rem; color: var(--c-slate-400); font-style: italic; }
+/* Accordion fasi precedenti (native details/summary) */
+.ps-accordion {
+  border: 1px solid var(--c-slate-200); border-radius: var(--r-md);
+  background: rgba(148,163,184,0.05); overflow: hidden;
+}
+.ps-accordion + .ps-accordion { margin-top: 0.5rem; }
+.ps-accordion-sum {
+  display: flex; align-items: center; gap: 0.5rem; cursor: pointer;
+  padding: 0.55rem 0.7rem; font-size: 0.82rem; font-weight: 700; color: var(--c-slate-700);
+  list-style: none; user-select: none;
+}
+.ps-accordion-sum::-webkit-details-marker { display: none; }
+.ps-acc-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.ps-acc-label { flex: 1; }
+.ps-acc-chevron { color: var(--c-slate-400); transition: transform var(--t-fast); }
+.ps-accordion[open] .ps-acc-chevron { transform: rotate(180deg); }
+.ps-accordion-body {
+  display: flex; flex-direction: column; gap: 0.7rem;
+  padding: 0.2rem 0.7rem 0.8rem; border-top: 1px solid var(--c-slate-200);
+}
+
 .ps-section--phase {
   background: color-mix(in srgb, var(--ps-accent) 5%, transparent);
   border: 1px solid color-mix(in srgb, var(--ps-accent) 18%, transparent);
