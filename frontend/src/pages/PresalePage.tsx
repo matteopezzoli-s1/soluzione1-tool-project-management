@@ -752,6 +752,7 @@ export default function PresalePage({ token }: { token: string }) {
   // Sposta la card nella fase e apre subito il modal su quella fase, così si
   // compilano i campi richiesti dalla nuova fase.
   const changePhaseAndOpen = (item: PresaleItem, statoChiave: string) => {
+    setApiError(null)
     const moved = { ...item, stato: statoChiave }
     if (item.stato !== statoChiave) {
       setItems(prev => prev.map(i => i.id === item.id ? moved : i))
@@ -768,6 +769,14 @@ export default function PresalePage({ token }: { token: string }) {
     if (!draggedId) return
     const item = items.find(i => i.id === draggedId)
     if (!item || item.stato === statoChiave) return
+    // Le fasi sono sequenziali: si può spostare solo alla fase adiacente
+    // (una avanti o una indietro), niente salti.
+    const fromIdx = statiPresale.findIndex(s => s.chiave === item.stato)
+    const toIdx = statiPresale.findIndex(s => s.chiave === statoChiave)
+    if (fromIdx === -1 || toIdx === -1 || Math.abs(toIdx - fromIdx) !== 1) {
+      setApiError('Le fasi sono sequenziali: puoi spostare l’attività solo alla fase precedente o successiva.')
+      return
+    }
     changePhaseAndOpen(item, statoChiave)
   }
 
