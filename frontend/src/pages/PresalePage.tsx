@@ -202,38 +202,25 @@ function PresaleModal({
           </button>
         </div>
 
-        {/* Stepper della pipeline.
-            In creazione una segnalazione nasce sempre nella prima fase: mostro
-            solo quel passo (statico). In modifica lo stepper è completo e
-            cliccabile per spostare la card di fase. */}
+        {/* Stepper della pipeline — solo indicatore (non cliccabile): il cambio
+            fase avviene dal board (drag o bottone "Passa a…"), non da qui.
+            In creazione mostro solo la prima fase. */}
         <div className="ps-stepper" role="group" aria-label="Fase della trattativa">
-          {mode === 'add' ? (
-            <span
-              className="ps-step ps-step--current ps-step--static"
-              style={{ ['--ps-step-c' as string]: statiPresale[0]?.colore }}
-            >
-              <span className="ps-step-n">1</span>
-              <span className="ps-step-t">{statiPresale[0]?.label ?? 'Prima fase'}</span>
-            </span>
-          ) : (
-            statiPresale.map((s, i) => {
-              const state = i < currentIdx ? 'done' : i === currentIdx ? 'current' : 'todo'
-              return (
-                <button
-                  key={s.chiave}
-                  type="button"
-                  className={`ps-step ps-step--${state}`}
-                  style={{ ['--ps-step-c' as string]: s.colore }}
-                  onClick={() => onChange({ ...form, stato: s.chiave })}
-                  aria-current={state === 'current' ? 'step' : undefined}
-                  title={s.label}
-                >
-                  <span className="ps-step-n">{state === 'done' ? '✓' : i + 1}</span>
-                  <span className="ps-step-t">{s.label}</span>
-                </button>
-              )
-            })
-          )}
+          {(mode === 'add' ? statiPresale.slice(0, 1) : statiPresale).map((s, i) => {
+            const state = i < currentIdx ? 'done' : i === currentIdx ? 'current' : 'todo'
+            return (
+              <span
+                key={s.chiave}
+                className={`ps-step ps-step--${state} ps-step--static`}
+                style={{ ['--ps-step-c' as string]: s.colore }}
+                aria-current={state === 'current' ? 'step' : undefined}
+                title={s.label}
+              >
+                <span className="ps-step-n">{state === 'done' ? '✓' : i + 1}</span>
+                <span className="ps-step-t">{s.label}</span>
+              </span>
+            )
+          })}
         </div>
 
         <div className="ps-modal-body">
