@@ -98,6 +98,7 @@ const SUBJECT_PREFIX: Record<PresaleFaseCode, string> = {
 
 export interface AttivitaMailData {
   cliente: string
+  progetto: string
   attivita: string
   pmNome: string
   pmEmail: string | null
@@ -132,6 +133,7 @@ async function loadAttivitaMailData(
     where: { id: attivitaId },
     include: {
       clienteRel: { select: { nome: true } },
+      progettoRel: { select: { nome: true } },
       pms: { include: { pm: { select: { firstName: true, lastName: true, email: true } } } },
       presaleAssegnatario: { select: { firstName: true, lastName: true } },
     },
@@ -140,6 +142,7 @@ async function loadAttivitaMailData(
   const pm = a.pms[0]?.pm ?? null
   return {
     cliente: a.clienteRel?.nome ?? a.cliente,
+    progetto: a.progettoRel?.nome ?? a.progetto,
     attivita: a.attivita,
     pmNome: nomeUtente(pm),
     pmEmail: pm?.email ?? null,
@@ -183,12 +186,14 @@ export function buildEvent(
   devhubEmail: string,
 ): SaiotEvent | null {
   const pmEmail = d.pmEmail?.trim() || ''
-  const subject = `[Presale] ${SUBJECT_PREFIX[fase]} – ${d.cliente} / ${d.attivita}`
+  // cus3 = "Cliente · Progetto" su un'unica riga (stesso placeholder).
+  const clienteProgetto = [d.cliente, d.progetto].filter(Boolean).join(' · ')
+  const subject = `[Presale] ${SUBJECT_PREFIX[fase]} – ${clienteProgetto} · ${d.attivita}`
   // Ancore comuni a tutte le fasi.
   const base = {
     language: 'IT' as const,
     subject,
-    cus3: d.cliente,
+    cus3: clienteProgetto,
     cus4: d.attivita,
     cus5: d.pmNome || DASH,
   }
