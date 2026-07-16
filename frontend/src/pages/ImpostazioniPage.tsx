@@ -426,13 +426,6 @@ const SEZIONE_ENDPOINT: Record<Sezione, string> = {
   tag:      '/api/roadmap-tags',
 }
 
-const SEZIONE_LABELS: Record<Sezione, string> = {
-  attivita: 'Stati Attività',
-  progetto: 'Stati Progetti',
-  roadmap:  'Stati Roadmap',
-  tag:      'Tag Roadmap',
-}
-
 function StatiSezione({ token, sezione }: StatiSezioneProps) {
   const endpoint = SEZIONE_ENDPOINT[sezione]
 
@@ -1186,114 +1179,135 @@ function ZohoSezione({ token }: { token: string }) {
 }
 
 // ─── ImpostazioniPage ─────────────────────────────────────────────────────────
+// Layout a due pannelli: nav verticale a sinistra con voci raggruppate,
+// contenuto a destra. Le sezioni crescevano come tab orizzontali e non
+// scalavano più: i gruppi della nav sono il punto di estensione per le
+// prossime impostazioni.
 
 interface ImpostazioniPageProps { token: string; showPresaleEmail?: boolean }
 
-export default function ImpostazioniPage({ token, showPresaleEmail }: ImpostazioniPageProps) {
-  const [tab, setTab] = useState<Sezione | 'notifiche' | 'zoho'>('attivita')
+type SettingsKey = Sezione | 'notifiche' | 'zoho'
 
-  return (
-    <div className="imp-page">
-      <div className="imp-topbar">
-        <h1 className="imp-title">Impostazioni</h1>
-        <p className="imp-subtitle">Configura gli stati, i colori e la visibilità nei filtri</p>
-      </div>
+interface SettingsNavItem {
+  key: SettingsKey
+  label: string
+  icon: React.ReactNode
+}
 
-      {/* Tab navigation */}
-      <div className="imp-tabs" role="tablist" aria-label="Sezioni impostazioni">
-        <button
-          role="tab"
-          type="button"
-          aria-selected={tab === 'attivita'}
-          className={`imp-tab${tab === 'attivita' ? ' imp-tab--active' : ''}`}
-          onClick={() => setTab('attivita')}
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+const NAV_GROUPS: Array<{ label: string; items: SettingsNavItem[] }> = [
+  {
+    label: 'Stati e tag',
+    items: [
+      {
+        key: 'attivita', label: 'Stati Attività',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
             <path d="M8 3H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1h-3" strokeLinecap="round" strokeLinejoin="round" />
             <rect x="7" y="2" width="6" height="3" rx="1" strokeLinecap="round" />
             <path d="M7 9h6M7 12h4" strokeLinecap="round" />
           </svg>
-          Stati Attività
-        </button>
-        <button
-          role="tab"
-          type="button"
-          aria-selected={tab === 'progetto'}
-          className={`imp-tab${tab === 'progetto' ? ' imp-tab--active' : ''}`}
-          onClick={() => setTab('progetto')}
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+        ),
+      },
+      {
+        key: 'progetto', label: 'Stati Progetti',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
             <path d="M2 6a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L9.707 5.7A1 1 0 0 0 10.414 6H16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          Stati Progetti
-        </button>
-        <button
-          role="tab"
-          type="button"
-          aria-selected={tab === 'roadmap'}
-          className={`imp-tab${tab === 'roadmap' ? ' imp-tab--active' : ''}`}
-          onClick={() => setTab('roadmap')}
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+        ),
+      },
+      {
+        key: 'roadmap', label: 'Stati Roadmap',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
             <path d="M2 10h4l2-6 4 12 2-6h4" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          Stati Roadmap
-        </button>
-        <button
-          role="tab"
-          type="button"
-          aria-selected={tab === 'tag'}
-          className={`imp-tab${tab === 'tag' ? ' imp-tab--active' : ''}`}
-          onClick={() => setTab('tag')}
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+        ),
+      },
+      {
+        key: 'tag', label: 'Tag Roadmap',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
             <path d="M3 9l6-6h5a1 1 0 0 1 1 1v5l-6 6a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4z" strokeLinecap="round" strokeLinejoin="round" />
             <circle cx="12.5" cy="6.5" r="1.2" />
           </svg>
-          Tag Roadmap
-        </button>
-        <button
-          role="tab"
-          type="button"
-          aria-selected={tab === 'zoho'}
-          className={`imp-tab${tab === 'zoho' ? ' imp-tab--active' : ''}`}
-          onClick={() => setTab('zoho')}
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+        ),
+      },
+    ],
+  },
+  {
+    label: 'Integrazioni',
+    items: [
+      {
+        key: 'zoho', label: 'Consuntivi Zoho',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
             <circle cx="10" cy="10" r="7" strokeLinecap="round" />
             <path d="M10 6v4l2.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          Consuntivi Zoho
-        </button>
-        {showPresaleEmail && (
-          <button
-            role="tab"
-            type="button"
-            aria-selected={tab === 'notifiche'}
-            className={`imp-tab${tab === 'notifiche' ? ' imp-tab--active' : ''}`}
-            onClick={() => setTab('notifiche')}
-          >
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
-              <path d="M3 5h14v10H3z" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M3 6l7 5 7-5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Notifiche Presale
-          </button>
-        )}
+        ),
+      },
+      {
+        key: 'notifiche', label: 'Notifiche Presale',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+            <path d="M3 5h14v10H3z" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M3 6l7 5 7-5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ),
+      },
+    ],
+  },
+]
+
+export default function ImpostazioniPage({ token, showPresaleEmail }: ImpostazioniPageProps) {
+  const [tab, setTab] = useState<SettingsKey>('attivita')
+
+  // "Notifiche Presale" resta dietro allowlist; un gruppo rimasto senza voci
+  // visibili sparisce del tutto.
+  const groups = NAV_GROUPS
+    .map(g => ({ ...g, items: g.items.filter(it => it.key !== 'notifiche' || showPresaleEmail) }))
+    .filter(g => g.items.length > 0)
+
+  const activeLabel = groups.flatMap(g => g.items).find(it => it.key === tab)?.label ?? ''
+
+  return (
+    <div className="imp-page imp-page--wide">
+      <div className="imp-topbar">
+        <h1 className="imp-title">Impostazioni</h1>
+        <p className="imp-subtitle">Stati, tag, integrazioni e notifiche dell'applicazione</p>
       </div>
 
-      {/* Tab panels */}
-      <div
-        role="tabpanel"
-        aria-label={tab === 'notifiche' ? 'Notifiche Presale' : tab === 'zoho' ? 'Consuntivi Zoho' : SEZIONE_LABELS[tab]}
-      >
-        {tab === 'notifiche'
-          ? <PresaleEmailSezione token={token} />
-          : tab === 'zoho'
-            ? <ZohoSezione token={token} />
-            : tab === 'tag'
-              ? <TagSezione token={token} />
-              : <StatiSezione key={tab} token={token} sezione={tab} />}
+      <div className="imp-body">
+        <nav className="imp-nav" aria-label="Sezioni impostazioni">
+          {groups.map(g => (
+            <div key={g.label} className="imp-nav-group">
+              <span className="imp-nav-group-label">{g.label}</span>
+              {g.items.map(it => (
+                <button
+                  key={it.key}
+                  type="button"
+                  className={`imp-nav-item${tab === it.key ? ' imp-nav-item--active' : ''}`}
+                  aria-current={tab === it.key ? 'page' : undefined}
+                  onClick={() => setTab(it.key)}
+                >
+                  {it.icon}
+                  {it.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+
+        <div className="imp-content" role="region" aria-label={activeLabel}>
+          {tab === 'notifiche'
+            ? <PresaleEmailSezione token={token} />
+            : tab === 'zoho'
+              ? <ZohoSezione token={token} />
+              : tab === 'tag'
+                ? <TagSezione token={token} />
+                : <StatiSezione key={tab} token={token} sezione={tab} />}
+        </div>
       </div>
     </div>
   )
