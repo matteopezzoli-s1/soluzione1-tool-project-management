@@ -364,6 +364,9 @@ model Attivita {
   presaleNotePerFase       Json?           @map("presale_note_per_fase")
   presaleAssegnatarioId    String?         @map("presale_assegnatario_id")
   presaleAssegnatario      User?           @relation("AttivitaPresaleAssegnatario", fields: [presaleAssegnatarioId], references: [id], onDelete: SetNull)
+  // Codici fase (ANALISI_INIZIALE, PRESA_IN_CARICO, …) per cui la mail SAIOT è
+  // già stata inviata: evita doppioni quando la card viene ri-salvata.
+  presaleEmailFasiInviate  String[]        @default([]) @map("presale_email_fasi_inviate")
 
   pms                      AttivitaPM[]
   milestones               GanttMilestone[]
@@ -518,4 +521,14 @@ model RoadmapItemTag {
 
   @@id([roadmapItemId, tagId])
   @@map("roadmap_item_tags")
+}
+// Configurazione applicativa key-value (singole righe: chiave → valore stringa).
+// Usata per i parametri delle notifiche Presale via SAIOT (endpoint, codici,
+// mail gruppo DevHub, interruttore invii). Editabile dalla schermata Impostazioni.
+model AppConfig {
+  chiave    String   @id
+  valore    String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_config")
 }

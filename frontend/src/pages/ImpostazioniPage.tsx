@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
+import { ZohoImportModal, type ZohoSelectedProject } from '../components/ZohoImportModal'
 import './ImpostazioniPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -425,13 +426,6 @@ const SEZIONE_ENDPOINT: Record<Sezione, string> = {
   tag:      '/api/roadmap-tags',
 }
 
-const SEZIONE_LABELS: Record<Sezione, string> = {
-  attivita: 'Stati Attività',
-  progetto: 'Stati Progetti',
-  roadmap:  'Stati Roadmap',
-  tag:      'Tag Roadmap',
-}
-
 function StatiSezione({ token, sezione }: StatiSezioneProps) {
   const endpoint = SEZIONE_ENDPOINT[sezione]
 
@@ -847,81 +841,473 @@ function TagSezione({ token }: { token: string }) {
   )
 }
 
-// ─── ImpostazioniPage ─────────────────────────────────────────────────────────
+// ─── Notifiche Presale (SAIOT) ────────────────────────────────────────────────
+// Parametri dell'invio mail via SAIOT + email gruppo DevHub + interruttore.
+// Il testo delle mail vive in SAIOT: qui solo endpoint/codici/destinatario.
 
-interface ImpostazioniPageProps { token: string }
+interface PresaleEmailConfig {
+  url: string
+  contextCode: string
+  senderCode: string
+  eventName: string
+  devhubEmail: string
+  enabled: boolean
+}
 
-export default function ImpostazioniPage({ token }: ImpostazioniPageProps) {
-  const [tab, setTab] = useState<Sezione>('attivita')
+const EMPTY_PRESALE_CFG: PresaleEmailConfig = {
+  url: '', contextCode: '', senderCode: '', eventName: 'tpm', devhubEmail: '', enabled: false,
+}
+
+function PresaleEmailSezione({ token }: { token: string }) {
+  const [cfg, setCfg] = useState<PresaleEmailConfig>(EMPTY_PRESALE_CFG)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [pageErr, setPageErr] = useState<string | null>(null)
+  const [okMsg, setOkMsg] = useState<string | null>(null)
+
+  const fetchCfg = useCallback(async () => {
+    setLoading(true); setPageErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/config/presale-email`, { headers: authHeaders(token) })
+      if (!res.ok) throw new Error(`Errore ${res.status}`)
+      setCfg(await res.json())
+    } catch {
+      setPageErr('Impossibile caricare la configurazione.')
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { queueMicrotask(() => { fetchCfg() }) }, [fetchCfg])
+
+  const set = <K extends keyof PresaleEmailConfig>(key: K, value: PresaleEmailConfig[K]) => {
+    setCfg(prev => ({ ...prev, [key]: value }))
+    setOkMsg(null)
+  }
+
+  const handleSave = async () => {
+    if (cfg.devhubEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cfg.devhubEmail.trim())) {
+      setPageErr('Email gruppo DevHub non valida.'); return
+    }
+    setSaving(true); setPageErr(null); setOkMsg(null)
+    try {
+      const res = await fetch(`${API_URL}/api/config/presale-email`, {
+        method: 'PUT', headers: authHeadersJson(token), body: JSON.stringify(cfg),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setPageErr((data as { error?: string }).error ?? `Errore ${res.status}`)
+        return
+      }
+      setCfg(await res.json())
+      setOkMsg('Configurazione salvata.')
+    } catch {
+      setPageErr('Errore di rete. Riprova.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="imp-skeleton-list">{[...Array(4)].map((_, i) => <div key={i} className="imp-skeleton" />)}</div>
+  }
 
   return (
-    <div className="imp-page">
-      <div className="imp-topbar">
-        <h1 className="imp-title">Impostazioni</h1>
-        <p className="imp-subtitle">Configura gli stati, i colori e la visibilità nei filtri</p>
+    <div className="imp-sezione">
+      <div className="imp-sezione-topbar">
+        <p className="imp-sezione-sub">
+          Notifiche via SAIOT a ogni passaggio di fase Presale. I testi delle mail sono configurati in SAIOT.
+        </p>
       </div>
 
-      {/* Tab navigation */}
-      <div className="imp-tabs" role="tablist" aria-label="Sezioni impostazioni">
-        <button
-          role="tab"
-          type="button"
-          aria-selected={tab === 'attivita'}
-          className={`imp-tab${tab === 'attivita' ? ' imp-tab--active' : ''}`}
-          onClick={() => setTab('attivita')}
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+      {pageErr && <p className="imp-page-error" role="alert">{pageErr}</p>}
+      {okMsg && <p className="imp-ok-banner" role="status">{okMsg}</p>}
+
+      <div className="imp-cfg-card">
+        {/* Interruttore invii */}
+        <div className="imp-field">
+          <span className="imp-label">Invii Presale</span>
+          <label className="imp-toggle-wrap">
+            <input
+              type="checkbox"
+              className="imp-toggle-input"
+              checked={cfg.enabled}
+              onChange={e => set('enabled', e.target.checked)}
+              role="switch"
+              aria-checked={cfg.enabled}
+            />
+            <span className="imp-toggle-track" data-checked={cfg.enabled}>
+              <span className="imp-toggle-thumb" />
+            </span>
+            <span className="imp-toggle-label">
+              {cfg.enabled
+                ? <><span className="imp-tipo-tag imp-tipo-tag--active">Attivi</span> — le mail partono ai cambi di fase</>
+                : <><span className="imp-tipo-tag imp-tipo-tag--arch">Disattivati</span> — nessuna mail viene inviata</>
+              }
+            </span>
+          </label>
+        </div>
+
+        <div className="imp-field">
+          <label htmlFor="cfg-devhub" className="imp-label">Email gruppo DevHub</label>
+          <input id="cfg-devhub" className="imp-input" type="email" value={cfg.devhubEmail}
+            onChange={e => set('devhubEmail', e.target.value)} placeholder="es. devhub@soluzione1.it" />
+          <span className="imp-field-hint">Destinatario/Cc delle notifiche verso il team DevHub.</span>
+        </div>
+
+        <div className="imp-field">
+          <label htmlFor="cfg-url" className="imp-label">Endpoint SAIOT</label>
+          <input id="cfg-url" className="imp-input" type="url" value={cfg.url}
+            onChange={e => set('url', e.target.value)} placeholder="https://…/saiot-rest/rest/events/express" />
+        </div>
+
+        <div className="imp-cfg-row">
+          <div className="imp-field">
+            <label htmlFor="cfg-ctx" className="imp-label">contextCode</label>
+            <input id="cfg-ctx" className="imp-input" type="text" value={cfg.contextCode}
+              onChange={e => set('contextCode', e.target.value)} />
+          </div>
+          <div className="imp-field">
+            <label htmlFor="cfg-snd" className="imp-label">senderCode</label>
+            <input id="cfg-snd" className="imp-input" type="text" value={cfg.senderCode}
+              onChange={e => set('senderCode', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="imp-field imp-field--half">
+          <label htmlFor="cfg-ev" className="imp-label">event_name</label>
+          <input id="cfg-ev" className="imp-input" type="text" value={cfg.eventName}
+            onChange={e => set('eventName', e.target.value)} placeholder="tpm" />
+        </div>
+
+        <div className="imp-cfg-actions">
+          <button className="imp-btn imp-btn--primary" type="button" onClick={handleSave} disabled={saving}>
+            {saving ? 'Salvataggio…' : 'Salva configurazione'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Consuntivi Zoho ──────────────────────────────────────────────────────────
+// Selezione dei progetti Zoho Projects da cui importare le consuntivazioni
+// (persistita in app_config) + avvio dell'import con preview. Sostituisce
+// l'export CSV manuale del timesheet: stessa logica di matching sui codici
+// GO-ORDV nel nome milestone, stessa conferma via bulk-consuntivato.
+
+interface ZohoProjectRow {
+  id: string
+  name: string
+  selected: boolean
+}
+
+function ZohoSezione({ token }: { token: string }) {
+  const [projects,   setProjects]   = useState<ZohoProjectRow[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [pageErr,    setPageErr]    = useState<string | null>(null)
+  const [okMsg,      setOkMsg]      = useState<string | null>(null)
+  const [filter,     setFilter]     = useState('')
+  const [saving,     setSaving]     = useState(false)
+  const [dirty,      setDirty]      = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+
+  const fetchProjects = useCallback(async () => {
+    setLoading(true); setPageErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/zoho/projects`, { headers: authHeaders(token) })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error ?? `Errore ${res.status}`)
+      }
+      const data = (await res.json()) as { projects: ZohoProjectRow[] }
+      setProjects(data.projects)
+      setDirty(false)
+    } catch (e) {
+      setPageErr(e instanceof Error ? e.message : 'Impossibile caricare i progetti da Zoho.')
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { queueMicrotask(() => { fetchProjects() }) }, [fetchProjects])
+
+  const visible = useMemo(() => {
+    const q = filter.trim().toLowerCase()
+    return q ? projects.filter(p => p.name.toLowerCase().includes(q)) : projects
+  }, [projects, filter])
+
+  const selectedCount = projects.filter(p => p.selected).length
+
+  const toggle = (id: string) => {
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, selected: !p.selected } : p))
+    setDirty(true); setOkMsg(null)
+  }
+
+  const toggleAllVisible = (checked: boolean) => {
+    const visibleIds = new Set(visible.map(p => p.id))
+    setProjects(prev => prev.map(p => visibleIds.has(p.id) ? { ...p, selected: checked } : p))
+    setDirty(true); setOkMsg(null)
+  }
+
+  const saveSelection = async (): Promise<boolean> => {
+    setSaving(true); setPageErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/zoho/selection`, {
+        method: 'PUT',
+        headers: authHeadersJson(token),
+        body: JSON.stringify({ selectedIds: projects.filter(p => p.selected).map(p => p.id) }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setPageErr((data as { error?: string }).error ?? `Errore ${res.status}`)
+        return false
+      }
+      setDirty(false)
+      setOkMsg('Selezione salvata.')
+      return true
+    } catch {
+      setPageErr('Errore di rete. Riprova.')
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // L'import lavora sempre sulla selezione visibile: se ci sono modifiche
+  // non salvate le persiste prima di aprire il modal.
+  const handleImport = async () => {
+    if (dirty && !(await saveSelection())) return
+    setOkMsg(null)
+    setImportOpen(true)
+  }
+
+  const selectedProjects: ZohoSelectedProject[] = projects
+    .filter(p => p.selected)
+    .map(p => ({ id: p.id, name: p.name }))
+
+  if (loading) {
+    return <div className="imp-skeleton-list">{[...Array(6)].map((_, i) => <div key={i} className="imp-skeleton" />)}</div>
+  }
+
+  return (
+    <div className="imp-sezione">
+      <div className="imp-sezione-topbar">
+        <p className="imp-sezione-sub">
+          {projects.length} progetti attivi su Zoho Projects · <strong>{selectedCount}</strong> selezionati per l'import
+        </p>
+        <div className="imp-zoho-actions">
+          <button className="imp-btn imp-btn--ghost" type="button" onClick={saveSelection}
+            disabled={saving || !dirty}>
+            {saving ? 'Salvataggio…' : 'Salva selezione'}
+          </button>
+          <button className="imp-btn imp-btn--primary" type="button" onClick={handleImport}
+            disabled={saving || selectedCount === 0}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
+              <path d="M10 3v10M6 9l4 4 4-4M4 17h12" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Importa consuntivazioni
+          </button>
+        </div>
+      </div>
+
+      {pageErr && <p className="imp-page-error" role="alert">{pageErr}</p>}
+      {okMsg && <p className="imp-ok-banner" role="status">{okMsg}</p>}
+
+      {projects.length > 0 && (
+        <>
+          <div className="imp-zoho-toolbar">
+            <input
+              className="imp-input imp-zoho-search"
+              type="search"
+              placeholder="Cerca progetto…"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              aria-label="Cerca progetto Zoho"
+            />
+            <label className="imp-zoho-select-all">
+              <input
+                type="checkbox"
+                checked={visible.length > 0 && visible.every(p => p.selected)}
+                onChange={e => toggleAllVisible(e.target.checked)}
+              />
+              Seleziona {filter.trim() ? 'i risultati' : 'tutti'}
+            </label>
+          </div>
+
+          <div className="imp-table-wrap">
+            <table className="imp-table" aria-label="Progetti Zoho">
+              <thead>
+                <tr>
+                  <th scope="col" className="imp-th imp-th--chk"></th>
+                  <th scope="col" className="imp-th">Progetto Zoho</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map(p => (
+                  <tr key={p.id} className="imp-row imp-zoho-row" onClick={() => toggle(p.id)}>
+                    <td className="imp-cell imp-cell--chk">
+                      <input
+                        type="checkbox"
+                        checked={p.selected}
+                        onChange={() => toggle(p.id)}
+                        onClick={e => e.stopPropagation()}
+                        aria-label={`Seleziona ${p.name}`}
+                      />
+                    </td>
+                    <td className="imp-cell">{p.name}</td>
+                  </tr>
+                ))}
+                {visible.length === 0 && (
+                  <tr><td className="imp-cell" colSpan={2}>Nessun progetto corrisponde alla ricerca.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {importOpen && (
+        <ZohoImportModal
+          token={token}
+          projects={selectedProjects}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── ImpostazioniPage ─────────────────────────────────────────────────────────
+// Layout a due pannelli: nav verticale a sinistra con voci raggruppate,
+// contenuto a destra. Le sezioni crescevano come tab orizzontali e non
+// scalavano più: i gruppi della nav sono il punto di estensione per le
+// prossime impostazioni.
+
+interface ImpostazioniPageProps { token: string; showPresaleEmail?: boolean }
+
+type SettingsKey = Sezione | 'notifiche' | 'zoho'
+
+interface SettingsNavItem {
+  key: SettingsKey
+  label: string
+  icon: React.ReactNode
+}
+
+const NAV_GROUPS: Array<{ label: string; items: SettingsNavItem[] }> = [
+  {
+    label: 'Stati e tag',
+    items: [
+      {
+        key: 'attivita', label: 'Stati Attività',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
             <path d="M8 3H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1h-3" strokeLinecap="round" strokeLinejoin="round" />
             <rect x="7" y="2" width="6" height="3" rx="1" strokeLinecap="round" />
             <path d="M7 9h6M7 12h4" strokeLinecap="round" />
           </svg>
-          Stati Attività
-        </button>
-        <button
-          role="tab"
-          type="button"
-          aria-selected={tab === 'progetto'}
-          className={`imp-tab${tab === 'progetto' ? ' imp-tab--active' : ''}`}
-          onClick={() => setTab('progetto')}
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+        ),
+      },
+      {
+        key: 'progetto', label: 'Stati Progetti',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
             <path d="M2 6a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L9.707 5.7A1 1 0 0 0 10.414 6H16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          Stati Progetti
-        </button>
-        <button
-          role="tab"
-          type="button"
-          aria-selected={tab === 'roadmap'}
-          className={`imp-tab${tab === 'roadmap' ? ' imp-tab--active' : ''}`}
-          onClick={() => setTab('roadmap')}
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+        ),
+      },
+      {
+        key: 'roadmap', label: 'Stati Roadmap',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
             <path d="M2 10h4l2-6 4 12 2-6h4" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          Stati Roadmap
-        </button>
-        <button
-          role="tab"
-          type="button"
-          aria-selected={tab === 'tag'}
-          className={`imp-tab${tab === 'tag' ? ' imp-tab--active' : ''}`}
-          onClick={() => setTab('tag')}
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+        ),
+      },
+      {
+        key: 'tag', label: 'Tag Roadmap',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
             <path d="M3 9l6-6h5a1 1 0 0 1 1 1v5l-6 6a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4z" strokeLinecap="round" strokeLinejoin="round" />
             <circle cx="12.5" cy="6.5" r="1.2" />
           </svg>
-          Tag Roadmap
-        </button>
+        ),
+      },
+    ],
+  },
+  {
+    label: 'Integrazioni',
+    items: [
+      {
+        key: 'zoho', label: 'Consuntivi Zoho',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+            <circle cx="10" cy="10" r="7" strokeLinecap="round" />
+            <path d="M10 6v4l2.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ),
+      },
+      {
+        key: 'notifiche', label: 'Notifiche Presale',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+            <path d="M3 5h14v10H3z" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M3 6l7 5 7-5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ),
+      },
+    ],
+  },
+]
+
+export default function ImpostazioniPage({ token, showPresaleEmail }: ImpostazioniPageProps) {
+  const [tab, setTab] = useState<SettingsKey>('attivita')
+
+  // "Notifiche Presale" resta dietro allowlist; un gruppo rimasto senza voci
+  // visibili sparisce del tutto.
+  const groups = NAV_GROUPS
+    .map(g => ({ ...g, items: g.items.filter(it => it.key !== 'notifiche' || showPresaleEmail) }))
+    .filter(g => g.items.length > 0)
+
+  const activeLabel = groups.flatMap(g => g.items).find(it => it.key === tab)?.label ?? ''
+
+  return (
+    <div className="imp-page imp-page--wide">
+      <div className="imp-topbar">
+        <h1 className="imp-title">Impostazioni</h1>
+        <p className="imp-subtitle">Stati, tag, integrazioni e notifiche dell'applicazione</p>
       </div>
 
-      {/* Tab panels */}
-      <div
-        role="tabpanel"
-        aria-label={SEZIONE_LABELS[tab]}
-      >
-        {tab === 'tag' ? <TagSezione token={token} /> : <StatiSezione key={tab} token={token} sezione={tab} />}
+      <div className="imp-body">
+        <nav className="imp-nav" aria-label="Sezioni impostazioni">
+          {groups.map(g => (
+            <div key={g.label} className="imp-nav-group">
+              <span className="imp-nav-group-label">{g.label}</span>
+              {g.items.map(it => (
+                <button
+                  key={it.key}
+                  type="button"
+                  className={`imp-nav-item${tab === it.key ? ' imp-nav-item--active' : ''}`}
+                  aria-current={tab === it.key ? 'page' : undefined}
+                  onClick={() => setTab(it.key)}
+                >
+                  {it.icon}
+                  {it.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+
+        <div className="imp-content" role="region" aria-label={activeLabel}>
+          {tab === 'notifiche'
+            ? <PresaleEmailSezione token={token} />
+            : tab === 'zoho'
+              ? <ZohoSezione token={token} />
+              : tab === 'tag'
+                ? <TagSezione token={token} />
+                : <StatiSezione key={tab} token={token} sezione={tab} />}
+        </div>
       </div>
     </div>
   )

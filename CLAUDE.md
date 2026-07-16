@@ -64,7 +64,7 @@ docker compose down     # Stop
   - `GanttPage` — Custom Gantt timeline: drag & drop dates, zoom levels, critical path, milestone CRUD, keyboard nav
   - `UtentiPage` — unified user directory CRUD (replaces the old separate PM/Account pages): role chips (`ACCOUNT`/`PM`/`BOARD`/`DEVHUB`), multi-role assignment via fixed toggle-chips (roles are an application-level enum, not a user-editable list)
   - `ClientiPage` / `ProgettiPage` — CRUD for Clients and Projects
-  - `ImpostazioniPage` — Configurable activity and project states
+  - `ImpostazioniPage` — Configurable activity and project states; tab "Consuntivi Zoho" (selezione progetti Zoho + import consuntivazioni con preview diff, modal in `components/ZohoImportModal.tsx`, prefisso CSS `zi-`)
 
 ### Backend
 
@@ -92,6 +92,11 @@ docker compose down     # Stop
   - `PUT/DELETE /api/stati-attivita/:id`
   - `GET/POST /api/stati-progetto` — Configurable project states
   - `PUT/DELETE /api/stati-progetto/:id`
+  - **Zoho Projects — import consuntivazioni** (tutte con middleware `requireBoard()`, primo enforcement server-side dei ruoli; rispondono `503` se le env `ZOHO_*` mancano):
+    - `GET /api/zoho/projects` — lista progetti attivi da Zoho + flag `selected` (selezione persistita in `AppConfig`, chiave `zoho_selected_projects`)
+    - `PUT /api/zoho/selection` — salva gli id dei progetti selezionati per l'import
+    - `POST /api/zoho/consuntivi/:projectId` — ore consuntivate di UN progetto aggregate per codice `GO-ORDV-YYYY-N` (join timelog → tasklist → milestone, scansione mensile — vedi `services/zohoService.ts`); il frontend itera sui progetti selezionati e somma i codici (rate limit Zoho ~100 req/2min + limiti subrequest Workers)
+    - `POST /api/zoho/import/preview` — diff codici aggregati vs attività (match su `riferimentoOrdineVendita` = codice senza prefisso `GO-ORDV-`, come l'import CSV manuale); la conferma riusa `PATCH /api/attivita/bulk-consuntivato`
   - `GET /api/gantt/milestones` — Gantt milestones (optional `?activityId=` filter)
   - `POST /api/gantt/milestones` — Create milestone
   - `PUT /api/gantt/milestones/:id` — Update milestone
@@ -99,7 +104,7 @@ docker compose down     # Stop
 
   > `/pm` e `/accounts` (alias di sola lettura verso `/api/users?role=PM|ACCOUNT`, introdotti durante la migrazione da `ProjectManager`/`Account` a `User`) sono stati rimossi una volta aggiornato il frontend — vedi sezione Prisma Schema Key Models.
 
-- **Environment variables** (via `.env` — gitignored): `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `JWT_SECRET`, `FRONTEND_URL`, `BACKEND_URL`, `PORT`
+- **Environment variables** (via `.env` — gitignored): `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `JWT_SECRET`, `FRONTEND_URL`, `BACKEND_URL`, `PORT`, più `ZOHO_CLIENT_ID`/`ZOHO_CLIENT_SECRET`/`ZOHO_REFRESH_TOKEN`/`ZOHO_PORTAL_ID` (+ opzionali `ZOHO_ACCOUNTS_URL`/`ZOHO_PROJECTS_API_URL`, default datacenter EU) per l'import consuntivazioni da Zoho Projects. NB: `npm run dev` carica `.env` via dotenv-cli **all'avvio** — dopo una modifica a `.env` serve riavviare il dev server (nodemon non lo rilegge)
 - **Local JWT secret**: `dev-local-secret-cambia-in-prod` (the value in local `.env` — different from what DEV_SETUP.md may say)
 
 ### Prisma Schema Key Models

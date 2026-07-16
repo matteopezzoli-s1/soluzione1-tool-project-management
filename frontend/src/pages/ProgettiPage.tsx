@@ -400,7 +400,8 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
               <tr>
                 <th scope="col">{tipo === 'CLIENTE' ? 'Progetto' : 'Prodotto'}</th>
                 <th scope="col">{tipo === 'CLIENTE' ? 'Cliente' : 'PO'}</th>
-                <th scope="col">DevHub</th>
+                <th scope="col">PM di riferimento</th>
+                <th scope="col">Resp. DevHub</th>
                 <th scope="col">Stato</th>
                 {tipo === 'CLIENTE' && <th scope="col">Periodo</th>}
                 <th scope="col" className="pr-th--actions">Azioni</th>
@@ -420,6 +421,9 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
                     {tipo === 'CLIENTE'
                       ? (p.cliente ? <span className="pr-cliente-tag">{p.cliente.nome}</span> : <span className="pr-empty-cell">—</span>)
                       : (p.po ? <span className="pr-po-tag">{poName(p.po)}</span> : <span className="pr-empty-cell">—</span>)}
+                  </td>
+                  <td className="pr-cell-text">
+                    {p.pmRiferimento ? <span className="pr-po-tag">{poName(p.pmRiferimento)}</span> : <span className="pr-empty-cell">—</span>}
                   </td>
                   <td className="pr-cell-text">
                     {p.responsabileDevHub ? <span className="pr-po-tag">{devHubName(p.responsabileDevHub)}</span> : <span className="pr-empty-cell">—</span>}
