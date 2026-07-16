@@ -112,7 +112,7 @@ export interface AttivitaMailData {
   linkOfferta: string
 }
 
-const DASH = '—'
+const DASH = '-'
 
 function nomeUtente(u: { firstName: string | null; lastName: string | null } | null): string {
   return u ? [u.firstName, u.lastName].filter(Boolean).join(' ') : ''
@@ -186,9 +186,9 @@ export function buildEvent(
   devhubEmail: string,
 ): SaiotEvent | null {
   const pmEmail = d.pmEmail?.trim() || ''
-  // cus3 = "Cliente · Progetto" su un'unica riga (stesso placeholder).
-  const clienteProgetto = [d.cliente, d.progetto].filter(Boolean).join(' · ')
-  const subject = `[Presale] ${SUBJECT_PREFIX[fase]} – ${clienteProgetto} · ${d.attivita}`
+  // cus3 = "Cliente - Progetto" su un'unica riga (separatore ASCII-safe).
+  const clienteProgetto = [d.cliente, d.progetto].filter(Boolean).join(' - ')
+  const subject = `[Presale] ${SUBJECT_PREFIX[fase]} - ${clienteProgetto} - ${d.attivita}`
   // Ancore comuni a tutte le fasi.
   const base = {
     language: 'IT' as const,
