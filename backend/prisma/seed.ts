@@ -66,7 +66,6 @@ async function main() {
     { chiave: 'PRESALE_PRESA_CARICO', label: 'Presa in carico',     colore: '#0D9488', ordine: 2 },
     { chiave: 'PRESALE_STIMA',        label: 'Stima',               colore: '#8B5CF6', ordine: 3 },
     { chiave: 'PRESALE_GIORNATE',     label: 'Trattativa con cliente', colore: '#F59E0B', ordine: 4 },
-    { chiave: 'PRESALE_CONFERMA',     label: 'Conferma',            colore: '#22C55E', ordine: 5 },
   ]
   for (const s of statiPresale) {
     const data = { label: s.label, colore: s.colore, ordine: s.ordine, isPresale: true, escludiDaConteggio: true }
