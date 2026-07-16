@@ -482,6 +482,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         include: {
           cliente: { select: { id: true, nome: true } },
           po: { select: { id: true, firstName: true, lastName: true } },
+          pmRiferimento: { select: { id: true, firstName: true, lastName: true } },
           responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
         },
       })
@@ -493,9 +494,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.post('/progetti', requireAuth(), async (c) => {
-    const { nome, descrizione, tipo, stato, colore, clienteId, poId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
+    const { nome, descrizione, tipo, stato, colore, clienteId, poId, pmRiferimentoId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
       nome?: string; descrizione?: string; tipo?: string; stato?: string; colore?: string
-      clienteId?: string; poId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
+      clienteId?: string; poId?: string; pmRiferimentoId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
     }>(c)
     if (!nome?.trim()) return c.json({ error: 'Il nome è obbligatorio' }, 400)
     const prisma = c.get('prisma')
@@ -516,6 +517,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           colore: colore?.trim() || null,
           clienteId: tipoVal === 'CLIENTE' ? (clienteId?.trim() || null) : null,
           poId: tipoVal === 'PRODOTTO' ? (poId?.trim() || null) : null,
+          pmRiferimentoId: pmRiferimentoId?.trim() || null,
           responsabileDevHubId: responsabileDevHubId?.trim() || null,
           dataInizio: dataInizio ? new Date(dataInizio) : null,
           dataFine: dataFine ? new Date(dataFine) : null,
@@ -523,6 +525,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         include: {
           cliente: { select: { id: true, nome: true } },
           po: { select: { id: true, firstName: true, lastName: true } },
+          pmRiferimento: { select: { id: true, firstName: true, lastName: true } },
           responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
         },
       })
@@ -536,9 +539,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/progetti/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { nome, descrizione, tipo, stato, colore, clienteId, poId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
+    const { nome, descrizione, tipo, stato, colore, clienteId, poId, pmRiferimentoId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
       nome?: string; descrizione?: string; tipo?: string; stato?: string; colore?: string
-      clienteId?: string; poId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
+      clienteId?: string; poId?: string; pmRiferimentoId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
     }>(c)
     if (!nome?.trim()) return c.json({ error: 'Il nome è obbligatorio' }, 400)
     const prisma = c.get('prisma')
@@ -560,6 +563,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           colore: colore?.trim() || null,
           clienteId: tipoVal === 'CLIENTE' ? (clienteId?.trim() || null) : null,
           poId: tipoVal === 'PRODOTTO' ? (poId?.trim() || null) : null,
+          pmRiferimentoId: pmRiferimentoId?.trim() || null,
           responsabileDevHubId: responsabileDevHubId?.trim() || null,
           dataInizio: dataInizio ? new Date(dataInizio) : null,
           dataFine: dataFine ? new Date(dataFine) : null,
@@ -567,6 +571,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         include: {
           cliente: { select: { id: true, nome: true } },
           po: { select: { id: true, firstName: true, lastName: true } },
+          pmRiferimento: { select: { id: true, firstName: true, lastName: true } },
           responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
         },
       })

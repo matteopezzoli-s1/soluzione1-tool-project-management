@@ -24,6 +24,7 @@ interface Progetto {
   dataInizio: string | null; dataFine: string | null
   clienteId: string | null; cliente: ClienteRef | null
   poId: string | null; po: PoRef | null
+  pmRiferimentoId: string | null; pmRiferimento: PoRef | null
   responsabileDevHubId: string | null; responsabileDevHub: DevHubRef | null
 }
 
@@ -33,11 +34,11 @@ interface DevHubOption { id: string; firstName: string | null; lastName: string 
 
 type FormData = {
   nome: string; descrizione: string; stato: StatoProgetto
-  clienteId: string; poId: string; responsabileDevHubId: string; colore: string
+  clienteId: string; poId: string; pmRiferimentoId: string; responsabileDevHubId: string; colore: string
   dataInizio: string; dataFine: string
 }
 const emptyForm = (): FormData => ({
-  nome: '', descrizione: '', stato: 'ATTIVO', clienteId: '', poId: '', responsabileDevHubId: '', colore: '#0D9488', dataInizio: '', dataFine: '',
+  nome: '', descrizione: '', stato: 'ATTIVO', clienteId: '', poId: '', pmRiferimentoId: '', responsabileDevHubId: '', colore: '#0D9488', dataInizio: '', dataFine: '',
 })
 
 function authHeaders(token: string) {
@@ -161,6 +162,17 @@ function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, st
               </div>
             </div>
           )}
+
+          {/* PM di riferimento del progetto (un solo PM), indipendente dal tipo.
+              Usato per pre-compilare il PM su attività e presale. */}
+          <div className="pr-field">
+            <label htmlFor="pr-pmrif" className="pr-label">PM di riferimento</label>
+            <select id="pr-pmrif" className="pr-input pr-select"
+              value={form.pmRiferimentoId} onChange={set('pmRiferimentoId')}>
+              <option value="">— Nessun PM —</option>
+              {pos.map(p => <option key={p.id} value={p.id}>{[p.firstName, p.lastName].filter(Boolean).join(' ')}</option>)}
+            </select>
+          </div>
 
           {/* Responsabile DevHub: attributo del progetto indipendente dal tipo
               (CLIENTE o PRODOTTO) — le attività/attività roadmap collegate lo
@@ -311,7 +323,7 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
     setEditing(p)
     setForm({
       nome: p.nome, descrizione: p.descrizione ?? '', stato: p.stato,
-      clienteId: p.clienteId ?? '', poId: p.poId ?? '', responsabileDevHubId: p.responsabileDevHubId ?? '', colore: p.colore ?? '#0D9488',
+      clienteId: p.clienteId ?? '', poId: p.poId ?? '', pmRiferimentoId: p.pmRiferimentoId ?? '', responsabileDevHubId: p.responsabileDevHubId ?? '', colore: p.colore ?? '#0D9488',
       dataInizio: toInputDate(p.dataInizio), dataFine: toInputDate(p.dataFine),
     })
     setFormErr(null); setModal('edit')

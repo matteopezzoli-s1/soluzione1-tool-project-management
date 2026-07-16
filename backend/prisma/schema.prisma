@@ -42,6 +42,7 @@ model User {
 
   progettiDevHub  Progetto[]  @relation("ProgettoDevHub")
   progettiPO      Progetto[]  @relation("ProgettoPO")
+  progettiPmRiferimento Progetto[] @relation("ProgettoPmRiferimento")
   attivitaPM      AttivitaPM[]
   clientiAccount  Cliente[]   @relation("ClienteAccount")
   attivitaAccount Attivita[]  @relation("AttivitaAccount")
@@ -306,6 +307,9 @@ model Progetto {
   poId        String? @map("po_id")
   po          User?   @relation("ProgettoPO", fields: [poId], references: [id], onDelete: SetNull)
 
+  pmRiferimentoId String? @map("pm_riferimento_id")
+  pmRiferimento   User?   @relation("ProgettoPmRiferimento", fields: [pmRiferimentoId], references: [id], onDelete: SetNull)
+
   responsabileDevHubId String? @map("responsabile_dev_hub_id")
   responsabileDevHub   User?   @relation("ProgettoDevHub", fields: [responsabileDevHubId], references: [id], onDelete: SetNull)
 
@@ -313,6 +317,7 @@ model Progetto {
   roadmapItems RoadmapItem[]
 
   @@index([clienteId])
+  @@index([pmRiferimentoId])
   @@index([tipo])
   @@index([responsabileDevHubId])
   @@map("progetti")
