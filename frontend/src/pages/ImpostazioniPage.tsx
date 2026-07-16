@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
+import { ZohoImportModal, type ZohoSelectedProject } from '../components/ZohoImportModal'
 import './ImpostazioniPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -996,12 +997,200 @@ function PresaleEmailSezione({ token }: { token: string }) {
   )
 }
 
+// ─── Consuntivi Zoho ──────────────────────────────────────────────────────────
+// Selezione dei progetti Zoho Projects da cui importare le consuntivazioni
+// (persistita in app_config) + avvio dell'import con preview. Sostituisce
+// l'export CSV manuale del timesheet: stessa logica di matching sui codici
+// GO-ORDV nel nome milestone, stessa conferma via bulk-consuntivato.
+
+interface ZohoProjectRow {
+  id: string
+  name: string
+  selected: boolean
+}
+
+function ZohoSezione({ token }: { token: string }) {
+  const [projects,   setProjects]   = useState<ZohoProjectRow[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [pageErr,    setPageErr]    = useState<string | null>(null)
+  const [okMsg,      setOkMsg]      = useState<string | null>(null)
+  const [filter,     setFilter]     = useState('')
+  const [saving,     setSaving]     = useState(false)
+  const [dirty,      setDirty]      = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+
+  const fetchProjects = useCallback(async () => {
+    setLoading(true); setPageErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/zoho/projects`, { headers: authHeaders(token) })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error((data as { error?: string }).error ?? `Errore ${res.status}`)
+      }
+      const data = (await res.json()) as { projects: ZohoProjectRow[] }
+      setProjects(data.projects)
+      setDirty(false)
+    } catch (e) {
+      setPageErr(e instanceof Error ? e.message : 'Impossibile caricare i progetti da Zoho.')
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { queueMicrotask(() => { fetchProjects() }) }, [fetchProjects])
+
+  const visible = useMemo(() => {
+    const q = filter.trim().toLowerCase()
+    return q ? projects.filter(p => p.name.toLowerCase().includes(q)) : projects
+  }, [projects, filter])
+
+  const selectedCount = projects.filter(p => p.selected).length
+
+  const toggle = (id: string) => {
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, selected: !p.selected } : p))
+    setDirty(true); setOkMsg(null)
+  }
+
+  const toggleAllVisible = (checked: boolean) => {
+    const visibleIds = new Set(visible.map(p => p.id))
+    setProjects(prev => prev.map(p => visibleIds.has(p.id) ? { ...p, selected: checked } : p))
+    setDirty(true); setOkMsg(null)
+  }
+
+  const saveSelection = async (): Promise<boolean> => {
+    setSaving(true); setPageErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/zoho/selection`, {
+        method: 'PUT',
+        headers: authHeadersJson(token),
+        body: JSON.stringify({ selectedIds: projects.filter(p => p.selected).map(p => p.id) }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setPageErr((data as { error?: string }).error ?? `Errore ${res.status}`)
+        return false
+      }
+      setDirty(false)
+      setOkMsg('Selezione salvata.')
+      return true
+    } catch {
+      setPageErr('Errore di rete. Riprova.')
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // L'import lavora sempre sulla selezione visibile: se ci sono modifiche
+  // non salvate le persiste prima di aprire il modal.
+  const handleImport = async () => {
+    if (dirty && !(await saveSelection())) return
+    setOkMsg(null)
+    setImportOpen(true)
+  }
+
+  const selectedProjects: ZohoSelectedProject[] = projects
+    .filter(p => p.selected)
+    .map(p => ({ id: p.id, name: p.name }))
+
+  if (loading) {
+    return <div className="imp-skeleton-list">{[...Array(6)].map((_, i) => <div key={i} className="imp-skeleton" />)}</div>
+  }
+
+  return (
+    <div className="imp-sezione">
+      <div className="imp-sezione-topbar">
+        <p className="imp-sezione-sub">
+          {projects.length} progetti attivi su Zoho Projects · <strong>{selectedCount}</strong> selezionati per l'import
+        </p>
+        <div className="imp-zoho-actions">
+          <button className="imp-btn imp-btn--ghost" type="button" onClick={saveSelection}
+            disabled={saving || !dirty}>
+            {saving ? 'Salvataggio…' : 'Salva selezione'}
+          </button>
+          <button className="imp-btn imp-btn--primary" type="button" onClick={handleImport}
+            disabled={saving || selectedCount === 0}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
+              <path d="M10 3v10M6 9l4 4 4-4M4 17h12" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Importa consuntivazioni
+          </button>
+        </div>
+      </div>
+
+      {pageErr && <p className="imp-page-error" role="alert">{pageErr}</p>}
+      {okMsg && <p className="imp-ok-banner" role="status">{okMsg}</p>}
+
+      {projects.length > 0 && (
+        <>
+          <div className="imp-zoho-toolbar">
+            <input
+              className="imp-input imp-zoho-search"
+              type="search"
+              placeholder="Cerca progetto…"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              aria-label="Cerca progetto Zoho"
+            />
+            <label className="imp-zoho-select-all">
+              <input
+                type="checkbox"
+                checked={visible.length > 0 && visible.every(p => p.selected)}
+                onChange={e => toggleAllVisible(e.target.checked)}
+              />
+              Seleziona {filter.trim() ? 'i risultati' : 'tutti'}
+            </label>
+          </div>
+
+          <div className="imp-table-wrap">
+            <table className="imp-table" aria-label="Progetti Zoho">
+              <thead>
+                <tr>
+                  <th scope="col" className="imp-th imp-th--chk"></th>
+                  <th scope="col" className="imp-th">Progetto Zoho</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map(p => (
+                  <tr key={p.id} className="imp-row imp-zoho-row" onClick={() => toggle(p.id)}>
+                    <td className="imp-cell imp-cell--chk">
+                      <input
+                        type="checkbox"
+                        checked={p.selected}
+                        onChange={() => toggle(p.id)}
+                        onClick={e => e.stopPropagation()}
+                        aria-label={`Seleziona ${p.name}`}
+                      />
+                    </td>
+                    <td className="imp-cell">{p.name}</td>
+                  </tr>
+                ))}
+                {visible.length === 0 && (
+                  <tr><td className="imp-cell" colSpan={2}>Nessun progetto corrisponde alla ricerca.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {importOpen && (
+        <ZohoImportModal
+          token={token}
+          projects={selectedProjects}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
 // ─── ImpostazioniPage ─────────────────────────────────────────────────────────
 
 interface ImpostazioniPageProps { token: string; showPresaleEmail?: boolean }
 
 export default function ImpostazioniPage({ token, showPresaleEmail }: ImpostazioniPageProps) {
-  const [tab, setTab] = useState<Sezione | 'notifiche'>('attivita')
+  const [tab, setTab] = useState<Sezione | 'notifiche' | 'zoho'>('attivita')
 
   return (
     <div className="imp-page">
@@ -1063,6 +1252,19 @@ export default function ImpostazioniPage({ token, showPresaleEmail }: Impostazio
           </svg>
           Tag Roadmap
         </button>
+        <button
+          role="tab"
+          type="button"
+          aria-selected={tab === 'zoho'}
+          className={`imp-tab${tab === 'zoho' ? ' imp-tab--active' : ''}`}
+          onClick={() => setTab('zoho')}
+        >
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+            <circle cx="10" cy="10" r="7" strokeLinecap="round" />
+            <path d="M10 6v4l2.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Consuntivi Zoho
+        </button>
         {showPresaleEmail && (
           <button
             role="tab"
@@ -1083,13 +1285,15 @@ export default function ImpostazioniPage({ token, showPresaleEmail }: Impostazio
       {/* Tab panels */}
       <div
         role="tabpanel"
-        aria-label={tab === 'notifiche' ? 'Notifiche Presale' : SEZIONE_LABELS[tab]}
+        aria-label={tab === 'notifiche' ? 'Notifiche Presale' : tab === 'zoho' ? 'Consuntivi Zoho' : SEZIONE_LABELS[tab]}
       >
         {tab === 'notifiche'
           ? <PresaleEmailSezione token={token} />
-          : tab === 'tag'
-            ? <TagSezione token={token} />
-            : <StatiSezione key={tab} token={token} sezione={tab} />}
+          : tab === 'zoho'
+            ? <ZohoSezione token={token} />
+            : tab === 'tag'
+              ? <TagSezione token={token} />
+              : <StatiSezione key={tab} token={token} sezione={tab} />}
       </div>
     </div>
   )
