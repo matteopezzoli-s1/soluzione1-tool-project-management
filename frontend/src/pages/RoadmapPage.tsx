@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
-import RoadmapImportCSVModal from '../components/RoadmapImportCSVModal'
 import './RoadmapPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -524,7 +523,6 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [formErr,   setFormErr]   = useState<string | null>(null)
   const [delTarget, setDelTarget] = useState<RoadmapItem | null>(null)
   const [deleting,  setDeleting]  = useState(false)
-  const [showImport, setShowImport] = useState(false)
 
   const dragIdRef = useRef<string | null>(null)
 
@@ -720,12 +718,6 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
         </div>
         {!readOnly && (
           <div className="rm-topbar-actions">
-            <button className="rm-btn rm-btn--ghost" type="button" onClick={() => setShowImport(true)}>
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
-                <path d="M10 3v10M6 9l4 4 4-4M4 16.5h12" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              Importa CSV
-            </button>
             <button className="rm-btn rm-btn--primary" type="button" onClick={openAdd}>
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
                 <path d="M10 4v12M4 10h12" strokeLinecap="round" />
@@ -957,9 +949,6 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       )}
       {!readOnly && delTarget && (
         <ConfirmDelete item={delTarget} loading={deleting} onConfirm={handleDelete} onClose={() => setDelTarget(null)} />
-      )}
-      {!readOnly && showImport && (
-        <RoadmapImportCSVModal token={token} onClose={() => setShowImport(false)} onImportComplete={() => fetchAll()} />
       )}
     </div>
   )
