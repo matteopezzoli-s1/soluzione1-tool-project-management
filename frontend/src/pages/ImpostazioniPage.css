@@ -388,3 +388,28 @@
   margin: 0;
   font-weight: 500;
 }
+
+/* ── Consuntivi Zoho ─────────────────────────────────────────── */
+
+.imp-zoho-actions {
+  display: flex; align-items: center; gap: 0.6rem;
+}
+
+.imp-zoho-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; margin-bottom: 0.75rem;
+}
+
+.imp-zoho-search { max-width: 280px; }
+
+.imp-zoho-select-all {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.8rem; color: #475569; cursor: pointer; user-select: none;
+  white-space: nowrap;
+}
+
+.imp-th--chk    { width: 36px; }
+.imp-cell--chk  { width: 36px; }
+
+.imp-zoho-row { cursor: pointer; }
+.imp-zoho-row:hover { background: #F8FAFC; }
