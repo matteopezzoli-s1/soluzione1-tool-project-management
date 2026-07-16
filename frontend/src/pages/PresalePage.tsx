@@ -19,6 +19,7 @@ interface PresaleItem {
   note: string | null
   presaleLinkRequisiti: string | null
   presaleLinkStima: string | null
+  presaleLinkOfferta: string | null
   presaleGiornateStimate: number | null
   presaleScadenzaStima: string | null
   presaleAssegnatario: string
@@ -52,6 +53,7 @@ type FormData = {
   giornateVendute: string
   presaleLinkRequisiti: string
   presaleLinkStima: string
+  presaleLinkOfferta: string
   note: string
   inizio: string
   deadline: string
@@ -61,7 +63,7 @@ const EMPTY_FORM: FormData = {
   clienteId: '', progettoId: '', attivita: '', stato: '',
   pmIds: [], presaleAssegnatarioId: '',
   presaleGiornateStimate: '', presaleScadenzaStima: '', giornateVendute: '',
-  presaleLinkRequisiti: '', presaleLinkStima: '',
+  presaleLinkRequisiti: '', presaleLinkStima: '', presaleLinkOfferta: '',
   note: '', inizio: '', deadline: '',
 }
 
@@ -103,34 +105,24 @@ function numOrNull(s: string): number | null {
 // dello stato; per stati presale custom (fuori mappa) si mostrano tutti.
 type PresaleField =
   | 'pmIds' | 'presaleLinkRequisiti' | 'presaleScadenzaStima' | 'presaleAssegnatarioId'
-  | 'presaleGiornateStimate' | 'presaleLinkStima' | 'giornateVendute'
+  | 'presaleGiornateStimate' | 'presaleLinkStima' | 'presaleLinkOfferta' | 'giornateVendute'
 
 const FASE_CAMPI: Record<string, PresaleField[]> = {
   PRESALE_APERTURA:     ['presaleLinkRequisiti', 'presaleScadenzaStima', 'pmIds'],
   PRESALE_PRESA_CARICO: ['presaleAssegnatarioId'],
   PRESALE_STIMA:        ['presaleGiornateStimate', 'presaleLinkStima'],
-  PRESALE_GIORNATE:     ['giornateVendute'],
+  PRESALE_GIORNATE:     ['giornateVendute', 'presaleLinkOfferta'],
   PRESALE_CONFERMA:     [],
 }
 const TUTTI_CAMPI: PresaleField[] = [
   'pmIds', 'presaleLinkRequisiti', 'presaleScadenzaStima', 'presaleAssegnatarioId',
-  'presaleGiornateStimate', 'presaleLinkStima', 'giornateVendute',
+  'presaleGiornateStimate', 'presaleLinkStima', 'presaleLinkOfferta', 'giornateVendute',
 ]
 
-function campoVuoto(form: FormData, f: PresaleField): boolean {
-  if (f === 'pmIds') return form.pmIds.length === 0
-  return (form[f] ?? '').toString().trim() === ''
-}
-
-function campiVisibili(stato: string, statiPresale: StatoConfig[], form: FormData): Set<PresaleField> {
-  const propri = FASE_CAMPI[stato]
-  if (propri === undefined) return new Set(TUTTI_CAMPI) // fase custom → mostra tutto
-  const visibili = new Set(propri)
-  const idx = statiPresale.findIndex(s => s.chiave === stato)
-  const prec = idx > 0 ? statiPresale[idx - 1] : undefined
-  const campiPrec = prec ? (FASE_CAMPI[prec.chiave] ?? []) : []
-  for (const f of campiPrec) if (campoVuoto(form, f)) visibili.add(f)
-  return visibili
+// Ogni fase mostra SOLO i campi dedicati alla fase corrente (nessun carry-over
+// dalle fasi precedenti): non si compilano campi di altre fasi.
+function campiVisibili(stato: string): Set<PresaleField> {
+  return new Set(FASE_CAMPI[stato] ?? TUTTI_CAMPI)
 }
 
 // ─── PM chips (multi-select) ────────────────────────────────────────────────
@@ -139,8 +131,9 @@ function PmChips({ pms, value, onChange }: {
   pms: UserRef[]; value: string[]; onChange: (ids: string[]) => void
 }) {
   if (pms.length === 0) return <span className="ps-field-hint">Nessun PM disponibile</span>
+  // In presale si assegna un solo PM: click = selezione singola (radio-like).
   const toggle = (id: string) =>
-    onChange(value.includes(id) ? value.filter(v => v !== id) : [...value, id])
+    onChange(value.includes(id) ? [] : [id])
   return (
     <div className="ps-chip-row">
       {pms.map(p => {
@@ -185,10 +178,7 @@ function PresaleModal({
     () => progetti.filter(p => !form.clienteId || p.clienteId === form.clienteId),
     [progetti, form.clienteId],
   )
-  const visibili = useMemo(
-    () => campiVisibili(form.stato, statiPresale, form),
-    [form, statiPresale],
-  )
+  const visibili = useMemo(() => campiVisibili(form.stato), [form.stato])
   const currentIdx = statiPresale.findIndex(s => s.chiave === form.stato)
   const currentCfg = statiPresale[currentIdx]
   const accent = currentCfg?.colore ?? '#7C3AED'
@@ -383,7 +373,7 @@ function PresaleModal({
 
             {visibili.has('presaleLinkStima') && (
               <div className="ps-field">
-                <label className="ps-label" htmlFor="ps-stima">Link Drive — analisi di stima</label>
+                <label className="ps-label" htmlFor="ps-stima">Link Drive — analisi dettaglio (opzionale)</label>
                 <input
                   id="ps-stima"
                   className="ps-input"
@@ -408,6 +398,20 @@ function PresaleModal({
                   />
                   <span className="ps-suffix">gg</span>
                 </div>
+              </div>
+            )}
+
+            {visibili.has('presaleLinkOfferta') && (
+              <div className="ps-field">
+                <label className="ps-label" htmlFor="ps-offerta">Link Drive — documento di offerta (opzionale)</label>
+                <input
+                  id="ps-offerta"
+                  className="ps-input"
+                  type="url"
+                  value={form.presaleLinkOfferta}
+                  onChange={e => onChange({ ...form, presaleLinkOfferta: e.target.value })}
+                  placeholder="https://drive.google.com/…"
+                />
               </div>
             )}
           </section>
@@ -588,8 +592,14 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
             )}
             {item.presaleLinkStima && (
               <div className="ps-dl-row">
-                <dt>Analisi di stima</dt>
+                <dt>Analisi dettaglio</dt>
                 <dd><a href={item.presaleLinkStima} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a></dd>
+              </div>
+            )}
+            {item.presaleLinkOfferta && (
+              <div className="ps-dl-row">
+                <dt>Documento di offerta</dt>
+                <dd><a href={item.presaleLinkOfferta} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a></dd>
               </div>
             )}
             {item.note && <div className="ps-dl-row"><dt>Note</dt><dd className="ps-dl-note">{item.note}</dd></div>}
@@ -798,6 +808,7 @@ export default function PresalePage({ token }: { token: string }) {
       giornateVendute: item.giornateVendute !== null ? String(item.giornateVendute) : '',
       presaleLinkRequisiti: item.presaleLinkRequisiti ?? '',
       presaleLinkStima: item.presaleLinkStima ?? '',
+      presaleLinkOfferta: item.presaleLinkOfferta ?? '',
       note: item.note ?? '',
       inizio: item.inizio ?? '',
       deadline: item.deadline ?? '',
@@ -827,6 +838,7 @@ export default function PresalePage({ token }: { token: string }) {
         giornateVendute: numOrNull(form.giornateVendute),
         presaleLinkRequisiti: form.presaleLinkRequisiti.trim() || null,
         presaleLinkStima: form.presaleLinkStima.trim() || null,
+        presaleLinkOfferta: form.presaleLinkOfferta.trim() || null,
         note: form.note.trim() || null,
         inizio: form.inizio || null,
         deadline: form.deadline || null,
