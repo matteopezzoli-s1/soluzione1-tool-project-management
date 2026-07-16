@@ -10,6 +10,7 @@ ALTER TABLE "attivita" ADD COLUMN     "presale_assegnatario_id" TEXT,
 ADD COLUMN     "presale_giornate_stimate" DECIMAL(10,2),
 ADD COLUMN     "presale_link_requisiti" TEXT,
 ADD COLUMN     "presale_link_stima" TEXT,
+ADD COLUMN     "presale_link_offerta" TEXT,
 ADD COLUMN     "presale_scadenza_stima" TIMESTAMP(3);
 
 -- AlterTable: flag "fase presale" sugli stati attività

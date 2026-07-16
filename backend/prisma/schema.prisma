@@ -352,6 +352,7 @@ model Attivita {
   // ── Presale (valorizzati solo mentre l'attività è in uno stato isPresale) ──
   presaleLinkRequisiti     String?         @map("presale_link_requisiti")
   presaleLinkStima         String?         @map("presale_link_stima")
+  presaleLinkOfferta       String?         @map("presale_link_offerta")
   presaleGiornateStimate   Decimal?        @map("presale_giornate_stimate") @db.Decimal(10, 2)
   presaleScadenzaStima     DateTime?       @map("presale_scadenza_stima")
   presaleAssegnatarioId    String?         @map("presale_assegnatario_id")
