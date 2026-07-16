@@ -14,7 +14,6 @@ import {
   listZohoProjects,
   type ZohoConfig,
 } from './services/zohoService'
-import { importRoadmapCSV } from './services/roadmapImportService'
 import {
   getPresaleEmailConfig,
   savePresaleEmailConfig,
@@ -1971,21 +1970,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
   })
 
-  hono.post('/api/roadmap-items/import-csv', requireAuth(), async (c) => {
-    const formData = await c.req.formData()
-    const file = formData.get('file')
-    if (!(file instanceof File)) {
-      return c.json({ error: 'File mancante' }, 400)
-    }
-    try {
-      const buffer = Buffer.from(await file.arrayBuffer())
-      const result = await importRoadmapCSV(buffer, c.get('prisma'))
-      return c.json({ success: true, result })
-    } catch (err) {
-      console.error('[import roadmap] error:', err)
-      return c.json({ error: 'Errore import', detail: String(err) }, 422)
-    }
-  })
 }
 
 export function createApp(): Hono<Env> {
