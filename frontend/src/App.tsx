@@ -231,8 +231,8 @@ export default function App() {
       .then(async (r) => {
         if (cancelled) return
         if (r.ok) {
-          const data = await r.json()
-          if (data?.roles) setFetchedRoles({ token, roles: data.roles })
+          const data = (await r.json()) as { user?: { roles?: Role[] } }
+          if (data?.user?.roles) setFetchedRoles({ token, roles: data.user.roles })
           setFetchedAuth({ token, status: 'authorized' })
         } else if (r.status === 403) {
           setFetchedAuth({ token, status: 'unauthorized' })
@@ -360,7 +360,7 @@ export default function App() {
         {effectivePage === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={isDevHub} />}
         {effectivePage === 'presale'       && canPresale && <PresalePage token={token} />}
         {effectivePage === 'roadmap'       && <RoadmapPage           token={token} readOnly={isDevHub} />}
-        {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} />}
+        {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} showPresaleEmail={canPresale} />}
         {effectivePage === 'timeline'      && <GanttPage             token={token} />}
         {effectivePage !== 'dashboard' && effectivePage !== 'clienti' && effectivePage !== 'progetti' && effectivePage !== 'utenti' && effectivePage !== 'attivita' && effectivePage !== 'presale' && effectivePage !== 'roadmap' && effectivePage !== 'impostazioni' && effectivePage !== 'timeline' && (
           <PlaceholderPage page={effectivePage} />

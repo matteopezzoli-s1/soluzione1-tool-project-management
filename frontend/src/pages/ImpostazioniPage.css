@@ -28,26 +28,58 @@
 .imp-title  { font-size: 1.5rem; font-weight: 800; color: #0F172A; letter-spacing: -0.03em; line-height: 1.2; }
 .imp-subtitle { font-size: 0.8rem; color: #94A3B8; font-weight: 500; }
 
-/* ── Tabs ──────────────────────────────────────────────────── */
+/* ── Layout a due pannelli: nav laterale + contenuto ───────── */
 
-.imp-tabs {
-  display: flex; gap: 0.25rem;
-  border-bottom: 2px solid #E2E8F0;
-  padding-bottom: 0;
+.imp-page--wide { max-width: 1160px; }
+
+.imp-body {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 2.25rem;
+  align-items: start;
 }
 
-.imp-tab {
-  display: inline-flex; align-items: center; gap: 0.5rem;
-  padding: 0.65rem 1rem; border-radius: 8px 8px 0 0;
-  font-family: inherit; font-size: 0.875rem; font-weight: 600;
-  color: #64748B; background: transparent;
-  border: none; border-bottom: 2px solid transparent;
-  cursor: pointer; transition: color 150ms ease, background 150ms ease;
-  margin-bottom: -2px;
+.imp-nav {
+  display: flex; flex-direction: column; gap: 1.4rem;
+  position: sticky; top: 1.5rem;
 }
-.imp-tab:hover:not(.imp-tab--active) { color: #334155; background: #F8FAFC; }
-.imp-tab--active { color: #0D9488; border-bottom-color: #0D9488; }
-.imp-tab:focus-visible { outline: 2.5px solid #0D9488; outline-offset: 2px; }
+
+.imp-nav-group { display: flex; flex-direction: column; gap: 2px; }
+
+.imp-nav-group-label {
+  font-size: 0.68rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: #94A3B8;
+  padding: 0 0.75rem 0.4rem;
+}
+
+.imp-nav-item {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border: none; border-radius: 8px;
+  background: transparent; color: #475569;
+  font-family: inherit; font-size: 0.85rem; font-weight: 600; text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.imp-nav-item svg { flex-shrink: 0; }
+.imp-nav-item:hover:not(.imp-nav-item--active) { background: #F1F5F9; color: #0F172A; }
+.imp-nav-item--active { background: #F0FDFA; color: #0D9488; }
+.imp-nav-item:focus-visible { outline: 2.5px solid #0D9488; outline-offset: 2px; }
+
+.imp-content { min-width: 0; }
+
+/* Sotto ~860px la nav passa sopra al contenuto, con i gruppi in riga */
+@media (max-width: 860px) {
+  .imp-body { grid-template-columns: 1fr; gap: 1.25rem; }
+  .imp-nav {
+    position: static;
+    flex-direction: row; flex-wrap: wrap; gap: 1rem;
+    padding-bottom: 0.75rem; border-bottom: 1px solid #E2E8F0;
+  }
+  .imp-nav-group { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .imp-nav-group-label { width: 100%; padding: 0 0 0.3rem; }
+}
 
 /* ── Sezione ───────────────────────────────────────────────── */
 
@@ -187,6 +219,30 @@
 .imp-page-error {
   font-size: 0.875rem; color: #991B1B; background: #FEF2F2;
   border: 1px solid #FECACA; border-radius: 10px; padding: 0.75rem 1rem;
+}
+
+.imp-ok-banner {
+  font-size: 0.875rem; color: #065F46; background: #ECFDF5;
+  border: 1px solid #A7F3D0; border-radius: 10px; padding: 0.75rem 1rem;
+}
+
+/* ── Config card (Notifiche Presale) ───────────────────────── */
+
+.imp-cfg-card {
+  background: #fff; border: 1px solid #E2E8F0; border-radius: 14px;
+  padding: 1.5rem; margin-top: 1rem;
+  display: flex; flex-direction: column; gap: 1.25rem;
+  max-width: 640px;
+}
+.imp-cfg-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+}
+.imp-cfg-actions {
+  display: flex; justify-content: flex-end;
+  border-top: 1px solid #F1F5F9; padding-top: 1.25rem;
+}
+@media (max-width: 560px) {
+  .imp-cfg-row { grid-template-columns: 1fr; }
 }
 
 /* ── Modal overlay ─────────────────────────────────────────── */
@@ -364,3 +420,28 @@
   margin: 0;
   font-weight: 500;
 }
+
+/* ── Consuntivi Zoho ─────────────────────────────────────────── */
+
+.imp-zoho-actions {
+  display: flex; align-items: center; gap: 0.6rem;
+}
+
+.imp-zoho-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; margin-bottom: 0.75rem;
+}
+
+.imp-zoho-search { max-width: 280px; }
+
+.imp-zoho-select-all {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.8rem; color: #475569; cursor: pointer; user-select: none;
+  white-space: nowrap;
+}
+
+.imp-th--chk    { width: 36px; }
+.imp-cell--chk  { width: 36px; }
+
+.imp-zoho-row { cursor: pointer; }
+.imp-zoho-row:hover { background: #F8FAFC; }
