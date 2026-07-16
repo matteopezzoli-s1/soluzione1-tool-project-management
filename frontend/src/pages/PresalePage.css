@@ -123,6 +123,10 @@
   transition: background var(--t-fast);
 }
 .ps-card-advance:hover { background: color-mix(in srgb, var(--ps-card-c, #94A3B8) 18%, #fff); }
+.ps-card-confirm {
+  color: #fff !important; background: var(--c-teal-600) !important; border-color: var(--c-teal-600) !important;
+}
+.ps-card-confirm:hover { background: var(--c-teal-700) !important; }
 
 /* ── Stati: loading / empty / error ──────────────────────────── */
 .ps-loading { padding: 2.5rem; text-align: center; color: var(--c-slate-400); }

@@ -11,6 +11,7 @@ ADD COLUMN     "presale_giornate_stimate" DECIMAL(10,2),
 ADD COLUMN     "presale_link_requisiti" TEXT,
 ADD COLUMN     "presale_link_stima" TEXT,
 ADD COLUMN     "presale_link_offerta" TEXT,
+ADD COLUMN     "presale_note_per_fase" JSONB,
 ADD COLUMN     "presale_scadenza_stima" TIMESTAMP(3);
 
 -- AlterTable: flag "fase presale" sugli stati attività
@@ -52,6 +53,5 @@ VALUES
   ('stato_presale_apertura',     'PRESALE_APERTURA',     'Analisi iniziale',       '#3B82F6', false, true, true, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   ('stato_presale_presa_carico', 'PRESALE_PRESA_CARICO', 'Presa in carico',        '#0D9488', false, true, true, 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   ('stato_presale_stima',        'PRESALE_STIMA',        'Stima',                  '#8B5CF6', false, true, true, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  ('stato_presale_giornate',     'PRESALE_GIORNATE',     'Trattativa con cliente', '#F59E0B', false, true, true, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  ('stato_presale_conferma',     'PRESALE_CONFERMA',     'Conferma',               '#22C55E', false, true, true, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  ('stato_presale_giornate',     'PRESALE_GIORNATE',     'Trattativa con cliente', '#F59E0B', false, true, true, 4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT ("chiave") DO NOTHING;

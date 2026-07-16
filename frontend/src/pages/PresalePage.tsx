@@ -22,6 +22,7 @@ interface PresaleItem {
   presaleLinkOfferta: string | null
   presaleGiornateStimate: number | null
   presaleScadenzaStima: string | null
+  presaleNotePerFase: Record<string, string> | null
   presaleAssegnatario: string
   presaleAssegnatarioId: string | null
   inizio: string | null
@@ -54,6 +55,7 @@ type FormData = {
   presaleLinkRequisiti: string
   presaleLinkStima: string
   presaleLinkOfferta: string
+  presaleNotePerFase: Record<string, string>
   note: string
   inizio: string
   deadline: string
@@ -64,8 +66,11 @@ const EMPTY_FORM: FormData = {
   pmIds: [], presaleAssegnatarioId: '',
   presaleGiornateStimate: '', presaleScadenzaStima: '', giornateVendute: '',
   presaleLinkRequisiti: '', presaleLinkStima: '', presaleLinkOfferta: '',
-  note: '', inizio: '', deadline: '',
+  presaleNotePerFase: {}, note: '', inizio: '', deadline: '',
 }
+
+// Stato normale in cui l'attività confermata esce dal presale (fisso).
+const STATO_EFFETTIVA = 'DA_INIZIARE'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -404,14 +409,20 @@ function PresaleModal({
           </section>
 
           <section className="ps-section">
-            <p className="ps-section-title">Note</p>
+            <p className="ps-section-title">
+              Note{statiPresale.find(s => s.chiave === form.stato)?.label
+                ? ` · ${statiPresale.find(s => s.chiave === form.stato)!.label}` : ''}
+            </p>
             <textarea
               id="ps-note"
               className="ps-input ps-textarea"
               rows={3}
-              value={form.note}
-              placeholder="Annotazioni libere, sempre disponibili…"
-              onChange={e => onChange({ ...form, note: e.target.value })}
+              value={form.presaleNotePerFase[form.stato] ?? ''}
+              placeholder="Note di questa fase (indipendenti dalle altre)…"
+              onChange={e => onChange({
+                ...form,
+                presaleNotePerFase: { ...form.presaleNotePerFase, [form.stato]: e.target.value },
+              })}
             />
           </section>
         </div>
@@ -429,21 +440,19 @@ function PresaleModal({
 
 // ─── Conferma & rendi effettiva ─────────────────────────────────────────────
 
-function ConfirmEffettiva({ item, statiNormali, loading, onConfirm, onClose }: {
+function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onConfirm, onClose }: {
   item: PresaleItem
-  statiNormali: StatoConfig[]
+  statoEffettivaLabel: string
+  esisteStato: boolean
   loading: boolean
-  onConfirm: (statoChiave: string) => void
+  onConfirm: () => void
   onClose: () => void
 }) {
-  const [target, setTarget] = useState<string>(
-    statiNormali.find(s => s.chiave === 'IN_CORSO')?.chiave ?? statiNormali[0]?.chiave ?? '',
-  )
   return (
     <SectionModal onClose={onClose} labelledBy="ps-eff-title">
       <div className="ps-modal ps-modal--sm">
         <div className="ps-modal-header">
-          <h2 id="ps-eff-title" className="ps-modal-title">Conferma e rendi effettiva</h2>
+          <h2 id="ps-eff-title" className="ps-modal-title">Conferma e avvia</h2>
           <button className="ps-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
               <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
@@ -452,31 +461,21 @@ function ConfirmEffettiva({ item, statiNormali, loading, onConfirm, onClose }: {
         </div>
         <div className="ps-modal-body">
           <p className="ps-confirm-text">
-            L'attività <strong>{item.attivita}</strong> uscirà dalla board Presale e proseguirà come
-            attività normale nello stato scelto qui sotto.
+            L'attività <strong>{item.attivita}</strong> viene confermata: passa allo stato{' '}
+            <strong>{statoEffettivaLabel}</strong> e <strong>esce dal presale</strong>, proseguendo come
+            attività normale.
           </p>
-          {statiNormali.length === 0 ? (
+          {!esisteStato && (
             <p className="ps-error-banner" role="alert">
-              Nessuno stato normale configurato. Creane uno in Impostazioni → Stati Attività.
+              Lo stato «{statoEffettivaLabel}» non esiste tra gli stati attività. Crealo in
+              Impostazioni → Stati Attività prima di confermare.
             </p>
-          ) : (
-            <div className="ps-field">
-              <label className="ps-label" htmlFor="ps-eff-stato">Stato di arrivo</label>
-              <select id="ps-eff-stato" className="ps-input" value={target} onChange={e => setTarget(e.target.value)}>
-                {statiNormali.map(s => <option key={s.chiave} value={s.chiave}>{s.label}</option>)}
-              </select>
-            </div>
           )}
         </div>
         <div className="ps-modal-footer">
           <button className="ps-btn ps-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
-          <button
-            className="ps-btn ps-btn--primary"
-            type="button"
-            onClick={() => onConfirm(target)}
-            disabled={loading || !target}
-          >
-            {loading ? 'Conferma…' : 'Conferma'}
+          <button className="ps-btn ps-btn--primary" type="button" onClick={onConfirm} disabled={loading || !esisteStato}>
+            {loading ? 'Conferma…' : 'Conferma e avvia'}
           </button>
         </div>
       </div>
@@ -589,7 +588,15 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
                 <dd><a href={item.presaleLinkOfferta} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a></dd>
               </div>
             )}
-            {item.note && <div className="ps-dl-row"><dt>Note</dt><dd className="ps-dl-note">{item.note}</dd></div>}
+            {item.presaleNotePerFase && Object.entries(item.presaleNotePerFase)
+              .filter(([, v]) => v && v.trim())
+              .sort(([a], [b]) => (statoByChiave.get(a)?.ordine ?? 99) - (statoByChiave.get(b)?.ordine ?? 99))
+              .map(([chiave, testo]) => (
+                <div key={chiave} className="ps-dl-row">
+                  <dt>Note · {statoByChiave.get(chiave)?.label ?? chiave}</dt>
+                  <dd className="ps-dl-note">{testo}</dd>
+                </div>
+              ))}
           </dl>
 
           <div className="ps-tl-section">
@@ -601,7 +608,7 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
           <button className="ps-btn ps-btn--danger-ghost" type="button" onClick={onDelete}>Elimina</button>
           <div className="ps-footer-actions">
             <button className="ps-btn ps-btn--ghost" type="button" onClick={onEdit}>Modifica</button>
-            <button className="ps-btn ps-btn--primary" type="button" onClick={onConfirm}>Conferma e rendi effettiva</button>
+            <button className="ps-btn ps-btn--primary" type="button" onClick={onConfirm}>Conferma e avvia</button>
           </div>
         </div>
       </div>
@@ -611,13 +618,15 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
-function PresaleCard({ item, accent, nextLabel, onDragStart, onOpen, onAdvance }: {
+function PresaleCard({ item, accent, nextLabel, isLast, onDragStart, onOpen, onAdvance, onConfirm }: {
   item: PresaleItem
   accent: string
   nextLabel?: string
+  isLast?: boolean
   onDragStart: (id: string) => void
   onOpen: (item: PresaleItem) => void
   onAdvance?: () => void
+  onConfirm?: () => void
 }) {
   return (
     <div
@@ -652,6 +661,16 @@ function PresaleCard({ item, accent, nextLabel, onDragStart, onOpen, onAdvance }
           title={`Passa a: ${nextLabel}`}
         >
           Passa a {nextLabel} →
+        </button>
+      )}
+      {isLast && onConfirm && (
+        <button
+          type="button"
+          className="ps-card-advance ps-card-confirm"
+          onClick={e => { e.stopPropagation(); onConfirm() }}
+          title="Conferma e avvia (esce dal presale)"
+        >
+          ✓ Conferma e avvia
         </button>
       )}
     </div>
@@ -690,10 +709,6 @@ export default function PresalePage({ token }: { token: string }) {
 
   const statiPresale = useMemo(
     () => stati.filter(s => s.isPresale).sort((a, b) => a.ordine - b.ordine),
-    [stati],
-  )
-  const statiNormali = useMemo(
-    () => stati.filter(s => !s.isPresale && !s.isArchiviato).sort((a, b) => a.ordine - b.ordine),
     [stati],
   )
   const statoByChiave = useMemo(() => new Map(stati.map(s => [s.chiave, s])), [stati])
@@ -805,6 +820,7 @@ export default function PresalePage({ token }: { token: string }) {
       presaleLinkRequisiti: item.presaleLinkRequisiti ?? '',
       presaleLinkStima: item.presaleLinkStima ?? '',
       presaleLinkOfferta: item.presaleLinkOfferta ?? '',
+      presaleNotePerFase: item.presaleNotePerFase ?? {},
       note: item.note ?? '',
       inizio: item.inizio ?? '',
       deadline: item.deadline ?? '',
@@ -835,6 +851,7 @@ export default function PresalePage({ token }: { token: string }) {
         presaleLinkRequisiti: form.presaleLinkRequisiti.trim() || null,
         presaleLinkStima: form.presaleLinkStima.trim() || null,
         presaleLinkOfferta: form.presaleLinkOfferta.trim() || null,
+        presaleNotePerFase: form.presaleNotePerFase,
         note: form.note.trim() || null,
         inizio: form.inizio || null,
         deadline: form.deadline || null,
@@ -855,12 +872,12 @@ export default function PresalePage({ token }: { token: string }) {
     }
   }
 
-  const handleConfirmEffettiva = async (statoChiave: string) => {
+  const handleConfirmEffettiva = async () => {
     if (!confirmTarget) return
     setConfirming(true)
     try {
       const res = await fetch(`${API_URL}/api/attivita/${confirmTarget.id}/stato`, {
-        method: 'PATCH', headers: authHeadersJson(token), body: JSON.stringify({ stato: statoChiave }),
+        method: 'PATCH', headers: authHeadersJson(token), body: JSON.stringify({ stato: STATO_EFFETTIVA }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -952,9 +969,11 @@ export default function PresalePage({ token }: { token: string }) {
                       item={item}
                       accent={col.colore}
                       nextLabel={next?.label}
+                      isLast={!next}
                       onDragStart={id => { dragIdRef.current = id }}
                       onOpen={setSelected}
                       onAdvance={next ? () => changePhaseAndOpen(item, next.chiave) : undefined}
+                      onConfirm={() => setConfirmTarget(item)}
                     />
                   ))}
                   {colItems.length === 0 && <p className="ps-col-empty">Nessuna attività</p>}
@@ -999,7 +1018,8 @@ export default function PresalePage({ token }: { token: string }) {
       {confirmTarget && (
         <ConfirmEffettiva
           item={confirmTarget}
-          statiNormali={statiNormali}
+          statoEffettivaLabel={statoByChiave.get(STATO_EFFETTIVA)?.label ?? 'Da iniziare'}
+          esisteStato={statoByChiave.has(STATO_EFFETTIVA)}
           loading={confirming}
           onConfirm={handleConfirmEffettiva}
           onClose={() => setConfirmTarget(null)}

@@ -1370,6 +1370,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         presaleLinkOfferta: a.presaleLinkOfferta,
         presaleGiornateStimate: a.presaleGiornateStimate !== null ? toNumber(a.presaleGiornateStimate) : null,
         presaleScadenzaStima: a.presaleScadenzaStima?.toISOString().split('T')[0] ?? null,
+        presaleNotePerFase: (a.presaleNotePerFase as Record<string, string> | null) ?? null,
         presaleAssegnatario: nomeUtente(a.presaleAssegnatario),
         presaleAssegnatarioId: a.presaleAssegnatarioId ?? null,
         inizio: a.inizio?.toISOString().split('T')[0] ?? null,
@@ -1390,7 +1391,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       clienteId, progettoId, pmIds, attivita, tipo,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
-      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId,
+      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
       attivita?: string; tipo?: string
@@ -1399,6 +1400,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       inizio?: string | null; deadline?: string | null; note?: string
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
       presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
+      presaleNotePerFase?: Record<string, string> | null
     }>(c)
 
     if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
@@ -1444,6 +1446,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           presaleLinkOfferta: presaleLinkOfferta?.trim() || null,
           presaleGiornateStimate: presaleGiornateStimate != null ? presaleGiornateStimate : null,
           presaleScadenzaStima: presaleScadenzaStima ? new Date(presaleScadenzaStima) : null,
+          presaleNotePerFase: presaleNotePerFase ?? undefined,
           presaleAssegnatarioId: presaleAssegnatarioId?.trim() || null,
           pms: pmIds?.length ? { create: pmIds.map(pmId => ({ pmId })) } : undefined,
         },
@@ -1467,7 +1470,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       clienteId, progettoId, pmIds, attivita,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
-      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId,
+      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
       attivita?: string
@@ -1476,6 +1479,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       inizio?: string | null; deadline?: string | null; note?: string
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
       presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
+      presaleNotePerFase?: Record<string, string> | null
     }>(c)
 
     if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
@@ -1524,6 +1528,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           presaleLinkOfferta: presaleLinkOfferta?.trim() || null,
           presaleGiornateStimate: presaleGiornateStimate != null ? presaleGiornateStimate : null,
           presaleScadenzaStima: presaleScadenzaStima ? new Date(presaleScadenzaStima) : null,
+          presaleNotePerFase: presaleNotePerFase ?? undefined,
           presaleAssegnatarioId: presaleAssegnatarioId?.trim() || null,
           pms: {
             deleteMany: {},

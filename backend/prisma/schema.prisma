@@ -355,6 +355,7 @@ model Attivita {
   presaleLinkOfferta       String?         @map("presale_link_offerta")
   presaleGiornateStimate   Decimal?        @map("presale_giornate_stimate") @db.Decimal(10, 2)
   presaleScadenzaStima     DateTime?       @map("presale_scadenza_stima")
+  presaleNotePerFase       Json?           @map("presale_note_per_fase")
   presaleAssegnatarioId    String?         @map("presale_assegnatario_id")
   presaleAssegnatario      User?           @relation("AttivitaPresaleAssegnatario", fields: [presaleAssegnatarioId], references: [id], onDelete: SetNull)
 
