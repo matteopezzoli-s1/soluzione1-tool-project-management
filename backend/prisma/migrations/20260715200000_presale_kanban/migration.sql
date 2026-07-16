@@ -12,6 +12,7 @@ ADD COLUMN     "presale_link_requisiti" TEXT,
 ADD COLUMN     "presale_link_stima" TEXT,
 ADD COLUMN     "presale_link_offerta" TEXT,
 ADD COLUMN     "presale_note_per_fase" JSONB,
+ADD COLUMN     "presale_tipo_intervento" TEXT,
 ADD COLUMN     "presale_scadenza_stima" TIMESTAMP(3);
 
 -- AlterTable: flag "fase presale" sugli stati attività
