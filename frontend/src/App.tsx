@@ -360,7 +360,7 @@ export default function App() {
         {effectivePage === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={isDevHub} />}
         {effectivePage === 'presale'       && canPresale && <PresalePage token={token} />}
         {effectivePage === 'roadmap'       && <RoadmapPage           token={token} readOnly={isDevHub} />}
-        {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} />}
+        {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} showPresaleEmail={canPresale} />}
         {effectivePage === 'timeline'      && <GanttPage             token={token} />}
         {effectivePage !== 'dashboard' && effectivePage !== 'clienti' && effectivePage !== 'progetti' && effectivePage !== 'utenti' && effectivePage !== 'attivita' && effectivePage !== 'presale' && effectivePage !== 'roadmap' && effectivePage !== 'impostazioni' && effectivePage !== 'timeline' && (
           <PlaceholderPage page={effectivePage} />
