@@ -847,12 +847,161 @@ function TagSezione({ token }: { token: string }) {
   )
 }
 
+// ─── Notifiche Presale (SAIOT) ────────────────────────────────────────────────
+// Parametri dell'invio mail via SAIOT + email gruppo DevHub + interruttore.
+// Il testo delle mail vive in SAIOT: qui solo endpoint/codici/destinatario.
+
+interface PresaleEmailConfig {
+  url: string
+  contextCode: string
+  senderCode: string
+  eventName: string
+  devhubEmail: string
+  enabled: boolean
+}
+
+const EMPTY_PRESALE_CFG: PresaleEmailConfig = {
+  url: '', contextCode: '', senderCode: '', eventName: 'tpm', devhubEmail: '', enabled: false,
+}
+
+function PresaleEmailSezione({ token }: { token: string }) {
+  const [cfg, setCfg] = useState<PresaleEmailConfig>(EMPTY_PRESALE_CFG)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [pageErr, setPageErr] = useState<string | null>(null)
+  const [okMsg, setOkMsg] = useState<string | null>(null)
+
+  const fetchCfg = useCallback(async () => {
+    setLoading(true); setPageErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/config/presale-email`, { headers: authHeaders(token) })
+      if (!res.ok) throw new Error(`Errore ${res.status}`)
+      setCfg(await res.json())
+    } catch {
+      setPageErr('Impossibile caricare la configurazione.')
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => { queueMicrotask(() => { fetchCfg() }) }, [fetchCfg])
+
+  const set = <K extends keyof PresaleEmailConfig>(key: K, value: PresaleEmailConfig[K]) => {
+    setCfg(prev => ({ ...prev, [key]: value }))
+    setOkMsg(null)
+  }
+
+  const handleSave = async () => {
+    if (cfg.devhubEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cfg.devhubEmail.trim())) {
+      setPageErr('Email gruppo DevHub non valida.'); return
+    }
+    setSaving(true); setPageErr(null); setOkMsg(null)
+    try {
+      const res = await fetch(`${API_URL}/api/config/presale-email`, {
+        method: 'PUT', headers: authHeadersJson(token), body: JSON.stringify(cfg),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setPageErr((data as { error?: string }).error ?? `Errore ${res.status}`)
+        return
+      }
+      setCfg(await res.json())
+      setOkMsg('Configurazione salvata.')
+    } catch {
+      setPageErr('Errore di rete. Riprova.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="imp-skeleton-list">{[...Array(4)].map((_, i) => <div key={i} className="imp-skeleton" />)}</div>
+  }
+
+  return (
+    <div className="imp-sezione">
+      <div className="imp-sezione-topbar">
+        <p className="imp-sezione-sub">
+          Notifiche via SAIOT a ogni passaggio di fase Presale. I testi delle mail sono configurati in SAIOT.
+        </p>
+      </div>
+
+      {pageErr && <p className="imp-page-error" role="alert">{pageErr}</p>}
+      {okMsg && <p className="imp-ok-banner" role="status">{okMsg}</p>}
+
+      <div className="imp-cfg-card">
+        {/* Interruttore invii */}
+        <div className="imp-field">
+          <span className="imp-label">Invii Presale</span>
+          <label className="imp-toggle-wrap">
+            <input
+              type="checkbox"
+              className="imp-toggle-input"
+              checked={cfg.enabled}
+              onChange={e => set('enabled', e.target.checked)}
+              role="switch"
+              aria-checked={cfg.enabled}
+            />
+            <span className="imp-toggle-track" data-checked={cfg.enabled}>
+              <span className="imp-toggle-thumb" />
+            </span>
+            <span className="imp-toggle-label">
+              {cfg.enabled
+                ? <><span className="imp-tipo-tag imp-tipo-tag--active">Attivi</span> — le mail partono ai cambi di fase</>
+                : <><span className="imp-tipo-tag imp-tipo-tag--arch">Disattivati</span> — nessuna mail viene inviata</>
+              }
+            </span>
+          </label>
+        </div>
+
+        <div className="imp-field">
+          <label htmlFor="cfg-devhub" className="imp-label">Email gruppo DevHub</label>
+          <input id="cfg-devhub" className="imp-input" type="email" value={cfg.devhubEmail}
+            onChange={e => set('devhubEmail', e.target.value)} placeholder="es. devhub@soluzione1.it" />
+          <span className="imp-field-hint">Destinatario/Cc delle notifiche verso il team DevHub.</span>
+        </div>
+
+        <div className="imp-field">
+          <label htmlFor="cfg-url" className="imp-label">Endpoint SAIOT</label>
+          <input id="cfg-url" className="imp-input" type="url" value={cfg.url}
+            onChange={e => set('url', e.target.value)} placeholder="https://…/saiot-rest/rest/events/express" />
+        </div>
+
+        <div className="imp-cfg-row">
+          <div className="imp-field">
+            <label htmlFor="cfg-ctx" className="imp-label">contextCode</label>
+            <input id="cfg-ctx" className="imp-input" type="text" value={cfg.contextCode}
+              onChange={e => set('contextCode', e.target.value)} />
+          </div>
+          <div className="imp-field">
+            <label htmlFor="cfg-snd" className="imp-label">senderCode</label>
+            <input id="cfg-snd" className="imp-input" type="text" value={cfg.senderCode}
+              onChange={e => set('senderCode', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="imp-field imp-field--half">
+          <label htmlFor="cfg-ev" className="imp-label">event_name</label>
+          <input id="cfg-ev" className="imp-input" type="text" value={cfg.eventName}
+            onChange={e => set('eventName', e.target.value)} placeholder="tpm" />
+        </div>
+
+        <div className="imp-cfg-actions">
+          <button className="imp-btn imp-btn--primary" type="button" onClick={handleSave} disabled={saving}>
+            {saving ? 'Salvataggio…' : 'Salva configurazione'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── ImpostazioniPage ─────────────────────────────────────────────────────────
 
-interface ImpostazioniPageProps { token: string }
+interface ImpostazioniPageProps { token: string; showPresaleEmail?: boolean }
 
-export default function ImpostazioniPage({ token }: ImpostazioniPageProps) {
-  const [tab, setTab] = useState<Sezione>('attivita')
+export default function ImpostazioniPage({ token, showPresaleEmail }: ImpostazioniPageProps) {
+  const [tab, setTab] = useState<Sezione | 'notifiche'>('attivita')
 
   return (
     <div className="imp-page">
@@ -914,14 +1063,33 @@ export default function ImpostazioniPage({ token }: ImpostazioniPageProps) {
           </svg>
           Tag Roadmap
         </button>
+        {showPresaleEmail && (
+          <button
+            role="tab"
+            type="button"
+            aria-selected={tab === 'notifiche'}
+            className={`imp-tab${tab === 'notifiche' ? ' imp-tab--active' : ''}`}
+            onClick={() => setTab('notifiche')}
+          >
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16">
+              <path d="M3 5h14v10H3z" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M3 6l7 5 7-5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Notifiche Presale
+          </button>
+        )}
       </div>
 
       {/* Tab panels */}
       <div
         role="tabpanel"
-        aria-label={SEZIONE_LABELS[tab]}
+        aria-label={tab === 'notifiche' ? 'Notifiche Presale' : SEZIONE_LABELS[tab]}
       >
-        {tab === 'tag' ? <TagSezione token={token} /> : <StatiSezione key={tab} token={token} sezione={tab} />}
+        {tab === 'notifiche'
+          ? <PresaleEmailSezione token={token} />
+          : tab === 'tag'
+            ? <TagSezione token={token} />
+            : <StatiSezione key={tab} token={token} sezione={tab} />}
       </div>
     </div>
   )

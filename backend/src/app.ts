@@ -9,6 +9,13 @@ import {
 } from './auth'
 import { importCSV } from './services/importService'
 import { importRoadmapCSV } from './services/roadmapImportService'
+import {
+  getPresaleEmailConfig,
+  savePresaleEmailConfig,
+  sendPresaleFaseEmail,
+  STATO_TO_FASE,
+  type PresaleEmailConfig,
+} from './presaleEmail'
 
 export interface AppConfig {
   googleClientId: string
@@ -55,6 +62,30 @@ async function logStatoChange(
     await prisma.attivitaStatoLog.create({ data: { attivitaId, statoDa, statoA, userId } })
   } catch (err) {
     console.error('[attivita] logStatoChange error:', err)
+  }
+}
+
+// La config SAIOT (codici, endpoint, interruttore invii) è leggibile/scrivibile
+// solo da questo allowlist — coerente con la Presale, per ora ristretta.
+const PRESALE_EMAIL_ADMINS = ['matteo.pezzoli@soluzione1.it']
+async function isPresaleEmailAdmin(prisma: PrismaClient, userId: string | null): Promise<boolean> {
+  if (!userId) return false
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
+  return !!u?.email && PRESALE_EMAIL_ADMINS.includes(u.email.toLowerCase())
+}
+
+// La mail di una fase parte solo quando il campo "chiave" di quella fase è
+// valorizzato: evita notifiche a metà se qualcosa aggira la validazione lato UI.
+function presaleFaseDataReady(
+  fase: string,
+  a: { presaleAssegnatarioId: string | null; presaleGiornateStimate: unknown; giornateVendute: unknown },
+): boolean {
+  switch (fase) {
+    case 'ANALISI_INIZIALE': return true
+    case 'PRESA_IN_CARICO': return !!a.presaleAssegnatarioId
+    case 'STIMA': return a.presaleGiornateStimate != null
+    case 'TRATTATIVA_CLIENTE': return a.giornateVendute != null
+    default: return true
   }
 }
 
@@ -1459,6 +1490,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         },
       })
       await logStatoChange(prisma, row.id, null, statoVal, c.get('currentUserId'))
+      // Creazione in fase presale → notifica la fase corrispondente (di norma
+      // ANALISI_INIZIALE, l'unico stato d'ingresso della board).
+      const faseCreazione = STATO_TO_FASE[statoVal]
+      if (faseCreazione) await sendPresaleFaseEmail(prisma, row.id, faseCreazione)
       return c.json(row, 201)
     } catch (err) {
       console.error('[attivita] POST error:', err)
@@ -1547,6 +1582,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (existing.stato !== statoVal) {
         await logStatoChange(prisma, id, existing.stato, statoVal, c.get('currentUserId'))
       }
+      // Salvataggio di una fase presale con i dati compilati → notifica (una
+      // volta sola per fase, grazie al dedup). È qui che scattano PRESA/STIMA/
+      // TRATTATIVA: il PATCH di spostamento avviene prima che i campi siano pieni.
+      const fasePut = STATO_TO_FASE[statoVal]
+      if (fasePut && presaleFaseDataReady(fasePut, row)) {
+        await sendPresaleFaseEmail(prisma, id, fasePut)
+      }
       return c.json(row)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività non trovata' }, 404)
@@ -1610,6 +1652,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       const row = await prisma.attivita.update({ where: { id }, data: { stato: statoVal } })
       if (existing.stato !== statoVal) {
         await logStatoChange(prisma, id, existing.stato, statoVal, c.get('currentUserId'))
+        // Uscita dal presale (era in una fase, ora in uno stato non-presale) =
+        // conferma progetto → PROGETTO_CONFERMATO. Gli spostamenti tra fasi
+        // presale non inviano qui: ci pensa il PUT quando i dati sono compilati.
+        if (STATO_TO_FASE[existing.stato] && !STATO_TO_FASE[statoVal]) {
+          await sendPresaleFaseEmail(prisma, id, 'PROGETTO_CONFERMATO')
+        }
       }
       return c.json(row)
     } catch (err: unknown) {
@@ -1640,6 +1688,37 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       console.error('[attivita] GET storico error:', err)
       return c.json({ error: 'Errore nel recupero dello storico' }, 500)
     }
+  })
+
+  // ── Config notifiche Presale (SAIOT) ────────────────────────────────
+  // GET/PUT ristretti all'allowlist Presale (contengono i codici SAIOT).
+  hono.get('/api/config/presale-email', requireAuth(), async (c) => {
+    const prisma = c.get('prisma')
+    if (!(await isPresaleEmailAdmin(prisma, c.get('currentUserId')))) {
+      return c.json({ error: 'Non autorizzato' }, 403)
+    }
+    return c.json(await getPresaleEmailConfig(prisma))
+  })
+
+  hono.put('/api/config/presale-email', requireAuth(), async (c) => {
+    const prisma = c.get('prisma')
+    if (!(await isPresaleEmailAdmin(prisma, c.get('currentUserId')))) {
+      return c.json({ error: 'Non autorizzato' }, 403)
+    }
+    const body = await readJSON<Partial<PresaleEmailConfig>>(c)
+    const cfg: PresaleEmailConfig = {
+      url: (body.url ?? '').toString(),
+      contextCode: (body.contextCode ?? '').toString(),
+      senderCode: (body.senderCode ?? '').toString(),
+      eventName: (body.eventName ?? 'tpm').toString(),
+      devhubEmail: (body.devhubEmail ?? '').toString(),
+      enabled: body.enabled === true,
+    }
+    if (cfg.devhubEmail && !EMAIL_RE.test(cfg.devhubEmail.trim())) {
+      return c.json({ error: 'Email gruppo DevHub non valida' }, 400)
+    }
+    await savePresaleEmailConfig(prisma, cfg)
+    return c.json(await getPresaleEmailConfig(prisma))
   })
 
   // PATCH /api/attivita/bulk-consuntivato — aggiornamento massivo giornateConsuntivate

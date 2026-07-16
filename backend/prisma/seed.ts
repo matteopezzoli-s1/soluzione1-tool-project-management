@@ -76,6 +76,20 @@ async function main() {
     })
   }
 
+  // ── Config notifiche Presale (SAIOT) — valori di sviluppo (testapi) ─────
+  // In produzione questi arrivano dalla migration (endpoint api.saiot.it).
+  const configPresale: Array<[string, string]> = [
+    ['saiot_url', 'https://testapi.saiot.it/saiot-rest/rest/events/express'],
+    ['saiot_context_code', 'cc32fdbaad23866c91078445595096d6'],
+    ['saiot_sender_code', 'e7478375a40f42043a00ed2d182019b9'],
+    ['saiot_event_name', 'tpm'],
+    ['presale_devhub_email', 'matteo.pezzoli@gmail.com'],
+    ['presale_email_enabled', 'true'],
+  ]
+  for (const [chiave, valore] of configPresale) {
+    await prisma.appConfig.upsert({ where: { chiave }, update: {}, create: { chiave, valore } })
+  }
+
   console.log('Seed completato:', { user1: user1.email, user2: user2.email, project: project.name, statiPresale: statiPresale.length })
 }
 
