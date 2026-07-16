@@ -130,10 +130,37 @@ const TUTTI_CAMPI: PresaleField[] = [
   'presaleGiornateStimate', 'presaleLinkStima', 'presaleLinkOfferta', 'giornateVendute',
 ]
 
-// Ogni fase mostra SOLO i campi dedicati alla fase corrente (nessun carry-over
-// dalle fasi precedenti): non si compilano campi di altre fasi.
-function campiVisibili(stato: string): Set<PresaleField> {
-  return new Set(FASE_CAMPI[stato] ?? TUTTI_CAMPI)
+// Campi obbligatori per fase.
+const REQUIRED_CAMPI: Record<string, PresaleField[]> = {
+  PRESALE_APERTURA:     ['presaleTipoIntervento', 'pmIds', 'presaleScadenzaStima'],
+  PRESALE_PRESA_CARICO: ['presaleAssegnatarioId'],
+  PRESALE_STIMA:        ['presaleGiornateStimate'],
+  PRESALE_GIORNATE:     ['giornateVendute'],
+}
+const CAMPO_LABEL: Partial<Record<PresaleField, string>> = {
+  presaleTipoIntervento: 'Tipo intervento', pmIds: 'PM', presaleScadenzaStima: 'Stima desiderata entro il',
+  presaleAssegnatarioId: 'Assegnatario DevHub', presaleGiornateStimate: 'Giornate stimate', giornateVendute: 'Giornate vendute',
+}
+function isObbligatorio(f: PresaleField): boolean {
+  return Object.values(REQUIRED_CAMPI).some(list => list.includes(f))
+}
+function campiMancantiForm(form: FormData): PresaleField[] {
+  return (REQUIRED_CAMPI[form.stato] ?? []).filter(f =>
+    f === 'pmIds' ? form.pmIds.length === 0 : (form[f] ?? '').toString().trim() === '')
+}
+// Fase completa a partire dai dati dell'item (per il gating dell'avanzamento).
+function faseItemCompleta(item: PresaleItem, stato: string): boolean {
+  return (REQUIRED_CAMPI[stato] ?? []).every(f => {
+    switch (f) {
+      case 'pmIds': return item.pmIds.length > 0
+      case 'presaleTipoIntervento': return !!item.presaleTipoIntervento
+      case 'presaleScadenzaStima': return !!item.presaleScadenzaStima
+      case 'presaleAssegnatarioId': return !!item.presaleAssegnatarioId
+      case 'presaleGiornateStimate': return item.presaleGiornateStimate != null
+      case 'giornateVendute': return item.giornateVendute != null
+      default: return true
+    }
+  })
 }
 
 // ─── PM chips (multi-select) ────────────────────────────────────────────────
@@ -189,10 +216,121 @@ function PresaleModal({
     () => progetti.filter(p => !form.clienteId || p.clienteId === form.clienteId),
     [progetti, form.clienteId],
   )
-  const visibili = useMemo(() => campiVisibili(form.stato), [form.stato])
   const currentIdx = statiPresale.findIndex(s => s.chiave === form.stato)
   const currentCfg = statiPresale[currentIdx]
   const accent = currentCfg?.colore ?? '#7C3AED'
+  const fasiPrecedenti = currentIdx > 0 ? statiPresale.slice(0, currentIdx) : []
+
+  // Nota (per-fase) di una singola fase.
+  const renderNota = (chiave: string) => (
+    <div className="ps-field">
+      <label className="ps-label">Note</label>
+      <textarea
+        className="ps-input ps-textarea"
+        rows={2}
+        value={form.presaleNotePerFase[chiave] ?? ''}
+        placeholder="Note di questa fase (indipendenti dalle altre)…"
+        onChange={e => onChange({ ...form, presaleNotePerFase: { ...form.presaleNotePerFase, [chiave]: e.target.value } })}
+      />
+    </div>
+  )
+
+  // Rende un singolo campo (usato sia per la fase corrente sia, negli accordion,
+  // per le fasi precedenti — i campi sono univoci per fase).
+  const req = (f: PresaleField) => isObbligatorio(f) ? <span aria-hidden="true"> *</span> : null
+  const renderCampo = (f: PresaleField) => {
+    switch (f) {
+      case 'presaleTipoIntervento': return (
+        <div key={f} className="ps-field">
+          <span className="ps-label">Tipo intervento{req(f)}</span>
+          <div className="ps-chip-row">
+            {TIPI_INTERVENTO.map(t => {
+              const on = form.presaleTipoIntervento === t.value
+              return (
+                <button key={t.value} type="button" className={`ps-chip${on ? ' ps-chip--on' : ''}`}
+                  onClick={() => onChange({ ...form, presaleTipoIntervento: on ? '' : t.value })} aria-pressed={on}>
+                  {t.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )
+      case 'pmIds': return (
+        <div key={f} className="ps-field">
+          <span className="ps-label">PM{req(f)}</span>
+          <PmChips pms={pms} value={form.pmIds} onChange={ids => onChange({ ...form, pmIds: ids })} />
+        </div>
+      )
+      case 'presaleLinkRequisiti': return (
+        <div key={f} className="ps-field">
+          <label className="ps-label" htmlFor="ps-req">Link Drive — analisi requisiti</label>
+          <input id="ps-req" className="ps-input" type="url" value={form.presaleLinkRequisiti}
+            onChange={e => onChange({ ...form, presaleLinkRequisiti: e.target.value })} placeholder="https://drive.google.com/…" />
+        </div>
+      )
+      case 'presaleScadenzaStima': return (
+        <div key={f} className="ps-field">
+          <label className="ps-label" htmlFor="ps-scad-stima">Stima desiderata entro il{req(f)}</label>
+          <input id="ps-scad-stima" className="ps-input" type="date" value={form.presaleScadenzaStima}
+            onChange={e => onChange({ ...form, presaleScadenzaStima: e.target.value })} />
+        </div>
+      )
+      case 'presaleAssegnatarioId': return (
+        <div key={f} className="ps-field">
+          <label className="ps-label" htmlFor="ps-assegnatario">Assegnatario DevHub{req(f)}</label>
+          <select id="ps-assegnatario" className="ps-input ps-select" value={form.presaleAssegnatarioId}
+            onChange={e => onChange({ ...form, presaleAssegnatarioId: e.target.value })}>
+            <option value="">— Nessuno —</option>
+            {devHubs.map(u => <option key={u.id} value={u.id}>{userLabel(u)}</option>)}
+          </select>
+          {suggestedDevHub && form.presaleAssegnatarioId !== suggestedDevHub.id && (
+            <p className="ps-suggest">
+              Responsabile DevHub del progetto: <strong>{suggestedDevHub.nome}</strong>
+              <button type="button" className="ps-suggest-btn"
+                onClick={() => onChange({ ...form, presaleAssegnatarioId: suggestedDevHub.id })}>Usa</button>
+            </p>
+          )}
+        </div>
+      )
+      case 'presaleGiornateStimate': return (
+        <div key={f} className="ps-field">
+          <label className="ps-label" htmlFor="ps-stimate">Giornate stimate{req(f)}</label>
+          <div className="ps-input-suffix">
+            <input id="ps-stimate" className="ps-input" type="number" min="0" step="0.5" value={form.presaleGiornateStimate}
+              onChange={e => onChange({ ...form, presaleGiornateStimate: e.target.value })} />
+            <span className="ps-suffix">gg</span>
+          </div>
+        </div>
+      )
+      case 'presaleLinkStima': return (
+        <div key={f} className="ps-field">
+          <label className="ps-label" htmlFor="ps-stima">Link Drive — analisi dettaglio (opzionale)</label>
+          <input id="ps-stima" className="ps-input" type="url" value={form.presaleLinkStima}
+            onChange={e => onChange({ ...form, presaleLinkStima: e.target.value })} placeholder="https://drive.google.com/…" />
+        </div>
+      )
+      case 'giornateVendute': return (
+        <div key={f} className="ps-field">
+          <label className="ps-label" htmlFor="ps-vendute">Giornate vendute{req(f)}</label>
+          <div className="ps-input-suffix">
+            <input id="ps-vendute" className="ps-input" type="number" min="0" step="0.5" value={form.giornateVendute}
+              onChange={e => onChange({ ...form, giornateVendute: e.target.value })} />
+            <span className="ps-suffix">gg</span>
+          </div>
+        </div>
+      )
+      case 'presaleLinkOfferta': return (
+        <div key={f} className="ps-field">
+          <label className="ps-label" htmlFor="ps-offerta">Link Drive — documento di offerta (opzionale)</label>
+          <input id="ps-offerta" className="ps-input" type="url" value={form.presaleLinkOfferta}
+            onChange={e => onChange({ ...form, presaleLinkOfferta: e.target.value })} placeholder="https://drive.google.com/…" />
+        </div>
+      )
+      default: return null
+    }
+  }
+  const campiFase = (chiave: string) => FASE_CAMPI[chiave] ?? TUTTI_CAMPI
 
   return (
     <SectionModal onClose={onClose} labelledBy="ps-modal-title">
@@ -292,171 +430,35 @@ function PresaleModal({
               Da compilare{currentCfg ? ` · ${currentCfg.label}` : ''}
             </p>
 
-            {visibili.size === 0 && (
+            {campiFase(form.stato).length === 0 && (
               <p className="ps-section-hint">Nessun campo da compilare in questa fase.</p>
             )}
-
-            {visibili.has('presaleTipoIntervento') && (
-              <div className="ps-field">
-                <span className="ps-label">Tipo intervento</span>
-                <div className="ps-chip-row">
-                  {TIPI_INTERVENTO.map(t => {
-                    const on = form.presaleTipoIntervento === t.value
-                    return (
-                      <button
-                        key={t.value}
-                        type="button"
-                        className={`ps-chip${on ? ' ps-chip--on' : ''}`}
-                        onClick={() => onChange({ ...form, presaleTipoIntervento: on ? '' : t.value })}
-                        aria-pressed={on}
-                      >
-                        {t.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {visibili.has('pmIds') && (
-              <div className="ps-field">
-                <span className="ps-label">PM</span>
-                <PmChips pms={pms} value={form.pmIds} onChange={ids => onChange({ ...form, pmIds: ids })} />
-              </div>
-            )}
-
-            {visibili.has('presaleLinkRequisiti') && (
-              <div className="ps-field">
-                <label className="ps-label" htmlFor="ps-req">Link Drive — analisi requisiti</label>
-                <input
-                  id="ps-req"
-                  className="ps-input"
-                  type="url"
-                  value={form.presaleLinkRequisiti}
-                  onChange={e => onChange({ ...form, presaleLinkRequisiti: e.target.value })}
-                  placeholder="https://drive.google.com/…"
-                />
-              </div>
-            )}
-
-            {visibili.has('presaleScadenzaStima') && (
-              <div className="ps-field">
-                <label className="ps-label" htmlFor="ps-scad-stima">Stima desiderata entro il</label>
-                <input
-                  id="ps-scad-stima"
-                  className="ps-input"
-                  type="date"
-                  value={form.presaleScadenzaStima}
-                  onChange={e => onChange({ ...form, presaleScadenzaStima: e.target.value })}
-                />
-              </div>
-            )}
-
-            {visibili.has('presaleAssegnatarioId') && (
-              <div className="ps-field">
-                <label className="ps-label" htmlFor="ps-assegnatario">Assegnatario DevHub</label>
-                <select
-                  id="ps-assegnatario"
-                  className="ps-input ps-select"
-                  value={form.presaleAssegnatarioId}
-                  onChange={e => onChange({ ...form, presaleAssegnatarioId: e.target.value })}
-                >
-                  <option value="">— Nessuno —</option>
-                  {devHubs.map(u => <option key={u.id} value={u.id}>{userLabel(u)}</option>)}
-                </select>
-                {suggestedDevHub && form.presaleAssegnatarioId !== suggestedDevHub.id && (
-                  <p className="ps-suggest">
-                    Responsabile DevHub del progetto: <strong>{suggestedDevHub.nome}</strong>
-                    <button
-                      type="button"
-                      className="ps-suggest-btn"
-                      onClick={() => onChange({ ...form, presaleAssegnatarioId: suggestedDevHub.id })}
-                    >
-                      Usa
-                    </button>
-                  </p>
-                )}
-              </div>
-            )}
-
-            {visibili.has('presaleGiornateStimate') && (
-              <div className="ps-field">
-                <label className="ps-label" htmlFor="ps-stimate">Giornate stimate</label>
-                <div className="ps-input-suffix">
-                  <input
-                    id="ps-stimate"
-                    className="ps-input"
-                    type="number" min="0" step="0.5"
-                    value={form.presaleGiornateStimate}
-                    onChange={e => onChange({ ...form, presaleGiornateStimate: e.target.value })}
-                  />
-                  <span className="ps-suffix">gg</span>
-                </div>
-              </div>
-            )}
-
-            {visibili.has('presaleLinkStima') && (
-              <div className="ps-field">
-                <label className="ps-label" htmlFor="ps-stima">Link Drive — analisi dettaglio (opzionale)</label>
-                <input
-                  id="ps-stima"
-                  className="ps-input"
-                  type="url"
-                  value={form.presaleLinkStima}
-                  onChange={e => onChange({ ...form, presaleLinkStima: e.target.value })}
-                  placeholder="https://drive.google.com/…"
-                />
-              </div>
-            )}
-
-            {visibili.has('giornateVendute') && (
-              <div className="ps-field">
-                <label className="ps-label" htmlFor="ps-vendute">Giornate vendute</label>
-                <div className="ps-input-suffix">
-                  <input
-                    id="ps-vendute"
-                    className="ps-input"
-                    type="number" min="0" step="0.5"
-                    value={form.giornateVendute}
-                    onChange={e => onChange({ ...form, giornateVendute: e.target.value })}
-                  />
-                  <span className="ps-suffix">gg</span>
-                </div>
-              </div>
-            )}
-
-            {visibili.has('presaleLinkOfferta') && (
-              <div className="ps-field">
-                <label className="ps-label" htmlFor="ps-offerta">Link Drive — documento di offerta (opzionale)</label>
-                <input
-                  id="ps-offerta"
-                  className="ps-input"
-                  type="url"
-                  value={form.presaleLinkOfferta}
-                  onChange={e => onChange({ ...form, presaleLinkOfferta: e.target.value })}
-                  placeholder="https://drive.google.com/…"
-                />
-              </div>
-            )}
+            {campiFase(form.stato).map(renderCampo)}
+            {renderNota(form.stato)}
           </section>
 
-          <section className="ps-section">
-            <p className="ps-section-title">
-              Note{statiPresale.find(s => s.chiave === form.stato)?.label
-                ? ` · ${statiPresale.find(s => s.chiave === form.stato)!.label}` : ''}
-            </p>
-            <textarea
-              id="ps-note"
-              className="ps-input ps-textarea"
-              rows={3}
-              value={form.presaleNotePerFase[form.stato] ?? ''}
-              placeholder="Note di questa fase (indipendenti dalle altre)…"
-              onChange={e => onChange({
-                ...form,
-                presaleNotePerFase: { ...form.presaleNotePerFase, [form.stato]: e.target.value },
-              })}
-            />
-          </section>
+          {/* Fasi precedenti: accordion compatti (chiusi), campi modificabili. */}
+          {mode === 'edit' && fasiPrecedenti.length > 0 && (
+            <section className="ps-section">
+              <p className="ps-section-title">Fasi precedenti</p>
+              {fasiPrecedenti.map(ph => (
+                <details key={ph.chiave} className="ps-accordion">
+                  <summary className="ps-accordion-sum">
+                    <span className="ps-acc-dot" style={{ background: ph.colore }} />
+                    <span className="ps-acc-label">{ph.label}</span>
+                    <svg className="ps-acc-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                      strokeWidth="2" width="14" height="14" aria-hidden="true">
+                      <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </summary>
+                  <div className="ps-accordion-body">
+                    {campiFase(ph.chiave).map(renderCampo)}
+                    {renderNota(ph.chiave)}
+                  </div>
+                </details>
+              ))}
+            </section>
+          )}
         </div>
 
         <div className="ps-modal-footer">
@@ -810,6 +812,14 @@ export default function PresalePage({ token }: { token: string }) {
   // Sposta la card nella fase e apre subito il modal su quella fase, così si
   // compilano i campi richiesti dalla nuova fase.
   const changePhaseAndOpen = (item: PresaleItem, statoChiave: string) => {
+    // Avanzando (fase successiva) i campi obbligatori della fase corrente devono
+    // essere compilati. Tornare indietro è sempre consentito.
+    const fromIdx = statiPresale.findIndex(s => s.chiave === item.stato)
+    const toIdx = statiPresale.findIndex(s => s.chiave === statoChiave)
+    if (toIdx > fromIdx && !faseItemCompleta(item, item.stato)) {
+      setApiError(`Completa i campi obbligatori di "${statiPresale[fromIdx]?.label ?? 'questa fase'}" prima di avanzare.`)
+      return
+    }
     setApiError(null)
     const moved = { ...item, stato: statoChiave }
     if (item.stato !== statoChiave) {
@@ -836,6 +846,17 @@ export default function PresalePage({ token }: { token: string }) {
       return
     }
     changePhaseAndOpen(item, statoChiave)
+  }
+
+  // Conferma consentita solo se i campi obbligatori della fase corrente ci sono.
+  const tryConfirm = (item: PresaleItem | null) => {
+    if (!item) return
+    if (!faseItemCompleta(item, item.stato)) {
+      setApiError('Completa i campi obbligatori della fase prima di confermare.')
+      return
+    }
+    setApiError(null)
+    setConfirmTarget(item)
   }
 
   // ── CRUD ──
@@ -877,6 +898,10 @@ export default function PresalePage({ token }: { token: string }) {
   const handleSave = async () => {
     if (!form.clienteId || !form.progettoId || !form.attivita.trim()) {
       setFormErr('Cliente, progetto e attività sono obbligatori.'); return
+    }
+    const mancanti = campiMancantiForm(form)
+    if (mancanti.length) {
+      setFormErr('Compila i campi obbligatori: ' + mancanti.map(f => CAMPO_LABEL[f] ?? f).join(', ') + '.'); return
     }
     setSaving(true); setFormErr(null)
     try {
@@ -1018,7 +1043,7 @@ export default function PresalePage({ token }: { token: string }) {
                       onDragStart={id => { dragIdRef.current = id }}
                       onOpen={setSelected}
                       onAdvance={next ? () => changePhaseAndOpen(item, next.chiave) : undefined}
-                      onConfirm={() => setConfirmTarget(item)}
+                      onConfirm={() => tryConfirm(item)}
                     />
                   ))}
                   {colItems.length === 0 && <p className="ps-col-empty">Nessuna attività</p>}
@@ -1055,7 +1080,7 @@ export default function PresalePage({ token }: { token: string }) {
           statoByChiave={statoByChiave}
           onClose={() => setSelected(null)}
           onEdit={() => openEdit(selected)}
-          onConfirm={() => { setConfirmTarget(selected); }}
+          onConfirm={() => tryConfirm(selected)}
           onDelete={() => setDelTarget(selected)}
         />
       )}
