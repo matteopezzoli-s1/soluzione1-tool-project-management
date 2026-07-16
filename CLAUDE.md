@@ -64,7 +64,8 @@ docker compose down     # Stop
   - `GanttPage` — Custom Gantt timeline: drag & drop dates, zoom levels, critical path, milestone CRUD, keyboard nav
   - `UtentiPage` — unified user directory CRUD (replaces the old separate PM/Account pages): role chips (`ACCOUNT`/`PM`/`BOARD`/`DEVHUB`), multi-role assignment via fixed toggle-chips (roles are an application-level enum, not a user-editable list)
   - `ClientiPage` / `ProgettiPage` — CRUD for Clients and Projects
-  - `ImpostazioniPage` — Configurable activity and project states; tab "Consuntivi Zoho" (selezione progetti Zoho + import consuntivazioni con preview diff, modal in `components/ZohoImportModal.tsx`, prefisso CSS `zi-`)
+  - `ImpostazioniPage` — layout a due pannelli (nav laterale a gruppi "Stati e tag" / "Integrazioni" + contenuto): stati attività/progetti/roadmap, tag roadmap, Notifiche Presale (con sotto-gruppo "Configurazione SAIOT")
+  - `ConsuntiviZohoPage` (prefisso CSS `cz-`) — pagina di primo livello per ruoli Board/PM/Account: selezione progetti Zoho + import consuntivazioni con preview diff (modal condiviso `components/ZohoImportModal.tsx`, prefisso `zi-`)
 
 ### Backend
 
@@ -92,7 +93,7 @@ docker compose down     # Stop
   - `PUT/DELETE /api/stati-attivita/:id`
   - `GET/POST /api/stati-progetto` — Configurable project states
   - `PUT/DELETE /api/stati-progetto/:id`
-  - **Zoho Projects — import consuntivazioni** (tutte con middleware `requireBoard()`, primo enforcement server-side dei ruoli; rispondono `503` se le env `ZOHO_*` mancano):
+  - **Zoho Projects — import consuntivazioni** (tutte con middleware `requireRole('BOARD', 'PM', 'ACCOUNT')`, primo enforcement server-side dei ruoli; rispondono `503` se le env `ZOHO_*` mancano):
     - `GET /api/zoho/projects` — lista progetti attivi da Zoho + flag `selected` (selezione persistita in `AppConfig`, chiave `zoho_selected_projects`)
     - `PUT /api/zoho/selection` — salva gli id dei progetti selezionati per l'import
     - `POST /api/zoho/consuntivi/:projectId` — ore consuntivate di UN progetto aggregate per codice `GO-ORDV-YYYY-N` (join timelog → tasklist → milestone, scansione mensile — vedi `services/zohoService.ts`); il frontend itera sui progetti selezionati e somma i codici (rate limit Zoho ~100 req/2min + limiti subrequest Workers)
