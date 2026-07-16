@@ -1,5 +1,5 @@
 import { Hono, type MiddlewareHandler } from 'hono'
-import type { PrismaClient } from '@prisma/client'
+import type { PrismaClient, UserRole } from '@prisma/client'
 import {
   buildGoogleAuthURL,
   fetchGoogleProfile,
@@ -8,6 +8,12 @@ import {
   type JWTPayload,
 } from './auth'
 import { importCSV } from './services/importService'
+import {
+  GO_CODE_RE,
+  fetchConsuntiviProgetto,
+  listZohoProjects,
+  type ZohoConfig,
+} from './services/zohoService'
 import { importRoadmapCSV } from './services/roadmapImportService'
 import {
   getPresaleEmailConfig,
@@ -15,7 +21,13 @@ import {
   sendPresaleFaseEmail,
   STATO_TO_FASE,
   type PresaleEmailConfig,
+  type PresaleFaseCode,
 } from './presaleEmail'
+
+// Codici fase mail validi (i 4 stati board + la conferma finale).
+const PRESALE_FASI_VALIDE: PresaleFaseCode[] = [
+  'ANALISI_INIZIALE', 'PRESA_IN_CARICO', 'STIMA', 'TRATTATIVA_CLIENTE', 'PROGETTO_CONFERMATO',
+]
 
 export interface AppConfig {
   googleClientId: string
@@ -24,12 +36,15 @@ export interface AppConfig {
   frontendUrl: string
   callbackUrl: string
   isProd: boolean
+  // null = variabili ZOHO_* non impostate: le route /api/zoho/* rispondono 503
+  zoho: ZohoConfig | null
 }
 
 export interface Vars {
   prisma: PrismaClient
   config: AppConfig
   currentUserId: string | null
+  currentUserRoles: UserRole[] | null
 }
 
 export type Env = { Variables: Vars }
@@ -118,6 +133,19 @@ function requireAuth(): MiddlewareHandler<Env> {
       return c.json({ error: 'Utente non autorizzato' }, 403)
     }
     c.set('currentUserId', payload.userId)
+    c.set('currentUserRoles', user!.roles)
+    await next()
+  }
+}
+
+// Primo enforcement server-side dei ruoli: finora i ruoli erano solo
+// anagrafica + gating della UI. Da usare in coda a requireAuth(), che
+// valorizza currentUserRoles leggendo l'utente dal DB.
+function requireBoard(): MiddlewareHandler<Env> {
+  return async (c, next) => {
+    if (!c.get('currentUserRoles')?.includes('BOARD')) {
+      return c.json({ error: 'Operazione riservata al ruolo Board' }, 403)
+    }
     await next()
   }
 }
@@ -1410,6 +1438,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         presaleTipoIntervento: a.presaleTipoIntervento,
         presaleAssegnatario: nomeUtente(a.presaleAssegnatario),
         presaleAssegnatarioId: a.presaleAssegnatarioId ?? null,
+        presaleEmailFasiInviate: a.presaleEmailFasiInviate ?? [],
         inizio: a.inizio?.toISOString().split('T')[0] ?? null,
         deadline: a.deadline?.toISOString().split('T')[0] ?? null,
       }))
@@ -1429,6 +1458,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
       presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
+      inviaMail,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
       attivita?: string; tipo?: string
@@ -1438,6 +1468,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
       presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
       presaleNotePerFase?: Record<string, string> | null; presaleTipoIntervento?: string | null
+      inviaMail?: boolean
     }>(c)
 
     if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
@@ -1490,10 +1521,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         },
       })
       await logStatoChange(prisma, row.id, null, statoVal, c.get('currentUserId'))
-      // Creazione in fase presale → notifica la fase corrispondente (di norma
-      // ANALISI_INIZIALE, l'unico stato d'ingresso della board).
+      // Invio mail SOLO se richiesto esplicitamente ("Salva e invia mail").
       const faseCreazione = STATO_TO_FASE[statoVal]
-      if (faseCreazione) await sendPresaleFaseEmail(prisma, row.id, faseCreazione)
+      if (inviaMail && faseCreazione) await sendPresaleFaseEmail(prisma, row.id, faseCreazione)
       return c.json(row, 201)
     } catch (err) {
       console.error('[attivita] POST error:', err)
@@ -1513,6 +1543,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
       presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
+      inviaMail,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
       attivita?: string
@@ -1522,6 +1553,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
       presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
       presaleNotePerFase?: Record<string, string> | null; presaleTipoIntervento?: string | null
+      inviaMail?: boolean
     }>(c)
 
     if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
@@ -1582,11 +1614,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (existing.stato !== statoVal) {
         await logStatoChange(prisma, id, existing.stato, statoVal, c.get('currentUserId'))
       }
-      // Salvataggio di una fase presale con i dati compilati → notifica (una
-      // volta sola per fase, grazie al dedup). È qui che scattano PRESA/STIMA/
-      // TRATTATIVA: il PATCH di spostamento avviene prima che i campi siano pieni.
+      // Invio mail SOLO su richiesta esplicita ("Salva e invia mail"), e solo
+      // se i dati della fase sono compilati (difesa contro invii a metà).
       const fasePut = STATO_TO_FASE[statoVal]
-      if (fasePut && presaleFaseDataReady(fasePut, row)) {
+      if (inviaMail && fasePut && presaleFaseDataReady(fasePut, row)) {
         await sendPresaleFaseEmail(prisma, id, fasePut)
       }
       return c.json(row)
@@ -1635,7 +1666,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   hono.patch('/api/attivita/:id/stato', requireAuth(), async (c) => {
     const id = c.req.param('id')
     const prisma = c.get('prisma')
-    const { stato } = await readJSON<{ stato?: string }>(c)
+    const { stato, inviaMail } = await readJSON<{ stato?: string; inviaMail?: boolean }>(c)
     if (!stato?.trim()) return c.json({ error: 'stato è obbligatorio' }, 400)
     const statoVal = stato.trim()
 
@@ -1653,9 +1684,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (existing.stato !== statoVal) {
         await logStatoChange(prisma, id, existing.stato, statoVal, c.get('currentUserId'))
         // Uscita dal presale (era in una fase, ora in uno stato non-presale) =
-        // conferma progetto → PROGETTO_CONFERMATO. Gli spostamenti tra fasi
-        // presale non inviano qui: ci pensa il PUT quando i dati sono compilati.
-        if (STATO_TO_FASE[existing.stato] && !STATO_TO_FASE[statoVal]) {
+        // conferma progetto → PROGETTO_CONFERMATO, ma solo se richiesto
+        // esplicitamente ("Conferma e invia mail").
+        if (inviaMail && STATO_TO_FASE[existing.stato] && !STATO_TO_FASE[statoVal]) {
           await sendPresaleFaseEmail(prisma, id, 'PROGETTO_CONFERMATO')
         }
       }
@@ -1665,6 +1696,27 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       console.error('[attivita] PATCH stato error:', err)
       return c.json({ error: 'Errore aggiornamento stato' }, 500)
     }
+  })
+
+  // POST /api/attivita/:id/invia-mail — invio manuale (o re-invio) della mail
+  // della fase. `fase` esplicita se passata (validata), altrimenti dedotta dallo
+  // stato corrente. Ritorna 502 con motivo se SAIOT non accetta l'invio.
+  hono.post('/api/attivita/:id/invia-mail', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const prisma = c.get('prisma')
+    const { fase } = await readJSON<{ fase?: string }>(c)
+    const existing = await prisma.attivita.findUnique({ where: { id }, select: { stato: true } })
+    if (!existing) return c.json({ error: 'Attività non trovata' }, 404)
+
+    const faseCode: PresaleFaseCode | undefined =
+      fase && (PRESALE_FASI_VALIDE as string[]).includes(fase)
+        ? (fase as PresaleFaseCode)
+        : STATO_TO_FASE[existing.stato]
+    if (!faseCode) return c.json({ error: 'Nessuna fase presale associata a questa attività' }, 400)
+
+    const result = await sendPresaleFaseEmail(prisma, id, faseCode)
+    if (!result.sent) return c.json({ sent: false, error: result.reason ?? 'Invio non riuscito' }, 502)
+    return c.json({ sent: true, fase: faseCode })
   })
 
   // GET /api/attivita/:id/storico — timeline dei passaggi di stato (Presale)
@@ -1719,6 +1771,102 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
     await savePresaleEmailConfig(prisma, cfg)
     return c.json(await getPresaleEmailConfig(prisma))
+  })
+
+  // ── Zoho Projects: import consuntivazioni (solo Board) ──────────────
+  // Selezione dei progetti da importare + preview della diff. La conferma
+  // riusa PATCH /api/attivita/bulk-consuntivato. Il download dei consuntivi
+  // è per-progetto: il frontend itera sui progetti selezionati (rate limit
+  // Zoho + limiti subrequest Workers — vedi zohoService.ts).
+
+  const ZOHO_SELECTION_KEY = 'zoho_selected_projects'
+
+  hono.get('/api/zoho/projects', requireAuth(), requireBoard(), async (c) => {
+    const cfg = c.get('config').zoho
+    if (!cfg) return c.json({ error: 'Integrazione Zoho non configurata (variabili ZOHO_* mancanti)' }, 503)
+    try {
+      const [projects, row] = await Promise.all([
+        listZohoProjects(cfg),
+        c.get('prisma').appConfig.findUnique({ where: { chiave: ZOHO_SELECTION_KEY } }),
+      ])
+      let selected = new Set<string>()
+      try {
+        const parsed: unknown = row ? JSON.parse(row.valore) : []
+        if (Array.isArray(parsed)) selected = new Set(parsed.filter((x): x is string => typeof x === 'string'))
+      } catch { /* valore corrotto: nessuna selezione */ }
+      return c.json({ projects: projects.map((p) => ({ ...p, selected: selected.has(p.id) })) })
+    } catch (err) {
+      console.error('[zoho] GET projects error:', err)
+      return c.json({ error: 'Errore nel recupero dei progetti da Zoho' }, 502)
+    }
+  })
+
+  hono.put('/api/zoho/selection', requireAuth(), requireBoard(), async (c) => {
+    const { selectedIds } = await readJSON<{ selectedIds?: unknown }>(c)
+    if (!Array.isArray(selectedIds) || selectedIds.some((x) => typeof x !== 'string')) {
+      return c.json({ error: 'selectedIds deve essere un array di id progetto' }, 400)
+    }
+    const ids = [...new Set(selectedIds as string[])]
+    const valore = JSON.stringify(ids)
+    await c.get('prisma').appConfig.upsert({
+      where: { chiave: ZOHO_SELECTION_KEY },
+      create: { chiave: ZOHO_SELECTION_KEY, valore },
+      update: { valore },
+    })
+    return c.json({ selectedIds: ids })
+  })
+
+  // Consuntivi di UN progetto Zoho: {codes: [{code, ore}], mesiScansionati}
+  hono.post('/api/zoho/consuntivi/:projectId', requireAuth(), requireBoard(), async (c) => {
+    const cfg = c.get('config').zoho
+    if (!cfg) return c.json({ error: 'Integrazione Zoho non configurata (variabili ZOHO_* mancanti)' }, 503)
+    try {
+      return c.json(await fetchConsuntiviProgetto(cfg, c.req.param('projectId')))
+    } catch (err) {
+      console.error('[zoho] consuntivi error:', err)
+      return c.json({ error: 'Errore nel recupero dei consuntivi da Zoho' }, 502)
+    }
+  })
+
+  // Diff tra i codici aggregati (sommati dal frontend su tutti i progetti
+  // selezionati) e le attività: stesso matching dell'import CSV manuale
+  // (riferimentoOrdineVendita = codice senza prefisso "GO-ORDV-").
+  hono.post('/api/zoho/import/preview', requireAuth(), requireBoard(), async (c) => {
+    const { codes } = await readJSON<{ codes?: Array<{ code?: unknown; ore?: unknown }> }>(c)
+    if (!Array.isArray(codes)) {
+      return c.json({ error: 'codes deve essere un array di {code, ore}' }, 400)
+    }
+    const attivita = await c.get('prisma').attivita.findMany({
+      where: { riferimentoOrdineVendita: { not: null } },
+    })
+    const byOrdine = new Map(attivita.map((a) => [a.riferimentoOrdineVendita!.trim(), a]))
+
+    const matched: Array<{
+      attivitaId: string; cliente: string; progetto: string; attivita: string
+      codice: string; ore: number; attuale: number | null; nuovo: number
+    }> = []
+    const notFound: string[] = []
+
+    for (const item of codes) {
+      const code = typeof item?.code === 'string' ? item.code.trim() : ''
+      const ore = typeof item?.ore === 'number' && isFinite(item.ore) && item.ore >= 0 ? item.ore : null
+      if (!GO_CODE_RE.test(code) || ore === null) continue
+      const a = byOrdine.get(code.replace('GO-ORDV-', ''))
+      if (!a) { notFound.push(code); continue }
+      matched.push({
+        attivitaId: a.id,
+        cliente: a.cliente,
+        progetto: a.progetto,
+        attivita: a.attivita,
+        codice: code,
+        ore,
+        attuale: a.giornateConsuntivate === null ? null : toNumber(a.giornateConsuntivate),
+        nuovo: Math.round((ore / 8) * 100) / 100,
+      })
+    }
+    matched.sort((x, y) => x.codice.localeCompare(y.codice))
+    notFound.sort()
+    return c.json({ matched, notFound })
   })
 
   // PATCH /api/attivita/bulk-consuntivato — aggiornamento massivo giornateConsuntivate
