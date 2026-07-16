@@ -1,0 +1,116 @@
+/* =============================================================
+   ConsuntiviZohoPage — import consuntivazioni da Zoho Projects
+   (prefisso cz-)
+   ============================================================= */
+
+@keyframes cz-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cz-page { animation: none !important; }
+}
+
+/* ── Page ──────────────────────────────────────────────────── */
+
+.cz-page {
+  flex: 1; padding: 2rem 1.75rem; max-width: 900px; width: 100%; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 1.5rem;
+  animation: cz-fade-up 0.35s ease both;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.cz-topbar  { display: flex; flex-direction: column; gap: 0.25rem; }
+.cz-title   { font-size: 1.5rem; font-weight: 800; color: #0F172A; letter-spacing: -0.03em; line-height: 1.2; }
+.cz-subtitle { font-size: 0.8rem; color: #94A3B8; font-weight: 500; }
+
+.cz-content { display: flex; flex-direction: column; gap: 1rem; }
+
+/* ── Barra azioni ──────────────────────────────────────────── */
+
+.cz-actionbar {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem;
+  flex-wrap: wrap;
+}
+.cz-count   { font-size: 0.8rem; color: #94A3B8; font-weight: 500; }
+.cz-actions { display: flex; align-items: center; gap: 0.6rem; }
+
+.cz-btn {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  padding: 0.6rem 1.1rem; border-radius: 10px;
+  border: 1.5px solid transparent;
+  font-family: inherit; font-size: 0.875rem; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+.cz-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; }
+.cz-btn:focus-visible { outline: 2.5px solid #0D9488; outline-offset: 3px; }
+.cz-btn--primary { background: #0D9488; color: #fff; border-color: #0D9488; }
+.cz-btn--primary:hover:not(:disabled) { background: #0F766E; box-shadow: 0 4px 14px rgba(13,148,136,.3); transform: translateY(-1px); }
+.cz-btn--ghost { background: transparent; color: #475569; border-color: #E2E8F0; }
+.cz-btn--ghost:hover:not(:disabled) { background: #F8FAFC; border-color: #CBD5E1; }
+
+/* ── Banner esiti ──────────────────────────────────────────── */
+
+.cz-page-error {
+  background: #FEF2F2; border: 1px solid #FECACA; border-radius: 10px;
+  padding: 0.7rem 0.9rem; font-size: 0.82rem; color: #B91C1C;
+}
+.cz-ok-banner {
+  background: #F0FDFA; border: 1px solid #99F6E4; border-radius: 10px;
+  padding: 0.7rem 0.9rem; font-size: 0.82rem; color: #0F766E;
+}
+
+/* ── Toolbar ricerca ───────────────────────────────────────── */
+
+.cz-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+}
+
+.cz-search {
+  max-width: 280px; width: 100%;
+  padding: 0.55rem 0.8rem; border-radius: 10px;
+  border: 1.5px solid #E2E8F0; background: #fff;
+  font-family: inherit; font-size: 0.875rem; color: #0F172A;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.cz-search:focus { outline: none; border-color: #0D9488; box-shadow: 0 0 0 3px rgba(13,148,136,0.12); }
+
+.cz-select-all {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.8rem; color: #475569; cursor: pointer; user-select: none;
+  white-space: nowrap;
+}
+
+/* ── Tabella progetti ──────────────────────────────────────── */
+
+.cz-table-wrap {
+  border: 1px solid #E2E8F0; border-radius: 12px; overflow: hidden; background: #fff;
+}
+
+.cz-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+
+.cz-th {
+  background: #F8FAFC; color: #64748B;
+  font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  text-align: left; padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid #E2E8F0;
+}
+.cz-th--chk { width: 36px; }
+
+.cz-row { cursor: pointer; }
+.cz-row:hover { background: #F8FAFC; }
+.cz-row + .cz-row td { border-top: 1px solid #F1F5F9; }
+
+.cz-cell { padding: 0.6rem 0.9rem; color: #1E293B; }
+.cz-cell--chk { width: 36px; }
+
+/* ── Skeleton ──────────────────────────────────────────────── */
+
+@keyframes cz-shimmer { from { opacity: 0.5; } 50% { opacity: 1; } to { opacity: 0.5; } }
+
+.cz-skeleton-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.cz-skeleton {
+  height: 44px; border-radius: 10px; background: #E9EEF4;
+  animation: cz-shimmer 1.4s ease-in-out infinite;
+}
