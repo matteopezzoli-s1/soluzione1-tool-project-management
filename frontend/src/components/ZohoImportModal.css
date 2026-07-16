@@ -1,0 +1,154 @@
+/* ── ZohoImportModal (prefisso zi-) ─────────────────────────── */
+
+.zi-modal {
+  background: #fff; border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.08);
+  width: 100%; max-width: 860px;
+  display: flex; flex-direction: column;
+  max-height: calc(100dvh - 2rem);
+}
+
+.zi-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.25rem 1.5rem 0;
+  flex-shrink: 0;
+}
+
+.zi-title { font-size: 1.1rem; font-weight: 700; color: #0F172A; letter-spacing: -0.02em; }
+
+.zi-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border: none; border-radius: 8px;
+  background: transparent; color: #94A3B8; cursor: pointer;
+  transition: background 150ms ease, color 150ms ease; flex-shrink: 0;
+}
+.zi-close:hover { background: #F1F5F9; color: #475569; }
+.zi-close:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+
+.zi-body {
+  padding: 1.25rem 1.5rem;
+  display: flex; flex-direction: column; gap: 0.85rem;
+  overflow-y: auto;
+}
+
+.zi-footer {
+  display: flex; justify-content: flex-end; gap: 0.6rem;
+  padding: 0 1.5rem 1.25rem;
+  flex-shrink: 0;
+}
+
+/* ── Progress (fase download) ── */
+
+.zi-progress-wrap { display: flex; flex-direction: column; gap: 0.6rem; padding: 1rem 0; }
+
+.zi-progress-bar {
+  height: 8px; border-radius: 999px; background: #F1F5F9; overflow: hidden;
+}
+.zi-progress-fill {
+  height: 100%; border-radius: 999px; background: #0D9488;
+  transition: width 300ms ease;
+}
+.zi-progress-label { font-size: 0.875rem; color: #475569; }
+.zi-progress-hint  { font-size: 0.78rem; color: #94A3B8; }
+
+/* ── Preview ── */
+
+.zi-summary { font-size: 0.875rem; color: #475569; }
+
+.zi-section-title { font-size: 0.82rem; font-weight: 600; color: #0F172A; }
+
+.zi-table-hd {
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.zi-select-all {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.8rem; color: #475569; cursor: pointer; user-select: none;
+}
+
+.zi-table-wrap { overflow: auto; border-radius: 10px; border: 1px solid #E2E8F0; }
+
+.zi-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+
+.zi-th {
+  position: sticky; top: 0; z-index: 1;
+  background: #F8FAFC; color: #64748B;
+  font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  text-align: left; padding: 0.55rem 0.7rem; white-space: nowrap;
+  border-bottom: 1px solid #E2E8F0;
+}
+.zi-th--chk  { width: 32px; }
+.zi-th--num  { text-align: right; }
+.zi-th--wide { min-width: 160px; }
+
+.zi-row { cursor: pointer; }
+.zi-row:hover { background: #F8FAFC; }
+.zi-row--dim  { opacity: 0.45; }
+.zi-row + .zi-row td { border-top: 1px solid #F1F5F9; }
+
+.zi-td { padding: 0.5rem 0.7rem; color: #1E293B; vertical-align: top; }
+.zi-td--chk   { width: 32px; }
+.zi-td--trunc { max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zi-td--num   { text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; white-space: nowrap; }
+.zi-td--code  { white-space: nowrap; font-size: 0.78rem; color: #64748B; }
+.zi-td--up    { color: #059669; font-weight: 600; }
+.zi-td--down  { color: #DC2626; font-weight: 600; }
+
+.zi-empty { font-size: 0.875rem; color: #64748B; padding: 0.5rem 0; }
+
+/* ── Codici non trovati / warning ── */
+
+.zi-notfound {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+}
+.zi-notfound-list {
+  margin: 0; padding-left: 1.1rem;
+  font-size: 0.8rem; color: #92400E;
+  columns: 2; column-gap: 1.5rem;
+}
+
+.zi-warn-box {
+  display: flex; flex-direction: column; gap: 0.3rem;
+  background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+}
+.zi-warn-title { font-size: 0.8rem; font-weight: 600; color: #9A3412; }
+.zi-warn-list  { margin: 0; padding-left: 1.1rem; font-size: 0.8rem; color: #9A3412; }
+
+.zi-error {
+  background: #FEF2F2; border: 1px solid #FECACA; border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.82rem; color: #B91C1C;
+}
+
+/* ── Esito ── */
+
+.zi-done {
+  display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
+  padding: 1.5rem 0; color: #059669;
+}
+.zi-done-msg { font-size: 0.95rem; color: #1E293B; }
+
+/* ── Buttons ── */
+
+.zi-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.55rem 1rem; border-radius: 8px;
+  border: 1.5px solid transparent;
+  font-family: inherit; font-size: 0.82rem; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+.zi-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.zi-btn--ghost { background: transparent; color: #64748B; }
+.zi-btn--ghost:hover:not(:disabled) { background: #F1F5F9; color: #0F172A; }
+
+.zi-btn--primary { background: #0D9488; color: #fff; border-color: #0D9488; }
+.zi-btn--primary:hover:not(:disabled) {
+  background: #0F766E;
+  box-shadow: 0 4px 14px rgba(13,148,136,.3);
+  transform: translateY(-1px);
+}

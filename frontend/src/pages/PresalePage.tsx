@@ -26,6 +26,7 @@ interface PresaleItem {
   presaleNotePerFase: Record<string, string> | null
   presaleAssegnatario: string
   presaleAssegnatarioId: string | null
+  presaleEmailFasiInviate: string[]
   inizio: string | null
   deadline: string | null
 }
@@ -78,6 +79,20 @@ const TIPI_INTERVENTO: { value: string; label: string }[] = [
 
 // Stato normale in cui l'attività confermata esce dal presale (fisso).
 const STATO_EFFETTIVA = 'DA_INIZIARE'
+
+// Chiave stato → codice fase mail (mirror del backend). Serve a sapere quale
+// mail compete alla fase corrente di una card (stato "inviata" e re-invio).
+const STATO_TO_FASE_MAIL: Record<string, string> = {
+  PRESALE_APERTURA: 'ANALISI_INIZIALE',
+  PRESALE_PRESA_CARICO: 'PRESA_IN_CARICO',
+  PRESALE_STIMA: 'STIMA',
+  PRESALE_GIORNATE: 'TRATTATIVA_CLIENTE',
+}
+// true se la mail della fase corrente della card è già stata inviata.
+function faseMailInviata(item: PresaleItem): boolean {
+  const fase = STATO_TO_FASE_MAIL[item.stato]
+  return !!fase && item.presaleEmailFasiInviate.includes(fase)
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -196,7 +211,7 @@ function PmChips({ pms, value, onChange }: {
 
 function PresaleModal({
   mode, form, statiPresale, clienti, progetti, pms, devHubs, suggestedDevHub,
-  loading, apiError, onChange, onSave, onClose,
+  loading, apiError, mailGiaInviata, onChange, onSave, onClose,
 }: {
   mode: 'add' | 'edit'
   form: FormData
@@ -208,8 +223,9 @@ function PresaleModal({
   suggestedDevHub: { id: string; nome: string } | null
   loading: boolean
   apiError: string | null
+  mailGiaInviata: boolean
   onChange: (f: FormData) => void
-  onSave: () => void
+  onSave: (inviaMail: boolean) => void
   onClose: () => void
 }) {
   const progettiFiltrati = useMemo(
@@ -461,11 +477,17 @@ function PresaleModal({
           )}
         </div>
 
-        <div className="ps-modal-footer">
+        <div className="ps-modal-footer ps-modal-footer--split">
           <button className="ps-btn ps-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
-          <button className="ps-btn ps-btn--accent" type="button" onClick={onSave} disabled={loading}>
-            {loading ? 'Salvataggio…' : 'Salva'}
-          </button>
+          <div className="ps-footer-actions">
+            <button className="ps-btn ps-btn--ghost" type="button" onClick={() => onSave(false)} disabled={loading}>
+              {loading ? 'Salvataggio…' : 'Salva'}
+            </button>
+            <button className="ps-btn ps-btn--accent" type="button" onClick={() => onSave(true)} disabled={loading}
+              title="Salva e invia subito la mail di questa fase via SAIOT">
+              {loading ? 'Salvataggio…' : (mailGiaInviata ? 'Salva e re-invia mail' : 'Salva e invia mail')}
+            </button>
+          </div>
         </div>
       </div>
     </SectionModal>
@@ -479,7 +501,7 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
   statoEffettivaLabel: string
   esisteStato: boolean
   loading: boolean
-  onConfirm: () => void
+  onConfirm: (inviaMail: boolean) => void
   onClose: () => void
 }) {
   return (
@@ -506,11 +528,17 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
             </p>
           )}
         </div>
-        <div className="ps-modal-footer">
+        <div className="ps-modal-footer ps-modal-footer--split">
           <button className="ps-btn ps-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
-          <button className="ps-btn ps-btn--primary" type="button" onClick={onConfirm} disabled={loading || !esisteStato}>
-            {loading ? 'Conferma…' : 'Conferma e avvia'}
-          </button>
+          <div className="ps-footer-actions">
+            <button className="ps-btn ps-btn--ghost" type="button" onClick={() => onConfirm(false)} disabled={loading || !esisteStato}>
+              {loading ? 'Conferma…' : 'Conferma e avvia'}
+            </button>
+            <button className="ps-btn ps-btn--primary" type="button" onClick={() => onConfirm(true)} disabled={loading || !esisteStato}
+              title="Conferma, avvia e invia la mail di progetto confermato">
+              {loading ? 'Conferma…' : 'Conferma e invia mail'}
+            </button>
+          </div>
         </div>
       </div>
     </SectionModal>
@@ -566,15 +594,18 @@ function Timeline({ token, attivitaId, statoByChiave }: {
   )
 }
 
-function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, onConfirm, onDelete }: {
+function DetailDrawer({ item, token, statoCfg, statoByChiave, mailSent, mailSending, onClose, onEdit, onConfirm, onDelete, onSendMail }: {
   item: PresaleItem
   token: string
   statoCfg: StatoConfig | undefined
   statoByChiave: Map<string, StatoConfig>
+  mailSent: boolean
+  mailSending: boolean
   onClose: () => void
   onEdit: () => void
   onConfirm: () => void
   onDelete: () => void
+  onSendMail: () => void
 }) {
   const colore = statoCfg?.colore ?? '#7C3AED'
   return (
@@ -592,6 +623,15 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
           <span className="ps-badge" style={{ backgroundColor: colore + '22', color: colore, borderColor: colore + '55' }}>
             {statoCfg?.label ?? item.stato}
           </span>
+
+          <div className="ps-mail-row">
+            <span className={`ps-mail-badge ${mailSent ? 'is-sent' : 'is-unsent'}`}>
+              {mailSent ? '✉ Mail di fase inviata' : '✉ Mail di fase non inviata'}
+            </span>
+            <button className="ps-btn ps-btn--ghost ps-btn--sm" type="button" onClick={onSendMail} disabled={mailSending}>
+              {mailSending ? 'Invio…' : (mailSent ? 'Re-invia mail' : 'Invia mail')}
+            </button>
+          </div>
 
           {/* Solo i dati effettivamente compilati finora — le fasi non ancora
               raggiunte non mostrano righe vuote. */}
@@ -658,15 +698,18 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
-function PresaleCard({ item, accent, nextLabel, isLast, onDragStart, onOpen, onAdvance, onConfirm }: {
+function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, onDragStart, onOpen, onAdvance, onConfirm, onSendMail }: {
   item: PresaleItem
   accent: string
   nextLabel?: string
   isLast?: boolean
+  mailSent: boolean
+  mailSending: boolean
   onDragStart: (id: string) => void
   onOpen: (item: PresaleItem) => void
   onAdvance?: () => void
   onConfirm?: () => void
+  onSendMail: () => void
 }) {
   return (
     <div
@@ -697,6 +740,20 @@ function PresaleCard({ item, accent, nextLabel, isLast, onDragStart, onOpen, onA
           {item.presaleScadenzaStima && <span className="ps-card-deadline" title="Stima desiderata entro">🎯 {fmtDate(item.presaleScadenzaStima)}</span>}
         </div>
       )}
+      <div className="ps-card-mail" onClick={e => e.stopPropagation()}>
+        <span className={`ps-mail-badge ${mailSent ? 'is-sent' : 'is-unsent'}`}>
+          {mailSent ? '✉ Mail inviata' : '✉ Mail non inviata'}
+        </span>
+        <button
+          type="button"
+          className="ps-mail-btn"
+          onClick={e => { e.stopPropagation(); onSendMail() }}
+          disabled={mailSending}
+          title={mailSent ? 'Re-invia la mail di questa fase' : 'Invia la mail di questa fase'}
+        >
+          {mailSending ? 'Invio…' : (mailSent ? 'Re-invia' : 'Invia')}
+        </button>
+      </div>
       {onAdvance && nextLabel && (
         <button
           type="button"
@@ -749,6 +806,7 @@ export default function PresalePage({ token }: { token: string }) {
   const [confirmTarget, setConfirmTarget] = useState<PresaleItem | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [delTarget, setDelTarget] = useState<PresaleItem | null>(null)
+  const [sendingMailId, setSendingMailId] = useState<string | null>(null)
 
   const dragIdRef = useRef<string | null>(null)
 
@@ -895,7 +953,7 @@ export default function PresalePage({ token }: { token: string }) {
     setModal('edit')
   }
 
-  const handleSave = async () => {
+  const handleSave = async (inviaMail: boolean) => {
     if (!form.clienteId || !form.progettoId || !form.attivita.trim()) {
       setFormErr('Cliente, progetto e attività sono obbligatori.'); return
     }
@@ -925,6 +983,7 @@ export default function PresalePage({ token }: { token: string }) {
         note: form.note.trim() || null,
         inizio: form.inizio || null,
         deadline: form.deadline || null,
+        inviaMail,
         ...(modal === 'add' ? { tipo: 'STANDARD' } : {}),
       }
       const res = await fetch(url, { method, headers: authHeadersJson(token), body: JSON.stringify(body) })
@@ -942,12 +1001,37 @@ export default function PresalePage({ token }: { token: string }) {
     }
   }
 
-  const handleConfirmEffettiva = async () => {
+  // Invio/re-invio manuale della mail di fase (bottone sulla card o nel dettaglio).
+  const sendMailFor = async (item: PresaleItem) => {
+    setSendingMailId(item.id); setApiError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/attivita/${item.id}/invia-mail`, {
+        method: 'POST', headers: authHeadersJson(token), body: JSON.stringify({}),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || (data as { sent?: boolean }).sent === false) {
+        setApiError((data as { error?: string }).error ?? 'Invio mail non riuscito.')
+        return
+      }
+      // Aggiorna lo stato "inviata" localmente (card + eventuale dettaglio aperto).
+      const fase = (data as { fase?: string }).fase ?? STATO_TO_FASE_MAIL[item.stato]
+      const addFase = (i: PresaleItem): PresaleItem =>
+        fase ? { ...i, presaleEmailFasiInviate: Array.from(new Set([...i.presaleEmailFasiInviate, fase])) } : i
+      setItems(prev => prev.map(i => i.id === item.id ? addFase(i) : i))
+      setSelected(prev => prev && prev.id === item.id ? addFase(prev) : prev)
+    } catch {
+      setApiError('Errore di rete durante l\'invio della mail.')
+    } finally {
+      setSendingMailId(null)
+    }
+  }
+
+  const handleConfirmEffettiva = async (inviaMail: boolean) => {
     if (!confirmTarget) return
     setConfirming(true)
     try {
       const res = await fetch(`${API_URL}/api/attivita/${confirmTarget.id}/stato`, {
-        method: 'PATCH', headers: authHeadersJson(token), body: JSON.stringify({ stato: STATO_EFFETTIVA }),
+        method: 'PATCH', headers: authHeadersJson(token), body: JSON.stringify({ stato: STATO_EFFETTIVA, inviaMail }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -1040,10 +1124,13 @@ export default function PresalePage({ token }: { token: string }) {
                       accent={col.colore}
                       nextLabel={next?.label}
                       isLast={!next}
+                      mailSent={faseMailInviata(item)}
+                      mailSending={sendingMailId === item.id}
                       onDragStart={id => { dragIdRef.current = id }}
                       onOpen={setSelected}
                       onAdvance={next ? () => changePhaseAndOpen(item, next.chiave) : undefined}
                       onConfirm={() => tryConfirm(item)}
+                      onSendMail={() => sendMailFor(item)}
                     />
                   ))}
                   {colItems.length === 0 && <p className="ps-col-empty">Nessuna attività</p>}
@@ -1066,6 +1153,7 @@ export default function PresalePage({ token }: { token: string }) {
           suggestedDevHub={suggestedDevHub}
           loading={saving}
           apiError={formErr}
+          mailGiaInviata={modal === 'edit' && !!editingId ? (items.find(i => i.id === editingId)?.presaleEmailFasiInviate.includes(STATO_TO_FASE_MAIL[form.stato] ?? '') ?? false) : false}
           onChange={setForm}
           onSave={handleSave}
           onClose={() => setModal(null)}
@@ -1078,10 +1166,13 @@ export default function PresalePage({ token }: { token: string }) {
           token={token}
           statoCfg={statoByChiave.get(selected.stato)}
           statoByChiave={statoByChiave}
+          mailSent={faseMailInviata(selected)}
+          mailSending={sendingMailId === selected.id}
           onClose={() => setSelected(null)}
           onEdit={() => openEdit(selected)}
           onConfirm={() => tryConfirm(selected)}
           onDelete={() => setDelTarget(selected)}
+          onSendMail={() => sendMailFor(selected)}
         />
       )}
 
