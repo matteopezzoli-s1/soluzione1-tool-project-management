@@ -22,6 +22,7 @@ interface PresaleItem {
   presaleLinkOfferta: string | null
   presaleGiornateStimate: number | null
   presaleScadenzaStima: string | null
+  presaleTipoIntervento: string | null
   presaleNotePerFase: Record<string, string> | null
   presaleAssegnatario: string
   presaleAssegnatarioId: string | null
@@ -40,7 +41,7 @@ interface ClienteOption {
   id: string; nome: string; accountId: string | null
   account: { id: string; firstName: string | null; lastName: string } | null
 }
-interface ProgettoOption { id: string; nome: string; clienteId: string | null }
+interface ProgettoOption { id: string; nome: string; clienteId: string | null; poId: string | null }
 
 type FormData = {
   clienteId: string
@@ -55,6 +56,7 @@ type FormData = {
   presaleLinkRequisiti: string
   presaleLinkStima: string
   presaleLinkOfferta: string
+  presaleTipoIntervento: string
   presaleNotePerFase: Record<string, string>
   note: string
   inizio: string
@@ -66,8 +68,13 @@ const EMPTY_FORM: FormData = {
   pmIds: [], presaleAssegnatarioId: '',
   presaleGiornateStimate: '', presaleScadenzaStima: '', giornateVendute: '',
   presaleLinkRequisiti: '', presaleLinkStima: '', presaleLinkOfferta: '',
-  presaleNotePerFase: {}, note: '', inizio: '', deadline: '',
+  presaleTipoIntervento: '', presaleNotePerFase: {}, note: '', inizio: '', deadline: '',
 }
+
+const TIPI_INTERVENTO: { value: string; label: string }[] = [
+  { value: 'NUOVO_PROGETTO', label: 'Nuovo progetto' },
+  { value: 'MODIFICA', label: 'Modifica ad applicativo esistente' },
+]
 
 // Stato normale in cui l'attività confermata esce dal presale (fisso).
 const STATO_EFFETTIVA = 'DA_INIZIARE'
@@ -109,18 +116,17 @@ function numOrNull(s: string): number | null {
 // (al massimo) i campi della fase precedente rimasti vuoti. Mappato per chiave
 // dello stato; per stati presale custom (fuori mappa) si mostrano tutti.
 type PresaleField =
-  | 'pmIds' | 'presaleLinkRequisiti' | 'presaleScadenzaStima' | 'presaleAssegnatarioId'
+  | 'pmIds' | 'presaleTipoIntervento' | 'presaleLinkRequisiti' | 'presaleScadenzaStima' | 'presaleAssegnatarioId'
   | 'presaleGiornateStimate' | 'presaleLinkStima' | 'presaleLinkOfferta' | 'giornateVendute'
 
 const FASE_CAMPI: Record<string, PresaleField[]> = {
-  PRESALE_APERTURA:     ['presaleLinkRequisiti', 'presaleScadenzaStima', 'pmIds'],
+  PRESALE_APERTURA:     ['presaleTipoIntervento', 'pmIds', 'presaleLinkRequisiti', 'presaleScadenzaStima'],
   PRESALE_PRESA_CARICO: ['presaleAssegnatarioId'],
   PRESALE_STIMA:        ['presaleGiornateStimate', 'presaleLinkStima'],
   PRESALE_GIORNATE:     ['giornateVendute', 'presaleLinkOfferta'],
-  PRESALE_CONFERMA:     [],
 }
 const TUTTI_CAMPI: PresaleField[] = [
-  'pmIds', 'presaleLinkRequisiti', 'presaleScadenzaStima', 'presaleAssegnatarioId',
+  'presaleTipoIntervento', 'pmIds', 'presaleLinkRequisiti', 'presaleScadenzaStima', 'presaleAssegnatarioId',
   'presaleGiornateStimate', 'presaleLinkStima', 'presaleLinkOfferta', 'giornateVendute',
 ]
 
@@ -254,7 +260,11 @@ function PresaleModal({
                   id="ps-progetto"
                   className="ps-input ps-select"
                   value={form.progettoId}
-                  onChange={e => onChange({ ...form, progettoId: e.target.value })}
+                  onChange={e => {
+                    // Pre-seleziona il PM del progetto (PO), se definito.
+                    const poId = progetti.find(p => p.id === e.target.value)?.poId
+                    onChange({ ...form, progettoId: e.target.value, pmIds: poId ? [poId] : form.pmIds })
+                  }}
                   disabled={!form.clienteId}
                 >
                   <option value="">{form.clienteId ? '— Seleziona progetto —' : '— Prima scegli il cliente —'}</option>
@@ -284,6 +294,28 @@ function PresaleModal({
 
             {visibili.size === 0 && (
               <p className="ps-section-hint">Nessun campo da compilare in questa fase.</p>
+            )}
+
+            {visibili.has('presaleTipoIntervento') && (
+              <div className="ps-field">
+                <span className="ps-label">Tipo intervento</span>
+                <div className="ps-chip-row">
+                  {TIPI_INTERVENTO.map(t => {
+                    const on = form.presaleTipoIntervento === t.value
+                    return (
+                      <button
+                        key={t.value}
+                        type="button"
+                        className={`ps-chip${on ? ' ps-chip--on' : ''}`}
+                        onClick={() => onChange({ ...form, presaleTipoIntervento: on ? '' : t.value })}
+                        aria-pressed={on}
+                      >
+                        {t.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             )}
 
             {visibili.has('pmIds') && (
@@ -564,6 +596,12 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, onClose, onEdit, o
           <dl className="ps-dl">
             <div className="ps-dl-row"><dt>Cliente</dt><dd>{item.cliente}</dd></div>
             <div className="ps-dl-row"><dt>Progetto</dt><dd>{item.progetto}</dd></div>
+            {item.presaleTipoIntervento && (
+              <div className="ps-dl-row">
+                <dt>Tipo intervento</dt>
+                <dd>{TIPI_INTERVENTO.find(t => t.value === item.presaleTipoIntervento)?.label ?? item.presaleTipoIntervento}</dd>
+              </div>
+            )}
             {item.account && <div className="ps-dl-row"><dt>Account</dt><dd>{item.account}</dd></div>}
             {item.projectManager && <div className="ps-dl-row"><dt>PM</dt><dd>{item.projectManager}</dd></div>}
             {item.presaleAssegnatario && <div className="ps-dl-row"><dt>Assegnatario DevHub</dt><dd>{item.presaleAssegnatario}</dd></div>}
@@ -642,6 +680,11 @@ function PresaleCard({ item, accent, nextLabel, isLast, onDragStart, onOpen, onA
       <p className="ps-card-title">{item.attivita}</p>
       <p className="ps-card-sub">{item.cliente} · {item.progetto}</p>
       <div className="ps-card-meta">
+        {item.presaleTipoIntervento && (
+          <span className="ps-tag ps-tag--tipo">
+            {item.presaleTipoIntervento === 'NUOVO_PROGETTO' ? 'Nuovo progetto' : 'Modifica'}
+          </span>
+        )}
         {item.presaleAssegnatario && <span className="ps-tag ps-tag--dev">{item.presaleAssegnatario}</span>}
         {item.projectManager && <span className="ps-tag">{item.projectManager}</span>}
       </div>
@@ -736,7 +779,7 @@ export default function PresalePage({ token }: { token: string }) {
       setStati(s)
       setClienti(c)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setProgetti((p as any[]).map((pr: any) => ({ id: pr.id, nome: pr.nome, clienteId: pr.clienteId ?? null })))
+      setProgetti((p as any[]).map((pr: any) => ({ id: pr.id, nome: pr.nome, clienteId: pr.clienteId ?? null, poId: pr.po?.id ?? pr.poId ?? null })))
       setPms(pm)
       setDevHubs(dh)
     } catch {
@@ -820,6 +863,7 @@ export default function PresalePage({ token }: { token: string }) {
       presaleLinkRequisiti: item.presaleLinkRequisiti ?? '',
       presaleLinkStima: item.presaleLinkStima ?? '',
       presaleLinkOfferta: item.presaleLinkOfferta ?? '',
+      presaleTipoIntervento: item.presaleTipoIntervento ?? '',
       presaleNotePerFase: item.presaleNotePerFase ?? {},
       note: item.note ?? '',
       inizio: item.inizio ?? '',
@@ -851,6 +895,7 @@ export default function PresalePage({ token }: { token: string }) {
         presaleLinkRequisiti: form.presaleLinkRequisiti.trim() || null,
         presaleLinkStima: form.presaleLinkStima.trim() || null,
         presaleLinkOfferta: form.presaleLinkOfferta.trim() || null,
+        presaleTipoIntervento: form.presaleTipoIntervento || null,
         presaleNotePerFase: form.presaleNotePerFase,
         note: form.note.trim() || null,
         inizio: form.inizio || null,
