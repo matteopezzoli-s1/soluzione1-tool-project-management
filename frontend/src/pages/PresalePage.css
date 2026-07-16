@@ -211,6 +211,8 @@
 }
 .ps-step--current .ps-step-n { background: rgba(255,255,255,0.28); color: #fff; }
 .ps-step--static { cursor: default; }
+.ps-step--static:hover:not(.ps-step--current) { border-color: var(--c-slate-200); color: var(--c-slate-600); }
+.ps-step--static.ps-step--done:hover { border-color: color-mix(in srgb, var(--ps-step-c) 35%, transparent); color: var(--ps-step-c); }
 
 /* ── Sezioni del form ────────────────────────────────────────── */
 .ps-section { display: flex; flex-direction: column; gap: 0.7rem; }
