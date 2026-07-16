@@ -141,10 +141,11 @@ function requireAuth(): MiddlewareHandler<Env> {
 // Primo enforcement server-side dei ruoli: finora i ruoli erano solo
 // anagrafica + gating della UI. Da usare in coda a requireAuth(), che
 // valorizza currentUserRoles leggendo l'utente dal DB.
-function requireBoard(): MiddlewareHandler<Env> {
+function requireRole(...allowed: UserRole[]): MiddlewareHandler<Env> {
   return async (c, next) => {
-    if (!c.get('currentUserRoles')?.includes('BOARD')) {
-      return c.json({ error: 'Operazione riservata al ruolo Board' }, 403)
+    const roles = c.get('currentUserRoles') ?? []
+    if (!allowed.some((r) => roles.includes(r))) {
+      return c.json({ error: `Operazione riservata ai ruoli: ${allowed.join(', ')}` }, 403)
     }
     await next()
   }
@@ -1781,7 +1782,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   const ZOHO_SELECTION_KEY = 'zoho_selected_projects'
 
-  hono.get('/api/zoho/projects', requireAuth(), requireBoard(), async (c) => {
+  hono.get('/api/zoho/projects', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
     const cfg = c.get('config').zoho
     if (!cfg) return c.json({ error: 'Integrazione Zoho non configurata (variabili ZOHO_* mancanti)' }, 503)
     try {
@@ -1801,7 +1802,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
   })
 
-  hono.put('/api/zoho/selection', requireAuth(), requireBoard(), async (c) => {
+  hono.put('/api/zoho/selection', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
     const { selectedIds } = await readJSON<{ selectedIds?: unknown }>(c)
     if (!Array.isArray(selectedIds) || selectedIds.some((x) => typeof x !== 'string')) {
       return c.json({ error: 'selectedIds deve essere un array di id progetto' }, 400)
@@ -1817,7 +1818,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   // Consuntivi di UN progetto Zoho: {codes: [{code, ore}], mesiScansionati}
-  hono.post('/api/zoho/consuntivi/:projectId', requireAuth(), requireBoard(), async (c) => {
+  hono.post('/api/zoho/consuntivi/:projectId', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
     const cfg = c.get('config').zoho
     if (!cfg) return c.json({ error: 'Integrazione Zoho non configurata (variabili ZOHO_* mancanti)' }, 503)
     try {
@@ -1831,7 +1832,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // Diff tra i codici aggregati (sommati dal frontend su tutti i progetti
   // selezionati) e le attività: stesso matching dell'import CSV manuale
   // (riferimentoOrdineVendita = codice senza prefisso "GO-ORDV-").
-  hono.post('/api/zoho/import/preview', requireAuth(), requireBoard(), async (c) => {
+  hono.post('/api/zoho/import/preview', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
     const { codes } = await readJSON<{ codes?: Array<{ code?: unknown; ore?: unknown }> }>(c)
     if (!Array.isArray(codes)) {
       return c.json({ error: 'codes deve essere un array di {code, ore}' }, 400)
