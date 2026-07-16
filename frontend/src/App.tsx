@@ -256,6 +256,10 @@ export default function App() {
   const roles = fetchedRoles?.token === token ? fetchedRoles.roles : (user?.roles ?? [])
   const isBoard = roles.includes('BOARD')
   const isDevHub = roles.includes('DEVHUB')
+  // Presale: per ora visibile solo a questi indirizzi (allowlist temporanea,
+  // in attesa di gestirlo con permessi/ruoli veri).
+  const PRESALE_ALLOWED = ['matteo.pezzoli@soluzione1.it']
+  const canPresale = !!user?.email && PRESALE_ALLOWED.includes(user.email.toLowerCase())
 
   // Dashboard, Anagrafica Clienti e Progetti & Prodotti sono nascoste per il
   // ruolo DevHub. `page` può comunque puntare a una di queste (stato iniziale
@@ -287,7 +291,7 @@ export default function App() {
 
         <div className="db-sidebar-nav">
           {!isDevHub && navBtn('dashboard', 'Dashboard',            <IconGrid />)}
-          {navBtn('presale',       'Presale',              <IconPresale />)}
+          {canPresale && navBtn('presale', 'Presale',      <IconPresale />)}
           {navBtn('attivita',      'Elenco Attività Progetti', <IconClipboard />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
@@ -354,7 +358,7 @@ export default function App() {
         {effectivePage === 'progetti'      && <ProgettiPage          token={token} />}
         {effectivePage === 'utenti'        && <UtentiPage            token={token} />}
         {effectivePage === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={isDevHub} />}
-        {effectivePage === 'presale'       && <PresalePage           token={token} />}
+        {effectivePage === 'presale'       && canPresale && <PresalePage token={token} />}
         {effectivePage === 'roadmap'       && <RoadmapPage           token={token} readOnly={isDevHub} />}
         {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} />}
         {effectivePage === 'timeline'      && <GanttPage             token={token} />}
