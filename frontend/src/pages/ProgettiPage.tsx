@@ -163,16 +163,19 @@ function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, st
             </div>
           )}
 
-          {/* PM di riferimento del progetto (un solo PM), indipendente dal tipo.
-              Usato per pre-compilare il PM su attività e presale. */}
-          <div className="pr-field">
-            <label htmlFor="pr-pmrif" className="pr-label">PM di riferimento</label>
-            <select id="pr-pmrif" className="pr-input pr-select"
-              value={form.pmRiferimentoId} onChange={set('pmRiferimentoId')}>
-              <option value="">— Nessun PM —</option>
-              {pos.map(p => <option key={p.id} value={p.id}>{[p.firstName, p.lastName].filter(Boolean).join(' ')}</option>)}
-            </select>
-          </div>
+          {/* PM di riferimento (un solo PM): solo per i progetti CLIENTE — i
+              prodotti hanno il PO. Usato per pre-compilare il PM su attività
+              e presale. */}
+          {tipo === 'CLIENTE' && (
+            <div className="pr-field">
+              <label htmlFor="pr-pmrif" className="pr-label">PM di riferimento</label>
+              <select id="pr-pmrif" className="pr-input pr-select"
+                value={form.pmRiferimentoId} onChange={set('pmRiferimentoId')}>
+                <option value="">— Nessun PM —</option>
+                {pos.map(p => <option key={p.id} value={p.id}>{[p.firstName, p.lastName].filter(Boolean).join(' ')}</option>)}
+              </select>
+            </div>
+          )}
 
           {/* Responsabile DevHub: attributo del progetto indipendente dal tipo
               (CLIENTE o PRODOTTO) — le attività/attività roadmap collegate lo
@@ -400,7 +403,7 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
               <tr>
                 <th scope="col">{tipo === 'CLIENTE' ? 'Progetto' : 'Prodotto'}</th>
                 <th scope="col">{tipo === 'CLIENTE' ? 'Cliente' : 'PO'}</th>
-                <th scope="col">PM di riferimento</th>
+                {tipo === 'CLIENTE' && <th scope="col">PM di riferimento</th>}
                 <th scope="col">Resp. DevHub</th>
                 <th scope="col">Stato</th>
                 {tipo === 'CLIENTE' && <th scope="col">Periodo</th>}
@@ -422,9 +425,11 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
                       ? (p.cliente ? <span className="pr-cliente-tag">{p.cliente.nome}</span> : <span className="pr-empty-cell">—</span>)
                       : (p.po ? <span className="pr-po-tag">{poName(p.po)}</span> : <span className="pr-empty-cell">—</span>)}
                   </td>
-                  <td className="pr-cell-text">
-                    {p.pmRiferimento ? <span className="pr-po-tag">{poName(p.pmRiferimento)}</span> : <span className="pr-empty-cell">—</span>}
-                  </td>
+                  {tipo === 'CLIENTE' && (
+                    <td className="pr-cell-text">
+                      {p.pmRiferimento ? <span className="pr-po-tag">{poName(p.pmRiferimento)}</span> : <span className="pr-empty-cell">—</span>}
+                    </td>
+                  )}
                   <td className="pr-cell-text">
                     {p.responsabileDevHub ? <span className="pr-po-tag">{devHubName(p.responsabileDevHub)}</span> : <span className="pr-empty-cell">—</span>}
                   </td>
