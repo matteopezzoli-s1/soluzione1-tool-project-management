@@ -41,7 +41,7 @@ interface ClienteOption {
   id: string; nome: string; accountId: string | null
   account: { id: string; firstName: string | null; lastName: string } | null
 }
-interface ProgettoOption { id: string; nome: string; clienteId: string | null; poId: string | null }
+interface ProgettoOption { id: string; nome: string; clienteId: string | null; pmRiferimentoId: string | null }
 
 type FormData = {
   clienteId: string
@@ -261,9 +261,9 @@ function PresaleModal({
                   className="ps-input ps-select"
                   value={form.progettoId}
                   onChange={e => {
-                    // Pre-seleziona il PM del progetto (PO), se definito.
-                    const poId = progetti.find(p => p.id === e.target.value)?.poId
-                    onChange({ ...form, progettoId: e.target.value, pmIds: poId ? [poId] : form.pmIds })
+                    // Pre-seleziona il PM di riferimento del progetto, se definito.
+                    const pmRif = progetti.find(p => p.id === e.target.value)?.pmRiferimentoId
+                    onChange({ ...form, progettoId: e.target.value, pmIds: pmRif ? [pmRif] : form.pmIds })
                   }}
                   disabled={!form.clienteId}
                 >
@@ -779,7 +779,7 @@ export default function PresalePage({ token }: { token: string }) {
       setStati(s)
       setClienti(c)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setProgetti((p as any[]).map((pr: any) => ({ id: pr.id, nome: pr.nome, clienteId: pr.clienteId ?? null, poId: pr.po?.id ?? pr.poId ?? null })))
+      setProgetti((p as any[]).map((pr: any) => ({ id: pr.id, nome: pr.nome, clienteId: pr.clienteId ?? null, pmRiferimentoId: pr.pmRiferimento?.id ?? pr.pmRiferimentoId ?? null })))
       setPms(pm)
       setDevHubs(dh)
     } catch {

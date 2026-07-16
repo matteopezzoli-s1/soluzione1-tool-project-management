@@ -98,7 +98,7 @@ interface ClienteOption {
   id: string; nome: string; accountId: string | null
   account: { id: string; firstName: string | null; lastName: string } | null
 }
-interface ProgettoOption { id: string; nome: string; clienteId: string | null; clienteNome: string | null }
+interface ProgettoOption { id: string; nome: string; clienteId: string | null; clienteNome: string | null; pmRiferimentoId: string | null }
 
 type AttivitaFormData = {
   clienteId: string; progettoId: string; pmIds: string[]
@@ -1128,7 +1128,11 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
             <div className="ea-form-field">
               <label htmlFor="ea-f-progetto" className="ea-form-label">Progetto <span aria-hidden="true">*</span></label>
               <select id="ea-f-progetto" className="ea-form-input ea-form-select"
-                value={form.progettoId} onChange={e => onChange({ ...form, progettoId: e.target.value })}
+                value={form.progettoId} onChange={e => {
+                  // Pre-compila il PM col riferimento del progetto (se non già scelto).
+                  const pmRif = progettiCliente.find(p => p.id === e.target.value)?.pmRiferimentoId
+                  onChange({ ...form, progettoId: e.target.value, pmIds: pmRif && form.pmIds.length === 0 ? [pmRif] : form.pmIds })
+                }}
                 disabled={!form.clienteId}>
                 <option value="">
                   {form.clienteId
@@ -1760,7 +1764,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       setProgettiOpts(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (progettiRaw as any[]).map((p: any) => ({
-          id: p.id, nome: p.nome, clienteId: p.clienteId ?? null, clienteNome: p.cliente?.nome ?? null,
+          id: p.id, nome: p.nome, clienteId: p.clienteId ?? null, clienteNome: p.cliente?.nome ?? null, pmRiferimentoId: p.pmRiferimento?.id ?? p.pmRiferimentoId ?? null,
         }))
       )
       if (!opts.preserveExpanded) {
