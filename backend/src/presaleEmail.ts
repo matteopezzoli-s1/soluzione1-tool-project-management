@@ -229,35 +229,37 @@ export function buildEvent(
 
 // ─── Invio ───────────────────────────────────────────────────────────────────
 
-// Manda la mail della fase per l'attività indicata. "Best effort":
-//  - non lancia mai (gli errori vengono loggati) così non blocca il cambio stato;
-//  - dedup via Attivita.presaleEmailFasiInviate (una mail per fase per attività).
+export interface SendResult {
+  sent: boolean
+  reason?: string
+}
+
+// Manda la mail della fase per l'attività indicata. L'invio è sempre esplicito
+// (l'utente ha scelto "salva e invia" o il bottone sulla card): quindi NON c'è
+// dedup silenzioso, il re-invio è consentito. In caso di successo la fase viene
+// registrata in Attivita.presaleEmailFasiInviate (per mostrare lo stato "inviata").
+// Non lancia mai: ritorna { sent, reason } così il chiamante può dare feedback.
 export async function sendPresaleFaseEmail(
   prisma: PrismaClient,
   attivitaId: string,
   fase: PresaleFaseCode,
-): Promise<void> {
+): Promise<SendResult> {
   try {
     const cfg = await getPresaleEmailConfig(prisma)
-    if (!cfg.enabled) return
-    if (!cfg.url) { console.warn('[presaleEmail] URL SAIOT non configurato, invio saltato'); return }
+    if (!cfg.enabled) return { sent: false, reason: 'Invii Presale disattivati nelle impostazioni' }
+    if (!cfg.url) return { sent: false, reason: 'Endpoint SAIOT non configurato' }
 
-    // Dedup: già inviata per questa fase?
     const row = await prisma.attivita.findUnique({
       where: { id: attivitaId },
       select: { presaleEmailFasiInviate: true },
     })
-    if (!row) return
-    if (row.presaleEmailFasiInviate.includes(fase)) return
+    if (!row) return { sent: false, reason: 'Attività non trovata' }
 
     const data = await loadAttivitaMailData(prisma, attivitaId)
-    if (!data) return
+    if (!data) return { sent: false, reason: 'Attività non trovata' }
 
     const event = buildEvent(fase, data, cfg.devhubEmail.trim())
-    if (!event) {
-      console.warn(`[presaleEmail] destinatario mancante per fase ${fase} (attività ${attivitaId}), invio saltato`)
-      return
-    }
+    if (!event) return { sent: false, reason: `Destinatario mancante per la fase (email PM o gruppo DevHub non impostata)` }
 
     const payload = {
       contextCode: cfg.contextCode,
@@ -275,15 +277,18 @@ export async function sendPresaleFaseEmail(
     if (!res.ok) {
       const body = await res.text().catch(() => '')
       console.error(`[presaleEmail] SAIOT ha risposto ${res.status} per fase ${fase}: ${body}`)
-      return // non marco come inviata: si ritenta al prossimo salvataggio
+      return { sent: false, reason: `SAIOT ha risposto ${res.status}` }
     }
 
-    // Marca la fase come notificata (append idempotente).
+    // Registra la fase come "notificata" (dedup nell'array, per lo stato in UI).
+    const fasi = Array.from(new Set([...row.presaleEmailFasiInviate, fase]))
     await prisma.attivita.update({
       where: { id: attivitaId },
-      data: { presaleEmailFasiInviate: { push: fase } },
+      data: { presaleEmailFasiInviate: { set: fasi } },
     })
+    return { sent: true }
   } catch (err) {
     console.error(`[presaleEmail] errore invio fase ${fase} (attività ${attivitaId}):`, err)
+    return { sent: false, reason: 'Errore interno durante l\'invio' }
   }
 }

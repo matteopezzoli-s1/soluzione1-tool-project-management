@@ -129,6 +129,37 @@
 }
 .ps-card-confirm:hover { background: var(--c-teal-700) !important; }
 
+/* ── Stato mail di fase + invio (card e dettaglio) ───────────── */
+.ps-card-mail {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  margin-top: 0.6rem; padding-top: 0.55rem; border-top: 1px solid var(--c-slate-100);
+}
+.ps-mail-badge {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+.ps-mail-badge.is-sent   { background: #ECFDF5; color: #059669; }
+.ps-mail-badge.is-unsent { background: var(--c-slate-100); color: var(--c-slate-500); }
+.ps-mail-btn {
+  flex-shrink: 0;
+  font-family: inherit; font-size: 0.72rem; font-weight: 700; cursor: pointer;
+  padding: 0.22rem 0.55rem; border-radius: var(--r-sm);
+  color: var(--c-teal-700); background: #fff;
+  border: 1px solid color-mix(in srgb, var(--c-teal-600) 40%, transparent);
+  transition: background var(--t-fast);
+}
+.ps-mail-btn:hover:not(:disabled) { background: #ECFDF5; }
+.ps-mail-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Riga mail nel dettaglio */
+.ps-mail-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  margin-top: 0.75rem; padding: 0.6rem 0.75rem;
+  background: var(--c-slate-50, #F8FAFC); border: 1px solid var(--c-slate-100); border-radius: var(--r-md, 10px);
+}
+.ps-btn--sm { padding: 0.35rem 0.7rem; font-size: 0.78rem; }
+
 /* ── Stati: loading / empty / error ──────────────────────────── */
 .ps-loading { padding: 2.5rem; text-align: center; color: var(--c-slate-400); }
 .ps-page-error {
