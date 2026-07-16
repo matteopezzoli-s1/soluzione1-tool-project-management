@@ -22,6 +22,7 @@ export interface AppConfig {
 export interface Vars {
   prisma: PrismaClient
   config: AppConfig
+  currentUserId: string | null
 }
 
 export type Env = { Variables: Vars }
@@ -38,6 +39,23 @@ function toNumber(d: unknown): number {
 
 async function readJSON<T>(c: { req: { json: () => Promise<unknown> } }): Promise<T> {
   return (await c.req.json().catch(() => ({}))) as T
+}
+
+// Registra un passaggio di stato di un'attività (alimenta la timeline Presale).
+// statoDa null = riga di creazione. Non deve mai far fallire l'operazione
+// principale: eventuali errori di scrittura del log vengono solo loggati.
+async function logStatoChange(
+  prisma: PrismaClient,
+  attivitaId: string,
+  statoDa: string | null,
+  statoA: string,
+  userId: string | null,
+): Promise<void> {
+  try {
+    await prisma.attivitaStatoLog.create({ data: { attivitaId, statoDa, statoA, userId } })
+  } catch (err) {
+    console.error('[attivita] logStatoChange error:', err)
+  }
 }
 
 // Un utente ha accesso solo se censito, non disabilitato (deletedAt) e con
@@ -68,6 +86,7 @@ function requireAuth(): MiddlewareHandler<Env> {
     if (!isActiveUser(user)) {
       return c.json({ error: 'Utente non autorizzato' }, 403)
     }
+    c.set('currentUserId', payload.userId)
     await next()
   }
 }
@@ -463,6 +482,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         include: {
           cliente: { select: { id: true, nome: true } },
           po: { select: { id: true, firstName: true, lastName: true } },
+          pmRiferimento: { select: { id: true, firstName: true, lastName: true } },
           responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
         },
       })
@@ -474,9 +494,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.post('/progetti', requireAuth(), async (c) => {
-    const { nome, descrizione, tipo, stato, colore, clienteId, poId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
+    const { nome, descrizione, tipo, stato, colore, clienteId, poId, pmRiferimentoId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
       nome?: string; descrizione?: string; tipo?: string; stato?: string; colore?: string
-      clienteId?: string; poId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
+      clienteId?: string; poId?: string; pmRiferimentoId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
     }>(c)
     if (!nome?.trim()) return c.json({ error: 'Il nome è obbligatorio' }, 400)
     const prisma = c.get('prisma')
@@ -497,6 +517,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           colore: colore?.trim() || null,
           clienteId: tipoVal === 'CLIENTE' ? (clienteId?.trim() || null) : null,
           poId: tipoVal === 'PRODOTTO' ? (poId?.trim() || null) : null,
+          pmRiferimentoId: pmRiferimentoId?.trim() || null,
           responsabileDevHubId: responsabileDevHubId?.trim() || null,
           dataInizio: dataInizio ? new Date(dataInizio) : null,
           dataFine: dataFine ? new Date(dataFine) : null,
@@ -504,6 +525,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         include: {
           cliente: { select: { id: true, nome: true } },
           po: { select: { id: true, firstName: true, lastName: true } },
+          pmRiferimento: { select: { id: true, firstName: true, lastName: true } },
           responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
         },
       })
@@ -517,9 +539,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/progetti/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { nome, descrizione, tipo, stato, colore, clienteId, poId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
+    const { nome, descrizione, tipo, stato, colore, clienteId, poId, pmRiferimentoId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
       nome?: string; descrizione?: string; tipo?: string; stato?: string; colore?: string
-      clienteId?: string; poId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
+      clienteId?: string; poId?: string; pmRiferimentoId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
     }>(c)
     if (!nome?.trim()) return c.json({ error: 'Il nome è obbligatorio' }, 400)
     const prisma = c.get('prisma')
@@ -541,6 +563,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           colore: colore?.trim() || null,
           clienteId: tipoVal === 'CLIENTE' ? (clienteId?.trim() || null) : null,
           poId: tipoVal === 'PRODOTTO' ? (poId?.trim() || null) : null,
+          pmRiferimentoId: pmRiferimentoId?.trim() || null,
           responsabileDevHubId: responsabileDevHubId?.trim() || null,
           dataInizio: dataInizio ? new Date(dataInizio) : null,
           dataFine: dataFine ? new Date(dataFine) : null,
@@ -548,6 +571,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         include: {
           cliente: { select: { id: true, nome: true } },
           po: { select: { id: true, firstName: true, lastName: true } },
+          pmRiferimento: { select: { id: true, firstName: true, lastName: true } },
           responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
         },
       })
@@ -586,8 +610,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.post('/api/stati-attivita', requireAuth(), async (c) => {
-    const { label, colore, isArchiviato, escludiDaConteggio, ordine } = await readJSON<{
-      label?: string; colore?: string; isArchiviato?: boolean; escludiDaConteggio?: boolean; ordine?: number
+    const { label, colore, isArchiviato, escludiDaConteggio, isPresale, ordine } = await readJSON<{
+      label?: string; colore?: string; isArchiviato?: boolean; escludiDaConteggio?: boolean; isPresale?: boolean; ordine?: number
     }>(c)
     if (!label?.trim()) return c.json({ error: 'label è obbligatorio' }, 400)
     if (colore && !COLOR_RE.test(colore)) {
@@ -602,6 +626,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           colore: colore?.trim() ?? '#94a3b8',
           isArchiviato: isArchiviato ?? false,
           escludiDaConteggio: escludiDaConteggio ?? false,
+          isPresale: isPresale ?? false,
           ordine: ordine ?? 99,
         },
       })
@@ -617,8 +642,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/api/stati-attivita/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { label, colore, isArchiviato, escludiDaConteggio, ordine } = await readJSON<{
-      label?: string; colore?: string; isArchiviato?: boolean; escludiDaConteggio?: boolean; ordine?: number
+    const { label, colore, isArchiviato, escludiDaConteggio, isPresale, ordine } = await readJSON<{
+      label?: string; colore?: string; isArchiviato?: boolean; escludiDaConteggio?: boolean; isPresale?: boolean; ordine?: number
     }>(c)
     if (!label?.trim()) return c.json({ error: 'label è obbligatorio' }, 400)
     if (colore && !COLOR_RE.test(colore)) return c.json({ error: 'Colore non valido' }, 400)
@@ -630,6 +655,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           colore: colore?.trim() ?? '#94a3b8',
           isArchiviato: isArchiviato ?? false,
           escludiDaConteggio: escludiDaConteggio ?? false,
+          isPresale: isPresale ?? false,
           ordine: ordine ?? 99,
         },
       })
@@ -1296,6 +1322,74 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
   })
 
+  // GET /api/attivita/presale — lista piatta delle attività in fase presale,
+  // cioè il cui `stato` corrisponde a uno StatoAttivitaConfig con isPresale=true.
+  // Alimenta la board Kanban Presale (le colonne sono gli stati presale ordinati).
+  hono.get('/api/attivita/presale', requireAuth(), async (c) => {
+    try {
+      const prisma = c.get('prisma')
+      const statiPresale = await prisma.statoAttivitaConfig.findMany({
+        where: { isPresale: true },
+        select: { chiave: true },
+      })
+      const chiaviPresale = statiPresale.map(s => s.chiave)
+      if (chiaviPresale.length === 0) return c.json({ attivita: [] })
+
+      const rows = await prisma.attivita.findMany({
+        where: { tipo: 'STANDARD', stato: { in: chiaviPresale } },
+        orderBy: [{ updatedAt: 'desc' }],
+        include: {
+          clienteRel: { select: { id: true, nome: true, accountId: true, account: { select: { id: true, firstName: true, lastName: true } } } },
+          progettoRel: {
+            select: {
+              id: true, nome: true, responsabileDevHubId: true,
+              responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
+          pms: { include: { pm: { select: { id: true, firstName: true, lastName: true } } } },
+          presaleAssegnatario: { select: { id: true, firstName: true, lastName: true } },
+        },
+      })
+
+      const nomeUtente = (u: { firstName: string | null; lastName: string | null } | null) =>
+        u ? [u.firstName, u.lastName].filter(Boolean).join(' ') : ''
+
+      const attivita = rows.map(a => ({
+        id: a.id,
+        attivita: a.attivita,
+        cliente: a.clienteRel?.nome ?? a.cliente,
+        clienteId: a.clienteId ?? null,
+        progetto: a.progettoRel?.nome ?? a.progetto,
+        progettoId: a.progettoId ?? null,
+        account: nomeUtente(a.clienteRel?.account ?? null),
+        accountId: a.clienteRel?.accountId ?? null,
+        projectManager: a.pms.map(p => nomeUtente(p.pm)).join(', '),
+        pmIds: a.pms.map(p => p.pmId),
+        devHub: nomeUtente(a.progettoRel?.responsabileDevHub ?? null),
+        devHubId: a.progettoRel?.responsabileDevHubId ?? null,
+        stato: a.stato,
+        giornateVendute: a.giornateVendute !== null ? toNumber(a.giornateVendute) : null,
+        note: a.note,
+        presaleLinkRequisiti: a.presaleLinkRequisiti,
+        presaleLinkStima: a.presaleLinkStima,
+        presaleLinkOfferta: a.presaleLinkOfferta,
+        presaleGiornateStimate: a.presaleGiornateStimate !== null ? toNumber(a.presaleGiornateStimate) : null,
+        presaleScadenzaStima: a.presaleScadenzaStima?.toISOString().split('T')[0] ?? null,
+        presaleNotePerFase: (a.presaleNotePerFase as Record<string, string> | null) ?? null,
+        presaleTipoIntervento: a.presaleTipoIntervento,
+        presaleAssegnatario: nomeUtente(a.presaleAssegnatario),
+        presaleAssegnatarioId: a.presaleAssegnatarioId ?? null,
+        inizio: a.inizio?.toISOString().split('T')[0] ?? null,
+        deadline: a.deadline?.toISOString().split('T')[0] ?? null,
+      }))
+
+      return c.json({ attivita })
+    } catch (err) {
+      console.error('[attivita/presale] GET error:', err)
+      return c.json({ error: 'Errore nel recupero delle attività presale' }, 500)
+    }
+  })
+
   // POST /api/attivita
   hono.post('/api/attivita', requireAuth(), async (c) => {
     const prisma = c.get('prisma')
@@ -1303,12 +1397,16 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       clienteId, progettoId, pmIds, attivita, tipo,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
+      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
       attivita?: string; tipo?: string
       giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
+      presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
+      presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
+      presaleNotePerFase?: Record<string, string> | null; presaleTipoIntervento?: string | null
     }>(c)
 
     if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
@@ -1349,9 +1447,18 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           inizio: inizio ? new Date(inizio) : null,
           deadline: deadline ? new Date(deadline) : null,
           note: note?.trim() || null,
+          presaleLinkRequisiti: presaleLinkRequisiti?.trim() || null,
+          presaleLinkStima: presaleLinkStima?.trim() || null,
+          presaleLinkOfferta: presaleLinkOfferta?.trim() || null,
+          presaleGiornateStimate: presaleGiornateStimate != null ? presaleGiornateStimate : null,
+          presaleScadenzaStima: presaleScadenzaStima ? new Date(presaleScadenzaStima) : null,
+          presaleNotePerFase: presaleNotePerFase ?? undefined,
+          presaleTipoIntervento: presaleTipoIntervento?.trim() || null,
+          presaleAssegnatarioId: presaleAssegnatarioId?.trim() || null,
           pms: pmIds?.length ? { create: pmIds.map(pmId => ({ pmId })) } : undefined,
         },
       })
+      await logStatoChange(prisma, row.id, null, statoVal, c.get('currentUserId'))
       return c.json(row, 201)
     } catch (err) {
       console.error('[attivita] POST error:', err)
@@ -1370,19 +1477,23 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       clienteId, progettoId, pmIds, attivita,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
+      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
       attivita?: string
       giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
+      presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
+      presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
+      presaleNotePerFase?: Record<string, string> | null; presaleTipoIntervento?: string | null
     }>(c)
 
     if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
       return c.json({ error: 'cliente, progetto e attivita sono obbligatori' }, 400)
     }
 
-    const existing = await prisma.attivita.findUnique({ where: { id }, select: { tipo: true } })
+    const existing = await prisma.attivita.findUnique({ where: { id }, select: { tipo: true, stato: true } })
     if (!existing) return c.json({ error: 'Attività non trovata' }, 404)
 
     const [linkedCliente, linkedProgetto] = await Promise.all([
@@ -1419,12 +1530,23 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           inizio: inizio ? new Date(inizio) : null,
           deadline: deadline ? new Date(deadline) : null,
           note: note?.trim() || null,
+          presaleLinkRequisiti: presaleLinkRequisiti?.trim() || null,
+          presaleLinkStima: presaleLinkStima?.trim() || null,
+          presaleLinkOfferta: presaleLinkOfferta?.trim() || null,
+          presaleGiornateStimate: presaleGiornateStimate != null ? presaleGiornateStimate : null,
+          presaleScadenzaStima: presaleScadenzaStima ? new Date(presaleScadenzaStima) : null,
+          presaleNotePerFase: presaleNotePerFase ?? undefined,
+          presaleTipoIntervento: presaleTipoIntervento?.trim() || null,
+          presaleAssegnatarioId: presaleAssegnatarioId?.trim() || null,
           pms: {
             deleteMany: {},
             ...(pmIds?.length ? { create: pmIds.map(pmId => ({ pmId })) } : {}),
           },
         },
       })
+      if (existing.stato !== statoVal) {
+        await logStatoChange(prisma, id, existing.stato, statoVal, c.get('currentUserId'))
+      }
       return c.json(row)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività non trovata' }, 404)
@@ -1462,6 +1584,61 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività non trovata' }, 404)
       return c.json({ error: 'Errore aggiornamento date' }, 500)
+    }
+  })
+
+  // PATCH /api/attivita/:id/stato — cambio stato leggero (drop tra colonne del
+  // Kanban Presale, e azione "Conferma e rendi effettiva" → stato non-presale).
+  // Valida che la chiave esista in StatoAttivitaConfig; le BUCKET non passano di qui.
+  hono.patch('/api/attivita/:id/stato', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const prisma = c.get('prisma')
+    const { stato } = await readJSON<{ stato?: string }>(c)
+    if (!stato?.trim()) return c.json({ error: 'stato è obbligatorio' }, 400)
+    const statoVal = stato.trim()
+
+    const existing = await prisma.attivita.findUnique({ where: { id }, select: { tipo: true, stato: true } })
+    if (!existing) return c.json({ error: 'Attività non trovata' }, 404)
+    if (existing.tipo !== 'STANDARD') {
+      return c.json({ error: 'Cambio stato non supportato per attività bucket' }, 400)
+    }
+
+    const valido = await prisma.statoAttivitaConfig.findUnique({ where: { chiave: statoVal }, select: { chiave: true } })
+    if (!valido) return c.json({ error: 'Stato non valido' }, 400)
+
+    try {
+      const row = await prisma.attivita.update({ where: { id }, data: { stato: statoVal } })
+      if (existing.stato !== statoVal) {
+        await logStatoChange(prisma, id, existing.stato, statoVal, c.get('currentUserId'))
+      }
+      return c.json(row)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività non trovata' }, 404)
+      console.error('[attivita] PATCH stato error:', err)
+      return c.json({ error: 'Errore aggiornamento stato' }, 500)
+    }
+  })
+
+  // GET /api/attivita/:id/storico — timeline dei passaggi di stato (Presale)
+  hono.get('/api/attivita/:id/storico', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    try {
+      const rows = await c.get('prisma').attivitaStatoLog.findMany({
+        where: { attivitaId: id },
+        orderBy: [{ createdAt: 'asc' }],
+        include: { user: { select: { id: true, firstName: true, lastName: true } } },
+      })
+      const storico = rows.map(r => ({
+        id: r.id,
+        statoDa: r.statoDa,
+        statoA: r.statoA,
+        utente: r.user ? [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') : '',
+        data: r.createdAt.toISOString(),
+      }))
+      return c.json({ storico })
+    } catch (err) {
+      console.error('[attivita] GET storico error:', err)
+      return c.json({ error: 'Errore nel recupero dello storico' }, 500)
     }
   })
 
