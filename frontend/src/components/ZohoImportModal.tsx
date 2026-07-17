@@ -26,6 +26,8 @@ interface ZohoImportModalProps {
   token: string
   projects: ZohoSelectedProject[]
   onClose: () => void
+  // Notifica la pagina a import confermato (per aggiornare lo storico).
+  onImported?: () => void
 }
 
 type Phase = 'fetch' | 'preview' | 'done' | 'error'
@@ -36,10 +38,11 @@ const fmt = (n: number | null): string =>
 // ─── ZohoImportModal ─────────────────────────────────────────────────────────
 // Scarica i consuntivi da Zoho un progetto per volta (rate limit), somma le
 // ore per codice GO-ORDV su tutti i progetti selezionati, poi mostra la diff
-// attuale/nuovo come l'import CSV manuale. La conferma riusa
-// PATCH /api/attivita/bulk-consuntivato.
+// attuale/nuovo come l'import CSV manuale. La conferma usa
+// POST /api/zoho/import/confirm, che applica gli aggiornamenti e registra la
+// sessione nello storico import (delta per attività).
 
-export function ZohoImportModal({ token, projects, onClose }: ZohoImportModalProps) {
+export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoImportModalProps) {
   const [phase,        setPhase]        = useState<Phase>('fetch')
   const [progress,     setProgress]     = useState({ done: 0, name: '' })
   const [rows,         setRows]         = useState<PreviewRow[]>([])
@@ -144,8 +147,8 @@ export function ZohoImportModal({ token, projects, onClose }: ZohoImportModalPro
     setImporting(true)
     setErr(null)
     try {
-      const res = await fetch(`${API_URL}/api/attivita/bulk-consuntivato`, {
-        method: 'PATCH',
+      const res = await fetch(`${API_URL}/api/zoho/import/confirm`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ updates }),
       })
@@ -156,6 +159,7 @@ export function ZohoImportModal({ token, projects, onClose }: ZohoImportModalPro
       }
       setUpdatedCount(updates.length)
       setPhase('done')
+      onImported?.()
     } catch {
       setErr('Errore di rete. Riprova.')
     } finally {

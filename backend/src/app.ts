@@ -1869,6 +1869,97 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     return c.json({ matched, notFound })
   })
 
+  // ── Storico sessioni di import Zoho ──
+  // Ogni conferma di import registra una ZohoImportSession con i delta
+  // effettivamente applicati (righe con prima ≠ dopo); lo storico è tenuto
+  // per gli ultimi 5 giorni e le sessioni più vecchie vengono eliminate a
+  // ogni lettura/scrittura.
+
+  const ZOHO_SESSION_RETENTION_MS = 5 * 24 * 60 * 60 * 1000
+
+  const pruneZohoSessions = (prisma: PrismaClient) =>
+    prisma.zohoImportSession.deleteMany({
+      where: { createdAt: { lt: new Date(Date.now() - ZOHO_SESSION_RETENTION_MS) } },
+    })
+
+  // Conferma dell'import Zoho: applica gli aggiornamenti (stessa semantica di
+  // PATCH /api/attivita/bulk-consuntivato) e registra la sessione con i delta.
+  // I valori "prima" vengono riletti dal DB, non fidandosi del payload.
+  hono.post('/api/zoho/import/confirm', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
+    const { updates } = await readJSON<{ updates?: Array<{ id?: unknown; giornateConsuntivate?: unknown }> }>(c)
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return c.json({ error: 'updates deve essere un array non vuoto' }, 400)
+    }
+    const clean: Array<{ id: string; giornateConsuntivate: number }> = []
+    for (const u of updates) {
+      if (typeof u?.id !== 'string' || typeof u?.giornateConsuntivate !== 'number' || !isFinite(u.giornateConsuntivate) || u.giornateConsuntivate < 0) {
+        return c.json({ error: 'Ogni update richiede id e giornateConsuntivate ≥ 0' }, 400)
+      }
+      clean.push({ id: u.id, giornateConsuntivate: u.giornateConsuntivate })
+    }
+
+    const prisma = c.get('prisma')
+    const attuali = await prisma.attivita.findMany({ where: { id: { in: clean.map((u) => u.id) } } })
+    if (attuali.length !== clean.length) return c.json({ error: 'Una o più attività non trovate' }, 404)
+    const byId = new Map(attuali.map((a) => [a.id, a]))
+
+    try {
+      await Promise.all(
+        clean.map(({ id, giornateConsuntivate }) =>
+          prisma.attivita.update({ where: { id }, data: { giornateConsuntivate } })
+        )
+      )
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Una o più attività non trovate' }, 404)
+      return c.json({ error: 'Errore aggiornamento consuntivato' }, 500)
+    }
+
+    // Solo le attività il cui valore è effettivamente cambiato entrano nelle
+    // righe della sessione (delta ≠ 0); prima = null → trattato come 0.
+    const righe = clean.flatMap(({ id, giornateConsuntivate }) => {
+      const a = byId.get(id)!
+      const prima = a.giornateConsuntivate === null ? null : toNumber(a.giornateConsuntivate)
+      const delta = Math.round((giornateConsuntivate - (prima ?? 0)) * 100) / 100
+      if (delta === 0) return []
+      return [{
+        attivitaId: id,
+        cliente: a.cliente,
+        progetto: a.progetto,
+        attivita: a.attivita,
+        codice: a.riferimentoOrdineVendita ? `GO-ORDV-${a.riferimentoOrdineVendita.trim()}` : null,
+        prima,
+        dopo: giornateConsuntivate,
+        delta,
+      }]
+    })
+
+    const session = await prisma.zohoImportSession.create({
+      data: { userId: c.get('currentUserId'), righe },
+    })
+    await pruneZohoSessions(prisma)
+    return c.json({ updated: clean.length, sessionId: session.id, modificate: righe.length })
+  })
+
+  // Sessioni di import degli ultimi 5 giorni, più recenti prima.
+  hono.get('/api/zoho/import/sessions', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
+    const prisma = c.get('prisma')
+    await pruneZohoSessions(prisma)
+    const rows = await prisma.zohoImportSession.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { user: { select: { name: true, firstName: true, lastName: true, email: true } } },
+    })
+    return c.json({
+      sessions: rows.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt,
+        utente: s.user
+          ? ([s.user.firstName, s.user.lastName].filter(Boolean).join(' ') || s.user.name || s.user.email)
+          : null,
+        righe: s.righe,
+      })),
+    })
+  })
+
   // PATCH /api/attivita/bulk-consuntivato — aggiornamento massivo giornateConsuntivate
   hono.patch('/api/attivita/bulk-consuntivato', requireAuth(), async (c) => {
     const { updates } = await readJSON<{ updates: Array<{ id: string; giornateConsuntivate: number }> }>(c)

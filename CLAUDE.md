@@ -65,7 +65,7 @@ docker compose down     # Stop
   - `UtentiPage` — unified user directory CRUD (replaces the old separate PM/Account pages): role chips (`ACCOUNT`/`PM`/`BOARD`/`DEVHUB`), multi-role assignment via fixed toggle-chips (roles are an application-level enum, not a user-editable list)
   - `ClientiPage` / `ProgettiPage` — CRUD for Clients and Projects
   - `ImpostazioniPage` — layout a due pannelli (nav laterale a gruppi "Stati e tag" / "Integrazioni" + contenuto): stati attività/progetti/roadmap, tag roadmap, Notifiche Presale (con sotto-gruppo "Configurazione SAIOT")
-  - `ConsuntiviZohoPage` (prefisso CSS `cz-`) — pagina di primo livello per ruoli Board/PM/Account: selezione progetti Zoho + import consuntivazioni con preview diff (modal condiviso `components/ZohoImportModal.tsx`, prefisso `zi-`)
+  - `ConsuntiviZohoPage` (prefisso CSS `cz-`) — pagina di primo livello per ruoli Board/PM/Account: selezione progetti Zoho + import consuntivazioni con preview diff (modal condiviso `components/ZohoImportModal.tsx`, prefisso `zi-`) + sezione "Storico import" (sessioni degli ultimi 5 giorni con delta giornate per attività e utente che ha importato)
 
 ### Backend
 
@@ -97,7 +97,9 @@ docker compose down     # Stop
     - `GET /api/zoho/projects` — lista progetti attivi da Zoho + flag `selected` (selezione persistita in `AppConfig`, chiave `zoho_selected_projects`)
     - `PUT /api/zoho/selection` — salva gli id dei progetti selezionati per l'import
     - `POST /api/zoho/consuntivi/:projectId` — ore consuntivate di UN progetto aggregate per codice `GO-ORDV-YYYY-N` (join timelog → tasklist → milestone, scansione mensile — vedi `services/zohoService.ts`); il frontend itera sui progetti selezionati e somma i codici (rate limit Zoho ~100 req/2min + limiti subrequest Workers)
-    - `POST /api/zoho/import/preview` — diff codici aggregati vs attività (match su `riferimentoOrdineVendita` = codice senza prefisso `GO-ORDV-`, come l'import CSV manuale); la conferma riusa `PATCH /api/attivita/bulk-consuntivato`
+    - `POST /api/zoho/import/preview` — diff codici aggregati vs attività (match su `riferimentoOrdineVendita` = codice senza prefisso `GO-ORDV-`, come l'import CSV manuale)
+    - `POST /api/zoho/import/confirm` — conferma dell'import: applica gli aggiornamenti (stessa semantica di `bulk-consuntivato`, valori "prima" riletti dal DB) e registra una `ZohoImportSession` con i delta per attività (solo righe con delta ≠ 0)
+    - `GET /api/zoho/import/sessions` — storico sessioni import degli ultimi 5 giorni (utente + righe delta); entrambe le route eliminano le sessioni più vecchie di 5 giorni
   - `GET /api/gantt/milestones` — Gantt milestones (optional `?activityId=` filter)
   - `POST /api/gantt/milestones` — Create milestone
   - `PUT /api/gantt/milestones/:id` — Update milestone
