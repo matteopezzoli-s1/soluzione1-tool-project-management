@@ -372,6 +372,7 @@ model Attivita {
   pms                      AttivitaPM[]
   milestones               GanttMilestone[]
   statoLog                 AttivitaStatoLog[]
+  consuntiviMese           AttivitaConsuntivoMese[]
 
   @@index([cliente, progetto])
   @@index([stato])
@@ -390,6 +391,25 @@ model AttivitaPM {
 
   @@id([attivitaId, pmId])
   @@map("attivita_pms")
+}
+
+// Dettaglio mensile di un'attività: giornate consuntivate (alimentate
+// dall'import Zoho, che aggrega i timelog per mese) e giornate fatturate
+// (compilate a mano dal PM per il rapportino degli ordini bucket).
+// `mese` in formato "YYYY-MM". Per le attività BUCKET il totale
+// giornateFatturate sull'Attivita è mantenuto pari alla somma dei mesi.
+model AttivitaConsuntivoMese {
+  id                   String   @id @default(cuid())
+  attivitaId           String   @map("attivita_id")
+  attivita             Attivita @relation(fields: [attivitaId], references: [id], onDelete: Cascade)
+  mese                 String
+  giornateConsuntivate Decimal? @map("giornate_consuntivate") @db.Decimal(10, 2)
+  giornateFatturate    Decimal? @map("giornate_fatturate") @db.Decimal(10, 2)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@unique([attivitaId, mese])
+  @@map("attivita_consuntivi_mese")
 }
 
 // Storico dei passaggi di stato di un'attività — alimenta la timeline del

@@ -20,6 +20,9 @@ interface PreviewRow {
   ore: number
   attuale: number | null
   nuovo: number
+  // Breakdown mensile del nuovo consuntivato (gg per mese "YYYY-MM"),
+  // salvato al confirm per il rapportino degli ordini bucket
+  mesi: Array<{ mese: string; gg: number }>
 }
 
 interface ZohoImportModalProps {
@@ -65,7 +68,8 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
     startedRef.current = true
 
     async function run() {
-      const merged = new Map<string, number>() // codice GO-ORDV → ore totali
+      // codice GO-ORDV → ore totali + ore per mese (sommate su tutti i progetti)
+      const merged = new Map<string, { ore: number; mesi: Map<string, number> }>()
       const warns: string[] = []
 
       for (let i = 0; i < projects.length; i++) {
@@ -82,9 +86,16 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
             warns.push(`${p.name}: ${(data as { error?: string }).error ?? `errore ${res.status}`}`)
             continue
           }
-          const data = (await res.json()) as { codes: Array<{ code: string; ore: number }> }
-          for (const { code, ore } of data.codes) {
-            merged.set(code, (merged.get(code) ?? 0) + ore)
+          const data = (await res.json()) as {
+            codes: Array<{ code: string; ore: number; mesi?: Array<{ mese: string; ore: number }> }>
+          }
+          for (const { code, ore, mesi } of data.codes) {
+            let entry = merged.get(code)
+            if (!entry) { entry = { ore: 0, mesi: new Map() }; merged.set(code, entry) }
+            entry.ore += ore
+            for (const m of mesi ?? []) {
+              entry.mesi.set(m.mese, (entry.mesi.get(m.mese) ?? 0) + m.ore)
+            }
           }
         } catch {
           warns.push(`${p.name}: errore di rete`)
@@ -105,7 +116,11 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
-            codes: [...merged].map(([code, ore]) => ({ code, ore: Math.round(ore * 100) / 100 })),
+            codes: [...merged].map(([code, { ore, mesi }]) => ({
+              code,
+              ore: Math.round(ore * 100) / 100,
+              mesi: [...mesi].map(([mese, oreMese]) => ({ mese, ore: Math.round(oreMese * 100) / 100 })),
+            })),
           }),
         })
         if (!res.ok) {
@@ -142,7 +157,11 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
   async function handleImport() {
     const updates = rows
       .filter((r) => selectedIds.has(r.attivitaId))
-      .map((r) => ({ id: r.attivitaId, giornateConsuntivate: r.nuovo }))
+      .map((r) => ({
+        id: r.attivitaId,
+        giornateConsuntivate: r.nuovo,
+        mesi: r.mesi.map((m) => ({ mese: m.mese, giornateConsuntivate: m.gg })),
+      }))
     if (updates.length === 0) return
     setImporting(true)
     setErr(null)
