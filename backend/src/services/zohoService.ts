@@ -101,9 +101,15 @@ export async function listZohoProjects(cfg: ZohoConfig): Promise<ZohoProject[]> 
 
 // ── Consuntivi di un progetto, aggregati per codice GO-ORDV ────────────────
 
+export interface ZohoConsuntivoMese {
+  mese: string // "YYYY-MM"
+  ore: number  // ore del mese, arrotondate a 2 decimali
+}
+
 export interface ZohoConsuntivoCode {
   code: string // "GO-ORDV-2026-57"
   ore: number  // ore totali, arrotondate a 2 decimali
+  mesi: ZohoConsuntivoMese[] // breakdown mensile (somma = ore)
 }
 
 export interface ZohoConsuntiviResult {
@@ -156,11 +162,12 @@ export async function fetchConsuntiviProgetto(
   const minStart = new Date(now.getFullYear(), now.getMonth() - (MAX_MONTHS - 1), 1)
   if (cursor < minStart) cursor = minStart
 
-  // 3. scansione mensile dei log task e aggregazione minuti per codice
-  const minutesPerCode = new Map<string, number>()
+  // 3. scansione mensile dei log task e aggregazione minuti per codice+mese
+  const minutesPerCodeMese = new Map<string, Map<string, number>>()
   let mesi = 0
   while (cursor <= now) {
     const mm = String(cursor.getMonth() + 1).padStart(2, '0')
+    const meseKey = `${cursor.getFullYear()}-${mm}`
     const logs = await zohoGet<ZohoLogsResponse>(
       cfg,
       `/projects/${projectId}/logs/?users_list=all&view_type=month&date=${mm}-01-${cursor.getFullYear()}&bill_status=All&component_type=task`,
@@ -170,15 +177,24 @@ export async function fetchConsuntiviProgetto(
         const msName = msNameByTasklist.get(String(log.task_list?.id ?? ''))
         const match = msName?.match(GO_CODE_RE)
         if (!match) continue
-        minutesPerCode.set(match[0], (minutesPerCode.get(match[0]) ?? 0) + (log.total_minutes ?? 0))
+        let perMese = minutesPerCodeMese.get(match[0])
+        if (!perMese) { perMese = new Map(); minutesPerCodeMese.set(match[0], perMese) }
+        perMese.set(meseKey, (perMese.get(meseKey) ?? 0) + (log.total_minutes ?? 0))
       }
     }
     mesi++
     cursor.setMonth(cursor.getMonth() + 1)
   }
 
-  const codes = [...minutesPerCode.entries()]
-    .map(([code, minutes]) => ({ code, ore: Math.round((minutes / 60) * 100) / 100 }))
+  const codes = [...minutesPerCodeMese.entries()]
+    .map(([code, perMese]) => {
+      const mesiArr = [...perMese.entries()]
+        .filter(([, minutes]) => minutes > 0)
+        .map(([mese, minutes]) => ({ mese, ore: Math.round((minutes / 60) * 100) / 100 }))
+        .sort((a, b) => a.mese.localeCompare(b.mese))
+      const totalMinutes = [...perMese.values()].reduce((s, m) => s + m, 0)
+      return { code, ore: Math.round((totalMinutes / 60) * 100) / 100, mesi: mesiArr }
+    })
     .sort((a, b) => a.code.localeCompare(b.code))
   return { codes, mesiScansionati: mesi }
 }

@@ -50,6 +50,7 @@ export type Env = { Variables: Vars }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/
+const MESE_RE  = /^\d{4}-(0[1-9]|1[0-2])$/ // chiave mese "YYYY-MM" (consuntivi mensili)
 
 function toNumber(d: unknown): number {
   if (d === null || d === undefined) return 0
@@ -1260,6 +1261,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             },
           },
           pms: { include: { pm: { select: { id: true, firstName: true, lastName: true } } } },
+          // Dettaglio mensile solo per la vista bucket (rapportino PM)
+          consuntiviMese: tipoParam === 'BUCKET' ? { orderBy: { mese: 'asc' as const } } : false,
         },
       })
 
@@ -1319,6 +1322,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             inizio: a.inizio?.toISOString().split('T')[0] ?? null,
             deadline: a.deadline?.toISOString().split('T')[0] ?? null,
             note: a.note,
+            consuntiviMese: ('consuntiviMese' in a && Array.isArray(a.consuntiviMese))
+              ? a.consuntiviMese.map((m) => ({
+                  mese: m.mese,
+                  giornateConsuntivate: m.giornateConsuntivate !== null ? toNumber(m.giornateConsuntivate) : null,
+                  giornateFatturate: m.giornateFatturate !== null ? toNumber(m.giornateFatturate) : null,
+                }))
+              : [],
           }
         })
 
@@ -1832,9 +1842,11 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // selezionati) e le attività: stesso matching dell'import CSV manuale
   // (riferimentoOrdineVendita = codice senza prefisso "GO-ORDV-").
   hono.post('/api/zoho/import/preview', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
-    const { codes } = await readJSON<{ codes?: Array<{ code?: unknown; ore?: unknown }> }>(c)
+    const { codes } = await readJSON<{
+      codes?: Array<{ code?: unknown; ore?: unknown; mesi?: Array<{ mese?: unknown; ore?: unknown }> }>
+    }>(c)
     if (!Array.isArray(codes)) {
-      return c.json({ error: 'codes deve essere un array di {code, ore}' }, 400)
+      return c.json({ error: 'codes deve essere un array di {code, ore, mesi}' }, 400)
     }
     const attivita = await c.get('prisma').attivita.findMany({
       where: { riferimentoOrdineVendita: { not: null } },
@@ -1844,6 +1856,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const matched: Array<{
       attivitaId: string; cliente: string; progetto: string; attivita: string
       codice: string; ore: number; attuale: number | null; nuovo: number
+      mesi: Array<{ mese: string; gg: number }>
     }> = []
     const notFound: string[] = []
 
@@ -1853,6 +1866,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (!GO_CODE_RE.test(code) || ore === null) continue
       const a = byOrdine.get(code.replace('GO-ORDV-', ''))
       if (!a) { notFound.push(code); continue }
+      // Breakdown mensile (stessa conversione ore→gg del totale): righe malformate scartate
+      const mesi = (Array.isArray(item.mesi) ? item.mesi : [])
+        .filter((m): m is { mese: string; ore: number } =>
+          typeof m?.mese === 'string' && MESE_RE.test(m.mese) &&
+          typeof m?.ore === 'number' && isFinite(m.ore) && m.ore >= 0)
+        .map((m) => ({ mese: m.mese, gg: Math.round((m.ore / 8) * 100) / 100 }))
+        .sort((x, y) => x.mese.localeCompare(y.mese))
       matched.push({
         attivitaId: a.id,
         cliente: a.cliente,
@@ -1862,6 +1882,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         ore,
         attuale: a.giornateConsuntivate === null ? null : toNumber(a.giornateConsuntivate),
         nuovo: Math.round((ore / 8) * 100) / 100,
+        mesi,
       })
     }
     matched.sort((x, y) => x.codice.localeCompare(y.codice))
@@ -1886,16 +1907,28 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // PATCH /api/attivita/bulk-consuntivato) e registra la sessione con i delta.
   // I valori "prima" vengono riletti dal DB, non fidandosi del payload.
   hono.post('/api/zoho/import/confirm', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
-    const { updates } = await readJSON<{ updates?: Array<{ id?: unknown; giornateConsuntivate?: unknown }> }>(c)
+    const { updates } = await readJSON<{
+      updates?: Array<{
+        id?: unknown; giornateConsuntivate?: unknown
+        mesi?: Array<{ mese?: unknown; giornateConsuntivate?: unknown }>
+      }>
+    }>(c)
     if (!Array.isArray(updates) || updates.length === 0) {
       return c.json({ error: 'updates deve essere un array non vuoto' }, 400)
     }
-    const clean: Array<{ id: string; giornateConsuntivate: number }> = []
+    const clean: Array<{
+      id: string; giornateConsuntivate: number
+      mesi: Array<{ mese: string; giornateConsuntivate: number }>
+    }> = []
     for (const u of updates) {
       if (typeof u?.id !== 'string' || typeof u?.giornateConsuntivate !== 'number' || !isFinite(u.giornateConsuntivate) || u.giornateConsuntivate < 0) {
         return c.json({ error: 'Ogni update richiede id e giornateConsuntivate ≥ 0' }, 400)
       }
-      clean.push({ id: u.id, giornateConsuntivate: u.giornateConsuntivate })
+      const mesi = (Array.isArray(u.mesi) ? u.mesi : [])
+        .filter((m): m is { mese: string; giornateConsuntivate: number } =>
+          typeof m?.mese === 'string' && MESE_RE.test(m.mese) &&
+          typeof m?.giornateConsuntivate === 'number' && isFinite(m.giornateConsuntivate) && m.giornateConsuntivate >= 0)
+      clean.push({ id: u.id, giornateConsuntivate: u.giornateConsuntivate, mesi })
     }
 
     const prisma = c.get('prisma')
@@ -1907,6 +1940,20 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       await Promise.all(
         clean.map(({ id, giornateConsuntivate }) =>
           prisma.attivita.update({ where: { id }, data: { giornateConsuntivate } })
+        )
+      )
+      // Breakdown mensile: upsert per (attività, mese) — aggiorna le
+      // consuntivate del mese preservando le fatturate già compilate dal PM.
+      // I mesi presenti a DB ma assenti dall'import restano invariati.
+      await Promise.all(
+        clean.flatMap(({ id, mesi }) =>
+          mesi.map((m) =>
+            prisma.attivitaConsuntivoMese.upsert({
+              where: { attivitaId_mese: { attivitaId: id, mese: m.mese } },
+              create: { attivitaId: id, mese: m.mese, giornateConsuntivate: m.giornateConsuntivate },
+              update: { giornateConsuntivate: m.giornateConsuntivate },
+            })
+          )
         )
       )
     } catch (err: unknown) {
@@ -1978,6 +2025,63 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Una o più attività non trovate' }, 404)
       return c.json({ error: 'Errore aggiornamento consuntivato' }, 500)
     }
+  })
+
+  // PUT /api/attivita/:id/fatturato-mensile — compilazione del rapportino PM
+  // sugli ordini bucket: giornate fatturate per mese. Upsert delle righe mese
+  // indicate (senza toccare le consuntivate, che arrivano dall'import Zoho) e
+  // riallineamento del totale giornateFatturate sull'attività alla somma dei
+  // mesi — per i bucket il totale non si edita più a mano ma è derivato.
+  hono.put('/api/attivita/:id/fatturato-mensile', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { mesi } = await readJSON<{ mesi?: Array<{ mese?: unknown; giornateFatturate?: unknown }> }>(c)
+    if (!Array.isArray(mesi) || mesi.length === 0) {
+      return c.json({ error: 'mesi deve essere un array non vuoto di {mese, giornateFatturate}' }, 400)
+    }
+    const clean: Array<{ mese: string; giornateFatturate: number | null }> = []
+    for (const m of mesi) {
+      const meseOk = typeof m?.mese === 'string' && MESE_RE.test(m.mese)
+      const ggOk = m?.giornateFatturate === null ||
+        (typeof m?.giornateFatturate === 'number' && isFinite(m.giornateFatturate) && m.giornateFatturate >= 0)
+      if (!meseOk || !ggOk) {
+        return c.json({ error: 'Ogni riga richiede mese "YYYY-MM" e giornateFatturate ≥ 0 (o null)' }, 400)
+      }
+      clean.push({ mese: m.mese as string, giornateFatturate: m.giornateFatturate as number | null })
+    }
+
+    const prisma = c.get('prisma')
+    const att = await prisma.attivita.findUnique({ where: { id } })
+    if (!att) return c.json({ error: 'Attività non trovata' }, 404)
+
+    await Promise.all(
+      clean.map((m) =>
+        prisma.attivitaConsuntivoMese.upsert({
+          where: { attivitaId_mese: { attivitaId: id, mese: m.mese } },
+          create: { attivitaId: id, mese: m.mese, giornateFatturate: m.giornateFatturate },
+          update: { giornateFatturate: m.giornateFatturate },
+        })
+      )
+    )
+
+    // Totale = somma dei mesi valorizzati; null se nessun mese è compilato
+    const righe = await prisma.attivitaConsuntivoMese.findMany({
+      where: { attivitaId: id },
+      orderBy: { mese: 'asc' },
+    })
+    const valorizzate = righe.filter((r) => r.giornateFatturate !== null)
+    const totale = valorizzate.length > 0
+      ? Math.round(valorizzate.reduce((s, r) => s + toNumber(r.giornateFatturate), 0) * 100) / 100
+      : null
+    await prisma.attivita.update({ where: { id }, data: { giornateFatturate: totale } })
+
+    return c.json({
+      giornateFatturate: totale,
+      consuntiviMese: righe.map((r) => ({
+        mese: r.mese,
+        giornateConsuntivate: r.giornateConsuntivate !== null ? toNumber(r.giornateConsuntivate) : null,
+        giornateFatturate: r.giornateFatturate !== null ? toNumber(r.giornateFatturate) : null,
+      })),
+    })
   })
 
   // ── Gantt Milestones ────────────────────────────────────────

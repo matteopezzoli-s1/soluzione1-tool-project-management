@@ -60,7 +60,7 @@ docker compose down     # Stop
 - **Pages**:
   - `LoginPage` — Google OAuth entry point
   - `DashboardPage` — KPI cards (attività attive, clienti, in scadenza, in ritardo), liste scadenze, scorciatoie
-  - `ElencoAttivitaPage` — Activity list with filters, grouped view, detail drawer, CSV export
+  - `ElencoAttivitaPage` — Activity list with filters, grouped view, detail drawer, CSV export; due viste: "Standard" e "Ordini bucket" (tipo `BUCKET`, con righe espandibili sul rapportino mensile consuntivate/fatturate)
   - `GanttPage` — Custom Gantt timeline: drag & drop dates, zoom levels, critical path, milestone CRUD, keyboard nav
   - `UtentiPage` — unified user directory CRUD (replaces the old separate PM/Account pages): role chips (`ACCOUNT`/`PM`/`BOARD`/`DEVHUB`), multi-role assignment via fixed toggle-chips (roles are an application-level enum, not a user-editable list)
   - `ClientiPage` / `ProgettiPage` — CRUD for Clients and Projects
@@ -89,6 +89,7 @@ docker compose down     # Stop
   - `PUT /api/attivita/:id` — Update activity
   - `DELETE /api/attivita/:id` — Delete activity
   - `PATCH /api/attivita/:id/dates` — Update only `inizio` and `deadline` (used by Gantt drag & drop)
+  - `PUT /api/attivita/:id/fatturato-mensile` — rapportino PM sugli ordini bucket: upsert delle giornate fatturate per mese (`{mesi: [{mese: "YYYY-MM", giornateFatturate}]}`) e riallineamento di `Attivita.giornateFatturate` alla somma dei mesi (per i bucket il totale è derivato, non editato a mano)
   - `GET/POST /api/stati-attivita` — Configurable activity states
   - `PUT/DELETE /api/stati-attivita/:id`
   - `GET/POST /api/stati-progetto` — Configurable project states
@@ -98,7 +99,7 @@ docker compose down     # Stop
     - `PUT /api/zoho/selection` — salva gli id dei progetti selezionati per l'import
     - `POST /api/zoho/consuntivi/:projectId` — ore consuntivate di UN progetto aggregate per codice `GO-ORDV-YYYY-N` (join timelog → tasklist → milestone, scansione mensile — vedi `services/zohoService.ts`); il frontend itera sui progetti selezionati e somma i codici (rate limit Zoho ~100 req/2min + limiti subrequest Workers)
     - `POST /api/zoho/import/preview` — diff codici aggregati vs attività (match su `riferimentoOrdineVendita` = codice senza prefisso `GO-ORDV-`, come l'import CSV manuale)
-    - `POST /api/zoho/import/confirm` — conferma dell'import: applica gli aggiornamenti (stessa semantica di `bulk-consuntivato`, valori "prima" riletti dal DB) e registra una `ZohoImportSession` con i delta per attività (solo righe con delta ≠ 0)
+    - `POST /api/zoho/import/confirm` — conferma dell'import: applica gli aggiornamenti (stessa semantica di `bulk-consuntivato`, valori "prima" riletti dal DB), salva il breakdown mensile in `AttivitaConsuntivoMese` (upsert per attività+mese, preservando le fatturate compilate dal PM) e registra una `ZohoImportSession` con i delta per attività (solo righe con delta ≠ 0)
     - `GET /api/zoho/import/sessions` — storico sessioni import degli ultimi 5 giorni (utente + righe delta); entrambe le route eliminano le sessioni più vecchie di 5 giorni
   - `GET /api/gantt/milestones` — Gantt milestones (optional `?activityId=` filter)
   - `POST /api/gantt/milestones` — Create milestone
@@ -117,6 +118,7 @@ docker compose down     # Stop
   - Login (`/auth/google/callback`) upserts by email: never overwrites existing `roles`, only fills `firstName`/`lastName` if empty.
 - `Cliente`, `Progetto` — client and project registry. `Progetto.responsabileDevHubId` (nullable, `User` with role `DEVHUB`) — new field, only meaningful for `tipo: "PRODOTTO"`, alongside the existing `poId` (nullable, `User` with role `PM`)
 - `Attivita` — activity tracking: `cliente`, `progetto`, `attivita`, `stato` (string key → `StatoAttivitaConfig`), dates (`inizio`, `deadline`), `giornateVendute`, `giornateConsuntivate`, notes, `accountId` → `User` (role `ACCOUNT`), `pms` → `AttivitaPM` join table → `User` (role `PM`, many-to-many)
+- `AttivitaConsuntivoMese` — dettaglio mensile di un'attività (`mese` "YYYY-MM", unique su attività+mese): `giornateConsuntivate` alimentate dall'import Zoho (che aggrega i timelog per mese), `giornateFatturate` compilate dal PM dal rapportino nella vista "Ordini bucket" di ElencoAttivitaPage (righe espandibili; il totale fatturate dell'attività è la somma dei mesi). `GET /api/attivita` include `consuntiviMese` solo con `?tipo=BUCKET`
 - `StatoAttivitaConfig` — configurable activity states with `chiave`, `label`, `colore`, `isArchiviato`, `ordine`
 - `StatoProgettoConfig` — configurable project states (same shape)
 - `GanttMilestone` — milestone linked to an `Attivita`: `title`, `date`, `color`, `icon`
