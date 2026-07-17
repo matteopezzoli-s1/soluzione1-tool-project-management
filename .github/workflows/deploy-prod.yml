@@ -70,6 +70,11 @@ jobs:
         run: npm run build
         env:
           VITE_API_URL: ${{ env.PROD_BACKEND_URL }}
+          # Google Drive Picker (Impostazioni → Google Drive). Se i secret non
+          # sono impostati, il build resta valido e i bottoni "Scegli da Drive"
+          # / "Crea nuovo doc" semplicemente non compaiono (degradazione pulita).
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_API_KEY: ${{ secrets.VITE_GOOGLE_API_KEY }}
 
       - name: Deploy su Cloudflare Pages
         run: npx wrangler pages deploy dist --project-name=tpm-frontend --branch=main
