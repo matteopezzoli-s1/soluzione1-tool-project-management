@@ -48,6 +48,7 @@ model User {
   attivitaAccount Attivita[]  @relation("AttivitaAccount")
   attivitaPresaleAssegnate Attivita[] @relation("AttivitaPresaleAssegnatario")
   attivitaStatoLog         AttivitaStatoLog[]
+  zohoImportSessions       ZohoImportSession[]
 
   @@map("users")
 }
@@ -522,6 +523,23 @@ model RoadmapItemTag {
   @@id([roadmapItemId, tagId])
   @@map("roadmap_item_tags")
 }
+// Storico delle sessioni di import consuntivi da Zoho Projects — alimenta la
+// sezione "Storico import" della pagina Consuntivi Zoho. `righe` è lo snapshot
+// JSON dei delta applicati: [{attivitaId, cliente, progetto, attivita, codice,
+// prima, dopo, delta}], solo le attività il cui valore è effettivamente
+// cambiato. Le sessioni più vecchie di 5 giorni vengono eliminate a ogni
+// lettura/scrittura dello storico.
+model ZohoImportSession {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  righe     Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("zoho_import_sessions")
+}
+
 // Configurazione applicativa key-value (singole righe: chiave → valore stringa).
 // Usata per i parametri delle notifiche Presale via SAIOT (endpoint, codici,
 // mail gruppo DevHub, interruttore invii). Editabile dalla schermata Impostazioni.

@@ -17,6 +17,37 @@ interface ZohoProjectRow {
   selected: boolean
 }
 
+// Riga di una sessione di import: delta applicato a una singola attività
+// (il backend registra solo le attività il cui valore è cambiato).
+interface ImportSessionRiga {
+  attivitaId: string
+  cliente: string
+  progetto: string
+  attivita: string
+  codice: string | null
+  prima: number | null
+  dopo: number
+  delta: number
+}
+
+interface ImportSession {
+  id: string
+  createdAt: string
+  utente: string | null
+  righe: ImportSessionRiga[]
+}
+
+const fmtGg = (n: number | null): string =>
+  n === null ? '—' : n.toLocaleString('it-IT', { maximumFractionDigits: 2 })
+
+const fmtDelta = (n: number): string =>
+  `${n > 0 ? '+' : ''}${n.toLocaleString('it-IT', { maximumFractionDigits: 2 })}`
+
+const fmtDataOra = (iso: string): string =>
+  new Date(iso).toLocaleString('it-IT', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+
 function authHeaders(token: string) {
   return { Authorization: `Bearer ${token}` }
 }
@@ -36,6 +67,22 @@ export default function ConsuntiviZohoPage({ token }: ConsuntiviZohoPageProps) {
   const [dirty,      setDirty]      = useState(false)
   const [importOpen, setImportOpen] = useState(false)
 
+  const [sessions,     setSessions]     = useState<ImportSession[]>([])
+  const [sessionsErr,  setSessionsErr]  = useState<string | null>(null)
+  const [expandedId,   setExpandedId]   = useState<string | null>(null)
+
+  const fetchSessions = useCallback(async () => {
+    setSessionsErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/zoho/import/sessions`, { headers: authHeaders(token) })
+      if (!res.ok) throw new Error()
+      const data = (await res.json()) as { sessions: ImportSession[] }
+      setSessions(data.sessions)
+    } catch {
+      setSessionsErr('Impossibile caricare lo storico degli import.')
+    }
+  }, [token])
+
   const fetchProjects = useCallback(async () => {
     setLoading(true); setPageErr(null)
     try {
@@ -54,7 +101,7 @@ export default function ConsuntiviZohoPage({ token }: ConsuntiviZohoPageProps) {
     }
   }, [token])
 
-  useEffect(() => { queueMicrotask(() => { fetchProjects() }) }, [fetchProjects])
+  useEffect(() => { queueMicrotask(() => { fetchProjects(); fetchSessions() }) }, [fetchProjects, fetchSessions])
 
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase()
@@ -195,6 +242,79 @@ export default function ConsuntiviZohoPage({ token }: ConsuntiviZohoPageProps) {
               </div>
             </>
           )}
+
+          {/* ── Storico import (ultimi 5 giorni) ── */}
+          <section className="cz-history" aria-label="Storico import">
+            <div className="cz-history-hd">
+              <h2 className="cz-history-title">Storico import</h2>
+              <span className="cz-history-hint">Ultimi 5 giorni — delta delle giornate modificate per ogni sessione</span>
+            </div>
+
+            {sessionsErr && <p className="cz-page-error" role="alert">{sessionsErr}</p>}
+
+            {!sessionsErr && sessions.length === 0 && (
+              <p className="cz-history-empty">Nessun import negli ultimi 5 giorni.</p>
+            )}
+
+            {sessions.map(s => {
+              const open = expandedId === s.id
+              return (
+                <div key={s.id} className="cz-session">
+                  <button
+                    type="button"
+                    className="cz-session-hd"
+                    onClick={() => setExpandedId(open ? null : s.id)}
+                    aria-expanded={open}
+                  >
+                    <svg className={`cz-session-chevron${open ? ' cz-session-chevron--open' : ''}`}
+                      viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" aria-hidden="true">
+                      <path d="M7 5l6 5-6 5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <span className="cz-session-when">{fmtDataOra(s.createdAt)}</span>
+                    <span className="cz-session-user">{s.utente ?? 'Utente rimosso'}</span>
+                    <span className="cz-session-meta">
+                      {s.righe.length === 0
+                        ? 'nessuna variazione'
+                        : `${s.righe.length} ${s.righe.length === 1 ? 'attività modificata' : 'attività modificate'}`}
+                    </span>
+                  </button>
+
+                  {open && s.righe.length > 0 && (
+                    <div className="cz-table-wrap cz-session-table">
+                      <table className="cz-table" aria-label={`Delta import del ${fmtDataOra(s.createdAt)}`}>
+                        <thead>
+                          <tr>
+                            <th scope="col" className="cz-th">Cliente</th>
+                            <th scope="col" className="cz-th">Progetto</th>
+                            <th scope="col" className="cz-th">Attività</th>
+                            <th scope="col" className="cz-th">Codice GO</th>
+                            <th scope="col" className="cz-th cz-th--num">Prima (gg)</th>
+                            <th scope="col" className="cz-th cz-th--num">Dopo (gg)</th>
+                            <th scope="col" className="cz-th cz-th--num">Delta (gg)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {s.righe.map(r => (
+                            <tr key={r.attivitaId} className="cz-row cz-row--static">
+                              <td className="cz-cell">{r.cliente}</td>
+                              <td className="cz-cell">{r.progetto}</td>
+                              <td className="cz-cell">{r.attivita}</td>
+                              <td className="cz-cell cz-cell--code">{r.codice ?? '—'}</td>
+                              <td className="cz-cell cz-cell--num">{fmtGg(r.prima)}</td>
+                              <td className="cz-cell cz-cell--num">{fmtGg(r.dopo)}</td>
+                              <td className={`cz-cell cz-cell--num ${r.delta > 0 ? 'cz-delta--up' : 'cz-delta--down'}`}>
+                                {fmtDelta(r.delta)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </section>
         </div>
       )}
 
@@ -203,6 +323,7 @@ export default function ConsuntiviZohoPage({ token }: ConsuntiviZohoPageProps) {
           token={token}
           projects={selectedProjects}
           onClose={() => setImportOpen(false)}
+          onImported={fetchSessions}
         />
       )}
     </div>
