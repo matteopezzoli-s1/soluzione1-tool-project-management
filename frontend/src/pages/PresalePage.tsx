@@ -18,7 +18,7 @@ interface PresaleItem {
   cliente: string; clienteId: string | null
   progetto: string; progettoId: string | null
   account: string; accountId: string | null
-  projectManager: string; pmIds: string[]
+  projectManager: string; pmId: string | null
   devHub: string; devHubId: string | null
   stato: string
   giornateVendute: number | null
@@ -56,7 +56,7 @@ type FormData = {
   progettoId: string
   attivita: string
   stato: string
-  pmIds: string[]
+  pmId: string
   presaleAssegnatarioId: string
   presaleGiornateStimate: string
   presaleScadenzaStima: string
@@ -75,7 +75,7 @@ type FormData = {
 
 const EMPTY_FORM: FormData = {
   clienteId: '', progettoId: '', attivita: '', stato: '',
-  pmIds: [], presaleAssegnatarioId: '',
+  pmId: '', presaleAssegnatarioId: '',
   presaleGiornateStimate: '', presaleScadenzaStima: '', giornateVendute: '',
   presaleLinkRequisiti: '', presaleLinkStima: '', presaleLinkOfferta: '', presaleDriveFolderId: '',
   presaleTipoIntervento: '', presaleNotePerFase: {}, note: '', inizio: '', deadline: '',
@@ -140,29 +140,29 @@ function numOrNull(s: string): number | null {
 // (al massimo) i campi della fase precedente rimasti vuoti. Mappato per chiave
 // dello stato; per stati presale custom (fuori mappa) si mostrano tutti.
 type PresaleField =
-  | 'pmIds' | 'presaleTipoIntervento' | 'presaleLinkRequisiti' | 'presaleScadenzaStima' | 'presaleAssegnatarioId'
+  | 'pmId' | 'presaleTipoIntervento' | 'presaleLinkRequisiti' | 'presaleScadenzaStima' | 'presaleAssegnatarioId'
   | 'presaleGiornateStimate' | 'presaleLinkStima' | 'presaleLinkOfferta' | 'giornateVendute'
 
 const FASE_CAMPI: Record<string, PresaleField[]> = {
-  PRESALE_APERTURA:     ['presaleTipoIntervento', 'pmIds', 'presaleLinkRequisiti', 'presaleScadenzaStima'],
+  PRESALE_APERTURA:     ['presaleTipoIntervento', 'pmId', 'presaleLinkRequisiti', 'presaleScadenzaStima'],
   PRESALE_PRESA_CARICO: ['presaleAssegnatarioId'],
   PRESALE_STIMA:        ['presaleGiornateStimate', 'presaleLinkStima'],
   PRESALE_GIORNATE:     ['giornateVendute', 'presaleLinkOfferta'],
 }
 const TUTTI_CAMPI: PresaleField[] = [
-  'presaleTipoIntervento', 'pmIds', 'presaleLinkRequisiti', 'presaleScadenzaStima', 'presaleAssegnatarioId',
+  'presaleTipoIntervento', 'pmId', 'presaleLinkRequisiti', 'presaleScadenzaStima', 'presaleAssegnatarioId',
   'presaleGiornateStimate', 'presaleLinkStima', 'presaleLinkOfferta', 'giornateVendute',
 ]
 
 // Campi obbligatori per fase.
 const REQUIRED_CAMPI: Record<string, PresaleField[]> = {
-  PRESALE_APERTURA:     ['presaleTipoIntervento', 'pmIds', 'presaleScadenzaStima'],
+  PRESALE_APERTURA:     ['presaleTipoIntervento', 'pmId', 'presaleScadenzaStima'],
   PRESALE_PRESA_CARICO: ['presaleAssegnatarioId'],
   PRESALE_STIMA:        ['presaleGiornateStimate'],
   PRESALE_GIORNATE:     ['giornateVendute'],
 }
 const CAMPO_LABEL: Partial<Record<PresaleField, string>> = {
-  presaleTipoIntervento: 'Tipo intervento', pmIds: 'PM', presaleScadenzaStima: 'Stima desiderata entro il',
+  presaleTipoIntervento: 'Tipo intervento', pmId: 'PM', presaleScadenzaStima: 'Stima desiderata entro il',
   presaleAssegnatarioId: 'Assegnatario DevHub', presaleGiornateStimate: 'Giornate stimate', giornateVendute: 'Giornate vendute',
 }
 function isObbligatorio(f: PresaleField): boolean {
@@ -170,13 +170,13 @@ function isObbligatorio(f: PresaleField): boolean {
 }
 function campiMancantiForm(form: FormData): PresaleField[] {
   return (REQUIRED_CAMPI[form.stato] ?? []).filter(f =>
-    f === 'pmIds' ? form.pmIds.length === 0 : (form[f] ?? '').toString().trim() === '')
+    f === 'pmId' ? form.pmId === '' : (form[f] ?? '').toString().trim() === '')
 }
 // Fase completa a partire dai dati dell'item (per il gating dell'avanzamento).
 function faseItemCompleta(item: PresaleItem, stato: string): boolean {
   return (REQUIRED_CAMPI[stato] ?? []).every(f => {
     switch (f) {
-      case 'pmIds': return item.pmIds.length > 0
+      case 'pmId': return !!item.pmId
       case 'presaleTipoIntervento': return !!item.presaleTipoIntervento
       case 'presaleScadenzaStima': return !!item.presaleScadenzaStima
       case 'presaleAssegnatarioId': return !!item.presaleAssegnatarioId
@@ -198,16 +198,16 @@ function PresaleLink({ url }: { url: string }) {
 }
 
 function PmChips({ pms, value, onChange }: {
-  pms: UserRef[]; value: string[]; onChange: (ids: string[]) => void
+  pms: UserRef[]; value: string | null; onChange: (id: string | null) => void
 }) {
   if (pms.length === 0) return <span className="ps-field-hint">Nessun PM disponibile</span>
-  // In presale si assegna un solo PM: click = selezione singola (radio-like).
+  // Un solo PM per attività: click = selezione singola (radio-like).
   const toggle = (id: string) =>
-    onChange(value.includes(id) ? [] : [id])
+    onChange(value === id ? null : id)
   return (
     <div className="ps-chip-row">
       {pms.map(p => {
-        const on = value.includes(p.id)
+        const on = value === p.id
         return (
           <button
             key={p.id}
@@ -323,10 +323,10 @@ function PresaleModal({
           </div>
         </div>
       )
-      case 'pmIds': return (
+      case 'pmId': return (
         <div key={f} className="ps-field">
           <span className="ps-label">PM{req(f)}</span>
-          <PmChips pms={pms} value={form.pmIds} onChange={ids => onChange({ ...form, pmIds: ids })} />
+          <PmChips pms={pms} value={form.pmId || null} onChange={id => onChange({ ...form, pmId: id ?? '' })} />
         </div>
       )
       case 'presaleLinkRequisiti': return (
@@ -518,7 +518,7 @@ function PresaleModal({
                   onChange={e => {
                     // Pre-seleziona il PM di riferimento del progetto, se definito.
                     const pmRif = progetti.find(p => p.id === e.target.value)?.pmRiferimentoId
-                    onChange({ ...form, progettoId: e.target.value, pmIds: pmRif ? [pmRif] : form.pmIds })
+                    onChange({ ...form, progettoId: e.target.value, pmId: pmRif ?? form.pmId })
                   }}
                   disabled={!form.clienteId}
                 >
@@ -1049,7 +1049,7 @@ export default function PresalePage({ token }: { token: string }) {
       progettoId: item.progettoId ?? '',
       attivita: item.attivita,
       stato: item.stato,
-      pmIds: item.pmIds,
+      pmId: item.pmId ?? '',
       presaleAssegnatarioId: item.presaleAssegnatarioId ?? '',
       presaleGiornateStimate: item.presaleGiornateStimate !== null ? String(item.presaleGiornateStimate) : '',
       presaleScadenzaStima: item.presaleScadenzaStima ?? '',
@@ -1099,7 +1099,7 @@ export default function PresalePage({ token }: { token: string }) {
         progettoId: form.progettoId,
         attivita: form.attivita.trim(),
         stato: form.stato,
-        pmIds: form.pmIds,
+        pmId: form.pmId || null,
         presaleAssegnatarioId: form.presaleAssegnatarioId || null,
         presaleGiornateStimate: numOrNull(form.presaleGiornateStimate),
         presaleScadenzaStima: form.presaleScadenzaStima || null,

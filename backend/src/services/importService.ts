@@ -261,11 +261,7 @@ export async function importCSV(buffer: Buffer, prisma: PrismaClient): Promise<I
             },
           })
           if (pm) {
-            await prisma.attivitaPM.upsert({
-              where: { attivitaId_pmId: { attivitaId: existing.id, pmId: pm.id } },
-              update: {},
-              create: { attivitaId: existing.id, pmId: pm.id },
-            })
+            await prisma.attivita.update({ where: { id: existing.id }, data: { pmId: pm.id } })
           }
           result.attivita.updated++
         } else {
@@ -282,7 +278,7 @@ export async function importCSV(buffer: Buffer, prisma: PrismaClient): Promise<I
               inizio:                   row.dataInizio,
               deadline:                 row.dataDeadline,
               note:                     row.note,
-              pms:                      pm ? { create: [{ pmId: pm.id }] } : undefined,
+              pmId:                     pm?.id ?? null,
             },
           })
           result.attivita.created++
