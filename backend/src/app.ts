@@ -1285,7 +1285,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
               responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
             },
           },
-          pms: { include: { pm: { select: { id: true, firstName: true, lastName: true } } } },
+          pm: { select: { id: true, firstName: true, lastName: true } },
           // Dettaglio mensile solo per la vista bucket (rapportino PM)
           consuntiviMese: tipoParam === 'BUCKET' ? { orderBy: { mese: 'asc' as const } } : false,
         },
@@ -1306,7 +1306,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           const accountName = row.clienteRel?.account
             ? resolvedName(row.clienteRel.account.firstName, row.clienteRel.account.lastName)
             : ''
-          const pmName = row.pms.map(p => resolvedName(p.pm.firstName, p.pm.lastName)).join(', ')
+          const pmName = row.pm ? resolvedName(row.pm.firstName, row.pm.lastName) : ''
           groupMap.set(key, { cliente: clienteNome, progetto: progettoNome, account: accountName, projectManager: pmName, attivita: [] })
         }
         groupMap.get(key)!.attivita.push(row)
@@ -1319,7 +1319,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           const accountName = a.clienteRel?.account
             ? resolvedName(a.clienteRel.account.firstName, a.clienteRel.account.lastName)
             : ''
-          const pmNames = a.pms.map(p => resolvedName(p.pm.firstName, p.pm.lastName)).join(', ')
+          const pmName = a.pm ? resolvedName(a.pm.firstName, a.pm.lastName) : ''
           return {
             id: a.id,
             tipo: a.tipo,
@@ -1329,8 +1329,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             progettoId: a.progettoId ?? null,
             account: accountName,
             accountId: a.clienteRel?.accountId ?? null,
-            projectManager: pmNames,
-            pmIds: a.pms.map(p => p.pmId),
+            projectManager: pmName,
+            pmId: a.pmId ?? null,
             // Il responsabile DevHub è un attributo del progetto, non della
             // singola attività: qui esposto in sola lettura ereditandolo da
             // progettoRel (impostabile da Progetti & Prodotti).
@@ -1440,7 +1440,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
               responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
             },
           },
-          pms: { include: { pm: { select: { id: true, firstName: true, lastName: true } } } },
+          pm: { select: { id: true, firstName: true, lastName: true } },
           presaleAssegnatario: { select: { id: true, firstName: true, lastName: true } },
         },
       })
@@ -1457,8 +1457,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         progettoId: a.progettoId ?? null,
         account: nomeUtente(a.clienteRel?.account ?? null),
         accountId: a.clienteRel?.accountId ?? null,
-        projectManager: a.pms.map(p => nomeUtente(p.pm)).join(', '),
-        pmIds: a.pms.map(p => p.pmId),
+        projectManager: nomeUtente(a.pm),
+        pmId: a.pmId ?? null,
         devHub: nomeUtente(a.progettoRel?.responsabileDevHub ?? null),
         devHubId: a.progettoRel?.responsabileDevHubId ?? null,
         stato: a.stato,
@@ -1490,13 +1490,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   hono.post('/api/attivita', requireAuth(), async (c) => {
     const prisma = c.get('prisma')
     const {
-      clienteId, progettoId, pmIds, attivita, tipo,
+      clienteId, progettoId, pmId, attivita, tipo,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
       presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
-      clienteId?: string; progettoId?: string; pmIds?: string[]
+      clienteId?: string; progettoId?: string; pmId?: string | null
       attivita?: string; tipo?: string
       giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
@@ -1562,7 +1562,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           presaleNotePerFase: presaleNotePerFase ?? undefined,
           presaleTipoIntervento: presaleTipoIntervento?.trim() || null,
           presaleAssegnatarioId: presaleAssegnatarioId?.trim() || null,
-          pms: pmIds?.length ? { create: pmIds.map(pmId => ({ pmId })) } : undefined,
+          pmId: pmId?.trim() || null,
         },
       })
       await logStatoChange(prisma, row.id, null, statoVal, c.get('currentUserId'))
@@ -1584,13 +1584,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const id = c.req.param('id')
     const prisma = c.get('prisma')
     const {
-      clienteId, progettoId, pmIds, attivita,
+      clienteId, progettoId, pmId, attivita,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
       presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
-      clienteId?: string; progettoId?: string; pmIds?: string[]
+      clienteId?: string; progettoId?: string; pmId?: string | null
       attivita?: string
       giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
@@ -1670,10 +1670,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           presaleNotePerFase: presaleNotePerFase ?? undefined,
           presaleTipoIntervento: presaleTipoIntervento?.trim() || null,
           presaleAssegnatarioId: presaleAssegnatarioId?.trim() || null,
-          pms: {
-            deleteMany: {},
-            ...(pmIds?.length ? { create: pmIds.map(pmId => ({ pmId })) } : {}),
-          },
+          pmId: pmId?.trim() || null,
         },
       })
       if (existing.stato !== statoVal) {

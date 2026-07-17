@@ -134,12 +134,12 @@ async function loadAttivitaMailData(
     include: {
       clienteRel: { select: { nome: true } },
       progettoRel: { select: { nome: true } },
-      pms: { include: { pm: { select: { firstName: true, lastName: true, email: true } } } },
+      pm: { select: { firstName: true, lastName: true, email: true } },
       presaleAssegnatario: { select: { firstName: true, lastName: true } },
     },
   })
   if (!a) return null
-  const pm = a.pms[0]?.pm ?? null
+  const pm = a.pm ?? null
   return {
     cliente: a.clienteRel?.nome ?? a.cliente,
     progetto: a.progettoRel?.nome ?? a.progetto,
