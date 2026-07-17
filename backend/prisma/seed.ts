@@ -76,6 +76,22 @@ async function main() {
     })
   }
 
+  // ── Stati contratto (legenda del vecchio Excel contratti) ──────
+  const statiContratto = [
+    { chiave: 'IN_DEFINIZIONE', label: 'In via di definizione',       colore: '#F59E0B', ordine: 1, isChiuso: false },
+    { chiave: 'OK',             label: 'OK, a posto',                 colore: '#10B981', ordine: 2, isChiuso: false },
+    { chiave: 'CON_PROBLEMI',   label: 'Con problemi, da attenzionare', colore: '#EF4444', ordine: 3, isChiuso: false },
+    { chiave: 'CHIUSO',         label: 'Chiuso',                      colore: '#94A3B8', ordine: 4, isChiuso: true },
+  ]
+  for (const s of statiContratto) {
+    const { chiave, ...data } = s
+    await prisma.statoContrattoConfig.upsert({
+      where: { chiave },
+      update: data,
+      create: { chiave, ...data },
+    })
+  }
+
   // ── Config notifiche Presale (SAIOT) — valori di sviluppo (testapi) ─────
   // In produzione questi arrivano dalla migration (endpoint api.saiot.it).
   const configPresale: Array<[string, string]> = [
