@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from 'react'
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from 'react'
 import { createPortal } from 'react-dom'
 import { SectionModal } from '../components/SectionModal'
 import './ElencoAttivitaPage.css'
@@ -32,6 +32,28 @@ const PRESALE_COLORE = '#7C3AED'
 // Context per la mappa chiave→config (evita prop-drilling nei subcomponenti)
 const StatiCtx = createContext<Map<string, StatoConfigItem>>(new Map())
 
+// Context per il rapportino mensile bucket: token per la PUT fatturato-mensile
+// e callback di refresh post-salvataggio (evita prop-drilling fino alle righe)
+const BucketMeseCtx = createContext<{ token: string; onSaved: () => Promise<void> } | null>(null)
+
+const MESI_IT = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
+  'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre']
+
+// "2026-04" → "Aprile 2026"
+function fmtMese(mese: string): string {
+  const [y, m] = mese.split('-')
+  const idx = parseInt(m, 10) - 1
+  return MESI_IT[idx] ? `${MESI_IT[idx]} ${y}` : mese
+}
+
+// Dettaglio mensile (vista Ordini bucket): consuntivate da import Zoho,
+// fatturate compilate dal PM per il rapportino. mese = "YYYY-MM".
+interface ConsuntivoMese {
+  mese: string
+  giornateConsuntivate: number | null
+  giornateFatturate: number | null
+}
+
 interface AttivitaItem {
   id: string
   tipo: TipoAttivita
@@ -49,6 +71,7 @@ interface AttivitaItem {
   inizio: string | null
   deadline: string | null
   note: string | null
+  consuntiviMese?: ConsuntivoMese[]
 }
 
 interface GruppoAttivita {
@@ -604,6 +627,148 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
   )
 }
 
+// ─── Rapportino mensile bucket ────────────────────────────────────────────────
+// Dettaglio espandibile di un ordine bucket: consuntivate per mese (in sola
+// lettura, alimentate dall'import Zoho) e fatturate per mese compilabili dal
+// PM. Renderizzato come righe della stessa tabella del padre, così le colonne
+// GG Fatturate / GG Consuntivate dei mesi sono allineate a quelle di testata.
+// Il salvataggio riallinea il totale GG Fatturate dell'attività alla somma
+// dei mesi (PUT /api/attivita/:id/fatturato-mensile).
+
+function BucketMesiRows({ item, showProgetto, readOnly }: {
+  item: AttivitaItem; showProgetto?: boolean; readOnly?: boolean
+}) {
+  const ctx  = useContext(BucketMeseCtx)
+  const mesi = item.consuntiviMese ?? []
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [err,    setErr]    = useState<string | null>(null)
+  const [saved,  setSaved]  = useState(false)
+
+  const origValue = (m: ConsuntivoMese) =>
+    m.giornateFatturate !== null ? String(m.giornateFatturate) : ''
+  const draftValue = (m: ConsuntivoMese) => drafts[m.mese] ?? origValue(m)
+
+  const dirty = mesi.some(m => draftValue(m) !== origValue(m))
+
+  const totConsuntivate = mesi.reduce((s, m) => s + (m.giornateConsuntivate ?? 0), 0)
+  const totFatturate = mesi.reduce((s, m) => {
+    const v = parseFloat(draftValue(m))
+    return s + (isFinite(v) ? v : 0)
+  }, 0)
+
+  // Colonne della tabella padre (vista bucket): Attività, [Progetto], Stato,
+  // GG Vendute, GG Fatturate, GG Consuntivate, Residuo, Deadline, Ord, DevHub,
+  // [azioni]. I mesi occupano le stesse colonne per allineare i numeri.
+  const leadCols = 2 + (showProgetto ? 1 : 0)          // fino a Stato inclusa
+  const trailCols = 4 + (readOnly ? 0 : 1)             // da Residuo in poi
+  const fullColSpan = leadCols + 3 + trailCols + 1     // +1: colonna GG Vendute
+
+  if (mesi.length === 0) {
+    return (
+      <tr className="ea-mesi-tr">
+        <td className="ea-cell ea-mesi-empty" colSpan={fullColSpan}>
+          Nessuna consuntivazione mensile: i mesi compaiono dopo il primo import da Consuntivi Zoho.
+        </td>
+      </tr>
+    )
+  }
+
+  const handleSave = async () => {
+    if (!ctx) return
+    for (const m of mesi) {
+      const raw = draftValue(m).trim()
+      if (raw !== '' && (!isFinite(parseFloat(raw)) || parseFloat(raw) < 0)) {
+        setErr(`Valore non valido per ${fmtMese(m.mese)}`)
+        return
+      }
+    }
+    setSaving(true); setErr(null); setSaved(false)
+    try {
+      const res = await fetch(`${API_URL}/api/attivita/${item.id}/fatturato-mensile`, {
+        method: 'PUT',
+        headers: authHeadersJson(ctx.token),
+        body: JSON.stringify({
+          mesi: mesi.map(m => {
+            const raw = draftValue(m).trim()
+            return { mese: m.mese, giornateFatturate: raw === '' ? null : parseFloat(raw) }
+          }),
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setErr((data as { error?: string }).error ?? `Errore ${res.status}`)
+        return
+      }
+      setSaved(true)
+      await ctx.onSaved()
+    } catch {
+      setErr('Errore di rete. Riprova.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      {mesi.map(m => (
+        <tr key={m.mese} className="ea-mesi-tr">
+          <td className="ea-cell ea-mesi-lbl" colSpan={leadCols}>{fmtMese(m.mese)}</td>
+          <td className="ea-cell" />
+          <td className="ea-cell ea-cell--num">
+            {readOnly ? (
+              <span className="ea-cell--mono">{fmt(m.giornateFatturate)}</span>
+            ) : (
+              <input
+                className="ea-mesi-input"
+                type="number" min="0" step="0.5"
+                value={draftValue(m)}
+                onChange={e => {
+                  setDrafts(prev => ({ ...prev, [m.mese]: e.target.value }))
+                  setSaved(false)
+                }}
+                placeholder="0"
+                aria-label={`Giornate fatturate ${fmtMese(m.mese)}`}
+              />
+            )}
+          </td>
+          <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(m.giornateConsuntivate)}</td>
+          <td className="ea-cell" colSpan={trailCols} />
+        </tr>
+      ))}
+
+      <tr className="ea-mesi-tr ea-mesi-total">
+        <td className="ea-cell ea-mesi-lbl" colSpan={leadCols}>Totale mesi</td>
+        <td className="ea-cell" />
+        <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(Math.round(totFatturate * 100) / 100)}</td>
+        <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(Math.round(totConsuntivate * 100) / 100)}</td>
+        <td className="ea-cell" colSpan={trailCols} />
+      </tr>
+
+      {!readOnly && (
+        <tr className="ea-mesi-tr ea-mesi-actions-row">
+          <td className="ea-cell" colSpan={leadCols} />
+          <td className="ea-cell ea-mesi-actions-cell" colSpan={3}>
+            <div className="ea-mesi-actions">
+              {err && <span className="ea-mesi-err" role="alert">{err}</span>}
+              {saved && !dirty && <span className="ea-mesi-ok" role="status">Rapportino salvato.</span>}
+              <button
+                className="ea-btn ea-btn--primary ea-mesi-save"
+                type="button"
+                disabled={saving || !dirty}
+                onClick={handleSave}
+              >
+                {saving ? 'Salvataggio…' : 'Salva rapportino'}
+              </button>
+            </div>
+          </td>
+          <td className="ea-cell" colSpan={trailCols} />
+        </tr>
+      )}
+    </>
+  )
+}
+
 // ─── Activity rows (shared by both group types) ───────────────────────────────
 
 interface ActivityRowsProps {
@@ -621,6 +786,13 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
   // Le righe di una singola tabella sono sempre dello stesso tipo (la vista è
   // Standard oppure Bucket, non mischiate): basta guardare la prima.
   const isBucket = attivita[0]?.tipo === 'BUCKET'
+  // Ordini bucket espansi sul dettaglio mensile (rapportino PM)
+  const [openMesi, setOpenMesi] = useState<Set<string>>(new Set())
+  const toggleMesi = (id: string) => setOpenMesi(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
   return (
     <div className="ea-group-body">
       <div className="ea-table-wrap">
@@ -648,9 +820,10 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
               const residuo = item.giornateVendute !== null && item.giornateFatturate !== null
                 ? item.giornateVendute - item.giornateFatturate
                 : null
+              const mesiOpen = isBucket && openMesi.has(item.id)
               return (
+                <Fragment key={item.id}>
                 <tr
-                  key={item.id}
                   className="ea-row"
                   onClick={() => onSelectItem(item)}
                   tabIndex={0}
@@ -659,6 +832,19 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
                   aria-label={`Dettaglio attività: ${item.attivita}`}
                 >
                   <td className="ea-cell ea-cell--attivita">
+                    {isBucket && (
+                      <button
+                        className={`ea-mesi-toggle${mesiOpen ? ' ea-mesi-toggle--open' : ''}`}
+                        type="button"
+                        onClick={e => { e.stopPropagation(); toggleMesi(item.id) }}
+                        aria-expanded={mesiOpen}
+                        aria-label={`${mesiOpen ? 'Nascondi' : 'Mostra'} dettaglio mensile di ${item.attivita}`}
+                      >
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13" aria-hidden="true">
+                          <path d="M7 5l6 5-6 5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    )}
                     {item.attivita}
                   </td>
                   {showProgetto && <td className="ea-cell ea-cell--progetto">{item.progetto}</td>}
@@ -711,6 +897,10 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
                     </td>
                   )}
                 </tr>
+                {mesiOpen && (
+                  <BucketMesiRows item={item} showProgetto={showProgetto} readOnly={readOnly} />
+                )}
+                </Fragment>
               )
             })}
           </tbody>
@@ -1222,6 +1412,9 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
                 <label htmlFor="ea-f-fatturate" className="ea-form-label">GG Fatturate</label>
                 <input id="ea-f-fatturate" className="ea-form-input" type="number" min="0" step="0.5"
                   value={form.giornateFatturate} onChange={set('giornateFatturate')} placeholder="0" />
+                <span className="ea-form-hint">
+                  Se compili il rapportino mensile dall'elenco, il totale viene ricalcolato come somma dei mesi.
+                </span>
               </div>
             </div>
           )}
@@ -1928,6 +2121,12 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
 
   const isBucketVista = vista === 'BUCKET'
 
+  // Contesto per il rapportino mensile bucket (salvataggio fatturate per mese)
+  const bucketMeseCtxValue = useMemo(() => ({
+    token,
+    onSaved: () => fetchData({ preserveExpanded: true, silent: true }),
+  }), [token, fetchData])
+
   const statoOptions = useMemo(
     () => {
       if (isBucketVista) return []
@@ -2044,6 +2243,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
 
   return (
     <StatiCtx.Provider value={statiMap}>
+    <BucketMeseCtx.Provider value={bucketMeseCtxValue}>
     <div className="ea-page">
 
       {/* ── Top bar ── */}
@@ -2059,7 +2259,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
             <button type="button" role="tab" aria-selected={vista === 'BUCKET'}
               className={`ea-vista-tab${vista === 'BUCKET' ? ' ea-vista-tab--active' : ''}`}
               onClick={() => switchVista('BUCKET')}>
-              Bucket
+              Ordini bucket
             </button>
           </div>
         </div>
@@ -2070,7 +2270,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
                 width="15" height="15" aria-hidden="true">
                 <path d="M10 4v12M4 10h12" strokeLinecap="round" />
               </svg>
-              {isBucketVista ? 'Aggiungi attività bucket' : 'Aggiungi attività'}
+              {isBucketVista ? 'Aggiungi ordine bucket' : 'Aggiungi attività'}
             </button>
           )}
           <div className="ea-expand-btns">
@@ -2313,8 +2513,8 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         <AttivitaModal
           title={
             modal === 'add'
-              ? (isBucketVista ? 'Aggiungi attività bucket' : 'Aggiungi attività')
-              : (editing!.tipo === 'BUCKET' ? 'Modifica attività bucket' : 'Modifica attività')
+              ? (isBucketVista ? 'Aggiungi ordine bucket' : 'Aggiungi attività')
+              : (editing!.tipo === 'BUCKET' ? 'Modifica ordine bucket' : 'Modifica attività')
           }
           tipo={modal === 'edit' ? editing!.tipo : vista}
           form={form}
@@ -2339,6 +2539,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         />
       )}
     </div>
+    </BucketMeseCtx.Provider>
     </StatiCtx.Provider>
   )
 }

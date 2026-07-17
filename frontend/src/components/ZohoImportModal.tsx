@@ -20,12 +20,17 @@ interface PreviewRow {
   ore: number
   attuale: number | null
   nuovo: number
+  // Breakdown mensile del nuovo consuntivato (gg per mese "YYYY-MM"),
+  // salvato al confirm per il rapportino degli ordini bucket
+  mesi: Array<{ mese: string; gg: number }>
 }
 
 interface ZohoImportModalProps {
   token: string
   projects: ZohoSelectedProject[]
   onClose: () => void
+  // Notifica la pagina a import confermato (per aggiornare lo storico).
+  onImported?: () => void
 }
 
 type Phase = 'fetch' | 'preview' | 'done' | 'error'
@@ -36,10 +41,11 @@ const fmt = (n: number | null): string =>
 // ─── ZohoImportModal ─────────────────────────────────────────────────────────
 // Scarica i consuntivi da Zoho un progetto per volta (rate limit), somma le
 // ore per codice GO-ORDV su tutti i progetti selezionati, poi mostra la diff
-// attuale/nuovo come l'import CSV manuale. La conferma riusa
-// PATCH /api/attivita/bulk-consuntivato.
+// attuale/nuovo come l'import CSV manuale. La conferma usa
+// POST /api/zoho/import/confirm, che applica gli aggiornamenti e registra la
+// sessione nello storico import (delta per attività).
 
-export function ZohoImportModal({ token, projects, onClose }: ZohoImportModalProps) {
+export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoImportModalProps) {
   const [phase,        setPhase]        = useState<Phase>('fetch')
   const [progress,     setProgress]     = useState({ done: 0, name: '' })
   const [rows,         setRows]         = useState<PreviewRow[]>([])
@@ -62,7 +68,8 @@ export function ZohoImportModal({ token, projects, onClose }: ZohoImportModalPro
     startedRef.current = true
 
     async function run() {
-      const merged = new Map<string, number>() // codice GO-ORDV → ore totali
+      // codice GO-ORDV → ore totali + ore per mese (sommate su tutti i progetti)
+      const merged = new Map<string, { ore: number; mesi: Map<string, number> }>()
       const warns: string[] = []
 
       for (let i = 0; i < projects.length; i++) {
@@ -79,9 +86,16 @@ export function ZohoImportModal({ token, projects, onClose }: ZohoImportModalPro
             warns.push(`${p.name}: ${(data as { error?: string }).error ?? `errore ${res.status}`}`)
             continue
           }
-          const data = (await res.json()) as { codes: Array<{ code: string; ore: number }> }
-          for (const { code, ore } of data.codes) {
-            merged.set(code, (merged.get(code) ?? 0) + ore)
+          const data = (await res.json()) as {
+            codes: Array<{ code: string; ore: number; mesi?: Array<{ mese: string; ore: number }> }>
+          }
+          for (const { code, ore, mesi } of data.codes) {
+            let entry = merged.get(code)
+            if (!entry) { entry = { ore: 0, mesi: new Map() }; merged.set(code, entry) }
+            entry.ore += ore
+            for (const m of mesi ?? []) {
+              entry.mesi.set(m.mese, (entry.mesi.get(m.mese) ?? 0) + m.ore)
+            }
           }
         } catch {
           warns.push(`${p.name}: errore di rete`)
@@ -102,7 +116,11 @@ export function ZohoImportModal({ token, projects, onClose }: ZohoImportModalPro
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
-            codes: [...merged].map(([code, ore]) => ({ code, ore: Math.round(ore * 100) / 100 })),
+            codes: [...merged].map(([code, { ore, mesi }]) => ({
+              code,
+              ore: Math.round(ore * 100) / 100,
+              mesi: [...mesi].map(([mese, oreMese]) => ({ mese, ore: Math.round(oreMese * 100) / 100 })),
+            })),
           }),
         })
         if (!res.ok) {
@@ -139,13 +157,17 @@ export function ZohoImportModal({ token, projects, onClose }: ZohoImportModalPro
   async function handleImport() {
     const updates = rows
       .filter((r) => selectedIds.has(r.attivitaId))
-      .map((r) => ({ id: r.attivitaId, giornateConsuntivate: r.nuovo }))
+      .map((r) => ({
+        id: r.attivitaId,
+        giornateConsuntivate: r.nuovo,
+        mesi: r.mesi.map((m) => ({ mese: m.mese, giornateConsuntivate: m.gg })),
+      }))
     if (updates.length === 0) return
     setImporting(true)
     setErr(null)
     try {
-      const res = await fetch(`${API_URL}/api/attivita/bulk-consuntivato`, {
-        method: 'PATCH',
+      const res = await fetch(`${API_URL}/api/zoho/import/confirm`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ updates }),
       })
@@ -156,6 +178,7 @@ export function ZohoImportModal({ token, projects, onClose }: ZohoImportModalPro
       }
       setUpdatedCount(updates.length)
       setPhase('done')
+      onImported?.()
     } catch {
       setErr('Errore di rete. Riprova.')
     } finally {

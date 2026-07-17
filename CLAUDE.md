@@ -60,12 +60,12 @@ docker compose down     # Stop
 - **Pages**:
   - `LoginPage` — Google OAuth entry point
   - `DashboardPage` — KPI cards (attività attive, clienti, in scadenza, in ritardo), liste scadenze, scorciatoie
-  - `ElencoAttivitaPage` — Activity list with filters, grouped view, detail drawer, CSV export
+  - `ElencoAttivitaPage` — Activity list with filters, grouped view, detail drawer, CSV export; due viste: "Standard" e "Ordini bucket" (tipo `BUCKET`, con righe espandibili sul rapportino mensile consuntivate/fatturate)
   - `GanttPage` — Custom Gantt timeline: drag & drop dates, zoom levels, critical path, milestone CRUD, keyboard nav
   - `UtentiPage` — unified user directory CRUD (replaces the old separate PM/Account pages): role chips (`ACCOUNT`/`PM`/`BOARD`/`DEVHUB`), multi-role assignment via fixed toggle-chips (roles are an application-level enum, not a user-editable list)
   - `ClientiPage` / `ProgettiPage` — CRUD for Clients and Projects
   - `ImpostazioniPage` — layout a due pannelli (nav laterale a gruppi "Stati e tag" / "Integrazioni" + contenuto): stati attività/progetti/roadmap, tag roadmap, Notifiche Presale (con sotto-gruppo "Configurazione SAIOT")
-  - `ConsuntiviZohoPage` (prefisso CSS `cz-`) — pagina di primo livello per ruoli Board/PM/Account: selezione progetti Zoho + import consuntivazioni con preview diff (modal condiviso `components/ZohoImportModal.tsx`, prefisso `zi-`)
+  - `ConsuntiviZohoPage` (prefisso CSS `cz-`) — pagina di primo livello per ruoli Board/PM/Account: selezione progetti Zoho + import consuntivazioni con preview diff (modal condiviso `components/ZohoImportModal.tsx`, prefisso `zi-`) + sezione "Storico import" (sessioni degli ultimi 5 giorni con delta giornate per attività e utente che ha importato)
 
 ### Backend
 
@@ -89,6 +89,7 @@ docker compose down     # Stop
   - `PUT /api/attivita/:id` — Update activity
   - `DELETE /api/attivita/:id` — Delete activity
   - `PATCH /api/attivita/:id/dates` — Update only `inizio` and `deadline` (used by Gantt drag & drop)
+  - `PUT /api/attivita/:id/fatturato-mensile` — rapportino PM sugli ordini bucket: upsert delle giornate fatturate per mese (`{mesi: [{mese: "YYYY-MM", giornateFatturate}]}`) e riallineamento di `Attivita.giornateFatturate` alla somma dei mesi (per i bucket il totale è derivato, non editato a mano)
   - `GET/POST /api/stati-attivita` — Configurable activity states
   - `PUT/DELETE /api/stati-attivita/:id`
   - `GET/POST /api/stati-progetto` — Configurable project states
@@ -97,7 +98,10 @@ docker compose down     # Stop
     - `GET /api/zoho/projects` — lista progetti attivi da Zoho + flag `selected` (selezione persistita in `AppConfig`, chiave `zoho_selected_projects`)
     - `PUT /api/zoho/selection` — salva gli id dei progetti selezionati per l'import
     - `POST /api/zoho/consuntivi/:projectId` — ore consuntivate di UN progetto aggregate per codice `GO-ORDV-YYYY-N` (join timelog → tasklist → milestone, scansione mensile — vedi `services/zohoService.ts`); il frontend itera sui progetti selezionati e somma i codici (rate limit Zoho ~100 req/2min + limiti subrequest Workers)
-    - `POST /api/zoho/import/preview` — diff codici aggregati vs attività (match su `riferimentoOrdineVendita` = codice senza prefisso `GO-ORDV-`, come l'import CSV manuale); la conferma riusa `PATCH /api/attivita/bulk-consuntivato`
+    - `POST /api/zoho/import/preview` — diff codici aggregati vs attività (match su `riferimentoOrdineVendita` = codice senza prefisso `GO-ORDV-`, come l'import CSV manuale)
+    - `POST /api/zoho/import/confirm` — conferma dell'import: applica gli aggiornamenti (stessa semantica di `bulk-consuntivato`, valori "prima" riletti dal DB), salva il breakdown mensile in `AttivitaConsuntivoMese` (upsert per attività+mese, preservando le fatturate compilate dal PM) e registra una `ZohoImportSession` con i delta per attività (solo righe con delta ≠ 0)
+    - `GET /api/zoho/import/sessions` — storico sessioni import degli ultimi 5 giorni (utente + righe delta); entrambe le route eliminano le sessioni più vecchie di 5 giorni
+  - **Google Drive** (`components/DriveLinkField.tsx` prefisso `dlf-`, `lib/googleDrive.ts`, `lib/useDriveConfig.ts`): campi link "dual-mode" (URL manuale o Google Picker) su Roadmap analisi e i 3 link presale. `GET/PUT /api/config/google-drive` — radici dei drive condivisi (`AppConfig`: `gdrive_dev_*` Sviluppo per roadmap+presale analisi/stima, `gdrive_comm_*` Commerciale per trattativa; PUT solo `requireRole('BOARD')`, estrazione ID da URL cartella/shared drive). Il Picker (scope `drive` completo — app interna Workspace, serve per creare doc e risolvere cartelle; tutto client-side, nessun token server) compare solo se `VITE_GOOGLE_CLIENT_ID` + `VITE_GOOGLE_API_KEY` sono valorizzate; la fase Stima apre il picker vincolato alla cartella dell'analisi (`Attivita.presaleDriveFolderId`, salvata dal picker o risolta via Drive API anche per link incollati a mano) e ha il bottone "Crea nuovo doc" che crea il Google Doc dell'analisi di dettaglio direttamente in quella cartella (`createDriveDoc` in `lib/googleDrive.ts`); solo Stima — sull'offerta (drive Commerciale) si sceglie sempre la cartella a mano. Validazione link http(s) su `analisiUrl` + link presale: **solo valori nuovi/modificati** (i valori storici non-URL sono tollerati finché non toccati e mostrati come "link non valido" in UI)
   - `GET /api/gantt/milestones` — Gantt milestones (optional `?activityId=` filter)
   - `POST /api/gantt/milestones` — Create milestone
   - `PUT /api/gantt/milestones/:id` — Update milestone
@@ -115,6 +119,7 @@ docker compose down     # Stop
   - Login (`/auth/google/callback`) upserts by email: never overwrites existing `roles`, only fills `firstName`/`lastName` if empty.
 - `Cliente`, `Progetto` — client and project registry. `Progetto.responsabileDevHubId` (nullable, `User` with role `DEVHUB`) — new field, only meaningful for `tipo: "PRODOTTO"`, alongside the existing `poId` (nullable, `User` with role `PM`)
 - `Attivita` — activity tracking: `cliente`, `progetto`, `attivita`, `stato` (string key → `StatoAttivitaConfig`), dates (`inizio`, `deadline`), `giornateVendute`, `giornateConsuntivate`, notes, `accountId` → `User` (role `ACCOUNT`), `pms` → `AttivitaPM` join table → `User` (role `PM`, many-to-many)
+- `AttivitaConsuntivoMese` — dettaglio mensile di un'attività (`mese` "YYYY-MM", unique su attività+mese): `giornateConsuntivate` alimentate dall'import Zoho (che aggrega i timelog per mese), `giornateFatturate` compilate dal PM dal rapportino nella vista "Ordini bucket" di ElencoAttivitaPage (righe espandibili; il totale fatturate dell'attività è la somma dei mesi). `GET /api/attivita` include `consuntiviMese` solo con `?tipo=BUCKET`
 - `StatoAttivitaConfig` — configurable activity states with `chiave`, `label`, `colore`, `isArchiviato`, `ordine`
 - `StatoProgettoConfig` — configurable project states (same shape)
 - `GanttMilestone` — milestone linked to an `Attivita`: `title`, `date`, `color`, `icon`
@@ -128,6 +133,13 @@ VITE_API_URL=http://localhost:8080
 ```
 
 Vite reads this at server start. If missing, the login page shows "VITE_API_URL non impostato".
+
+Opzionali per il Google Drive Picker (il bottone "Scegli da Drive" compare solo se entrambe valorizzate):
+
+```
+VITE_GOOGLE_CLIENT_ID=<stesso OAuth client del login>
+VITE_GOOGLE_API_KEY=<API key Google Cloud con Picker API abilitata>
+```
 
 ## Deploy (Cloudflare)
 

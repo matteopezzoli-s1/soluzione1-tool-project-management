@@ -50,6 +50,22 @@ export type Env = { Variables: Vars }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/
+const MESE_RE  = /^\d{4}-(0[1-9]|1[0-2])$/ // chiave mese "YYYY-MM" (consuntivi mensili)
+// Link http(s) per i campi documento (analisi roadmap, link presale): i valori
+// storici non conformi restano leggibili, ma al salvataggio si accettano solo URL.
+const HTTP_URL_RE = /^https?:\/\/\S+$/i
+
+// Valida i campi link di un payload: ritorna il messaggio d'errore della prima
+// violazione, null se tutto ok. Campi vuoti/assenti sono sempre validi.
+function invalidLinkError(links: Record<string, string | null | undefined>): string | null {
+  for (const [label, value] of Object.entries(links)) {
+    const v = value?.trim()
+    if (v && !HTTP_URL_RE.test(v)) {
+      return `${label}: non è un link valido (deve iniziare con http:// o https://)`
+    }
+  }
+  return null
+}
 
 function toNumber(d: unknown): number {
   if (d === null || d === undefined) return 0
@@ -1052,6 +1068,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!progettoId?.trim()) return c.json({ error: 'progettoId è obbligatorio' }, 400)
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
     if (!anno) return c.json({ error: 'L\'anno è obbligatorio' }, 400)
+    const analisiErr = invalidLinkError({ 'Link analisi': analisiUrl })
+    if (analisiErr) return c.json({ error: analisiErr }, 400)
     const prisma = c.get('prisma')
     const statoVal = stato?.trim() ?? 'DA_FARE'
     const statiValidi = await prisma.statoRoadmapConfig.findMany({ select: { chiave: true } })
@@ -1095,6 +1113,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
     if (!anno) return c.json({ error: 'L\'anno è obbligatorio' }, 400)
     const prisma = c.get('prisma')
+    // Solo i link nuovi/modificati vengono validati (grandfathering dei
+    // valori storici non conformi — vedi PUT /api/attivita/:id)
+    const existingItem = await prisma.roadmapItem.findUnique({ where: { id }, select: { analisiUrl: true } })
+    if (!existingItem) return c.json({ error: 'Attività roadmap non trovata' }, 404)
+    if ((analisiUrl?.trim() || null) !== existingItem.analisiUrl) {
+      const analisiErrPut = invalidLinkError({ 'Link analisi': analisiUrl })
+      if (analisiErrPut) return c.json({ error: analisiErrPut }, 400)
+    }
     const statoVal = stato?.trim() ?? 'DA_FARE'
     const statiValidi = await prisma.statoRoadmapConfig.findMany({ select: { chiave: true } })
     if (statiValidi.length > 0 && !statiValidi.some(s => s.chiave === statoVal)) {
@@ -1260,6 +1286,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             },
           },
           pms: { include: { pm: { select: { id: true, firstName: true, lastName: true } } } },
+          // Dettaglio mensile solo per la vista bucket (rapportino PM)
+          consuntiviMese: tipoParam === 'BUCKET' ? { orderBy: { mese: 'asc' as const } } : false,
         },
       })
 
@@ -1319,6 +1347,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             inizio: a.inizio?.toISOString().split('T')[0] ?? null,
             deadline: a.deadline?.toISOString().split('T')[0] ?? null,
             note: a.note,
+            consuntiviMese: ('consuntiviMese' in a && Array.isArray(a.consuntiviMese))
+              ? a.consuntiviMese.map((m) => ({
+                  mese: m.mese,
+                  giornateConsuntivate: m.giornateConsuntivate !== null ? toNumber(m.giornateConsuntivate) : null,
+                  giornateFatturate: m.giornateFatturate !== null ? toNumber(m.giornateFatturate) : null,
+                }))
+              : [],
           }
         })
 
@@ -1432,6 +1467,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         presaleLinkRequisiti: a.presaleLinkRequisiti,
         presaleLinkStima: a.presaleLinkStima,
         presaleLinkOfferta: a.presaleLinkOfferta,
+        presaleDriveFolderId: a.presaleDriveFolderId ?? null,
         presaleGiornateStimate: a.presaleGiornateStimate !== null ? toNumber(a.presaleGiornateStimate) : null,
         presaleScadenzaStima: a.presaleScadenzaStima?.toISOString().split('T')[0] ?? null,
         presaleNotePerFase: (a.presaleNotePerFase as Record<string, string> | null) ?? null,
@@ -1457,7 +1493,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       clienteId, progettoId, pmIds, attivita, tipo,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
-      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
+      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
@@ -1466,6 +1502,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
+      presaleDriveFolderId?: string | null
       presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
       presaleNotePerFase?: Record<string, string> | null; presaleTipoIntervento?: string | null
       inviaMail?: boolean
@@ -1474,6 +1511,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
       return c.json({ error: 'cliente, progetto e attivita sono obbligatori' }, 400)
     }
+
+    const linkErr = invalidLinkError({
+      'Link analisi iniziale': presaleLinkRequisiti,
+      'Link stima': presaleLinkStima,
+      'Link offerta': presaleLinkOfferta,
+    })
+    if (linkErr) return c.json({ error: linkErr }, 400)
 
     const [linkedCliente, linkedProgetto] = await Promise.all([
       prisma.cliente.findUnique({
@@ -1512,6 +1556,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           presaleLinkRequisiti: presaleLinkRequisiti?.trim() || null,
           presaleLinkStima: presaleLinkStima?.trim() || null,
           presaleLinkOfferta: presaleLinkOfferta?.trim() || null,
+          presaleDriveFolderId: presaleDriveFolderId?.trim() || null,
           presaleGiornateStimate: presaleGiornateStimate != null ? presaleGiornateStimate : null,
           presaleScadenzaStima: presaleScadenzaStima ? new Date(presaleScadenzaStima) : null,
           presaleNotePerFase: presaleNotePerFase ?? undefined,
@@ -1542,7 +1587,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       clienteId, progettoId, pmIds, attivita,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
-      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
+      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
@@ -1551,6 +1596,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
+      presaleDriveFolderId?: string | null
       presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
       presaleNotePerFase?: Record<string, string> | null; presaleTipoIntervento?: string | null
       inviaMail?: boolean
@@ -1560,8 +1606,26 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json({ error: 'cliente, progetto e attivita sono obbligatori' }, 400)
     }
 
-    const existing = await prisma.attivita.findUnique({ where: { id }, select: { tipo: true, stato: true } })
+    const existing = await prisma.attivita.findUnique({
+      where: { id },
+      select: {
+        tipo: true, stato: true,
+        presaleLinkRequisiti: true, presaleLinkStima: true, presaleLinkOfferta: true,
+      },
+    })
     if (!existing) return c.json({ error: 'Attività non trovata' }, 404)
+
+    // Valida solo i link nuovi o modificati: i valori storici non conformi
+    // (testo libero pre-validazione) non devono bloccare salvataggi che non
+    // li toccano — magari da fasi che nemmeno mostrano quel campo.
+    const changed = (nuovo: string | null | undefined, attuale: string | null) =>
+      (nuovo?.trim() || null) !== attuale
+    const linkErrPut = invalidLinkError({
+      ...(changed(presaleLinkRequisiti, existing.presaleLinkRequisiti) ? { 'Link analisi iniziale': presaleLinkRequisiti } : {}),
+      ...(changed(presaleLinkStima, existing.presaleLinkStima) ? { 'Link stima': presaleLinkStima } : {}),
+      ...(changed(presaleLinkOfferta, existing.presaleLinkOfferta) ? { 'Link offerta': presaleLinkOfferta } : {}),
+    })
+    if (linkErrPut) return c.json({ error: linkErrPut }, 400)
 
     const [linkedCliente, linkedProgetto] = await Promise.all([
       prisma.cliente.findUnique({
@@ -1600,6 +1664,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           presaleLinkRequisiti: presaleLinkRequisiti?.trim() || null,
           presaleLinkStima: presaleLinkStima?.trim() || null,
           presaleLinkOfferta: presaleLinkOfferta?.trim() || null,
+          presaleDriveFolderId: presaleDriveFolderId?.trim() || null,
           presaleGiornateStimate: presaleGiornateStimate != null ? presaleGiornateStimate : null,
           presaleScadenzaStima: presaleScadenzaStima ? new Date(presaleScadenzaStima) : null,
           presaleNotePerFase: presaleNotePerFase ?? undefined,
@@ -1773,6 +1838,70 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     return c.json(await getPresaleEmailConfig(prisma))
   })
 
+  // ── Config Google Drive (drive condivisi Sviluppo/Commerciale) ──────
+  // Radici dei picker Drive: Sviluppo per analisi prodotti + presale
+  // analisi/stima, Commerciale per presale trattativa. Si salva l'URL
+  // incollato dall'utente e l'ID estratto (usato dal Picker come radice).
+  // GET aperta a tutti gli autenticati (serve alle pagine per aprire il
+  // picker); PUT solo Board, come la visibilità della pagina Impostazioni.
+
+  const GDRIVE_KEYS = {
+    devUrl: 'gdrive_dev_url', devId: 'gdrive_dev_id',
+    commUrl: 'gdrive_comm_url', commId: 'gdrive_comm_id',
+  } as const
+
+  // Estrae l'ID di un drive condiviso / cartella da un URL Drive, oppure
+  // accetta un ID nudo (gli ID Drive reali sono ≥ 19 caratteri). null = non
+  // riconosciuto; un URL http che non è un link a cartella viene rifiutato.
+  const extractDriveId = (raw: string): string | null => {
+    const s = raw.trim()
+    if (s === '') return null
+    const m = s.match(/\/(?:folders|drive\/(?:u\/\d+\/)?folders)\/([\w-]{10,})/) ??
+              s.match(/\/drive\/(?:u\/\d+\/)?(?:shared-drives|folders)\/([\w-]{10,})/)
+    if (m) return m[1]
+    if (/^http/i.test(s)) return null
+    return /^[\w-]{19,}$/.test(s) ? s : null
+  }
+
+  const readGDriveConfig = async (prisma: PrismaClient) => {
+    const rows = await prisma.appConfig.findMany({ where: { chiave: { in: Object.values(GDRIVE_KEYS) } } })
+    const map = new Map(rows.map((r) => [r.chiave, r.valore]))
+    return {
+      devUrl: map.get(GDRIVE_KEYS.devUrl) ?? '',
+      devId: map.get(GDRIVE_KEYS.devId) ?? '',
+      commUrl: map.get(GDRIVE_KEYS.commUrl) ?? '',
+      commId: map.get(GDRIVE_KEYS.commId) ?? '',
+    }
+  }
+
+  hono.get('/api/config/google-drive', requireAuth(), async (c) => {
+    return c.json(await readGDriveConfig(c.get('prisma')))
+  })
+
+  hono.put('/api/config/google-drive', requireAuth(), requireRole('BOARD'), async (c) => {
+    const { devUrl, commUrl } = await readJSON<{ devUrl?: unknown; commUrl?: unknown }>(c)
+    if (typeof devUrl !== 'string' || typeof commUrl !== 'string') {
+      return c.json({ error: 'devUrl e commUrl devono essere stringhe (vuote per disattivare)' }, 400)
+    }
+    const devId = extractDriveId(devUrl)
+    const commId = extractDriveId(commUrl)
+    if (devUrl.trim() !== '' && devId === null) {
+      return c.json({ error: 'Link Drive Sviluppo non riconosciuto: incolla il link di uno shared drive o di una cartella' }, 400)
+    }
+    if (commUrl.trim() !== '' && commId === null) {
+      return c.json({ error: 'Link Drive Commerciale non riconosciuto: incolla il link di uno shared drive o di una cartella' }, 400)
+    }
+    const prisma = c.get('prisma')
+    const entries: Array<[string, string]> = [
+      [GDRIVE_KEYS.devUrl, devUrl.trim()], [GDRIVE_KEYS.devId, devId ?? ''],
+      [GDRIVE_KEYS.commUrl, commUrl.trim()], [GDRIVE_KEYS.commId, commId ?? ''],
+    ]
+    await prisma.$transaction(entries.map(([chiave, valore]) =>
+      prisma.appConfig.upsert({ where: { chiave }, create: { chiave, valore }, update: { valore } })
+    ))
+    return c.json(await readGDriveConfig(prisma))
+  })
+
   // ── Zoho Projects: import consuntivazioni (solo Board) ──────────────
   // Selezione dei progetti da importare + preview della diff. La conferma
   // riusa PATCH /api/attivita/bulk-consuntivato. Il download dei consuntivi
@@ -1832,9 +1961,11 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // selezionati) e le attività: stesso matching dell'import CSV manuale
   // (riferimentoOrdineVendita = codice senza prefisso "GO-ORDV-").
   hono.post('/api/zoho/import/preview', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
-    const { codes } = await readJSON<{ codes?: Array<{ code?: unknown; ore?: unknown }> }>(c)
+    const { codes } = await readJSON<{
+      codes?: Array<{ code?: unknown; ore?: unknown; mesi?: Array<{ mese?: unknown; ore?: unknown }> }>
+    }>(c)
     if (!Array.isArray(codes)) {
-      return c.json({ error: 'codes deve essere un array di {code, ore}' }, 400)
+      return c.json({ error: 'codes deve essere un array di {code, ore, mesi}' }, 400)
     }
     const attivita = await c.get('prisma').attivita.findMany({
       where: { riferimentoOrdineVendita: { not: null } },
@@ -1844,6 +1975,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const matched: Array<{
       attivitaId: string; cliente: string; progetto: string; attivita: string
       codice: string; ore: number; attuale: number | null; nuovo: number
+      mesi: Array<{ mese: string; gg: number }>
     }> = []
     const notFound: string[] = []
 
@@ -1853,6 +1985,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (!GO_CODE_RE.test(code) || ore === null) continue
       const a = byOrdine.get(code.replace('GO-ORDV-', ''))
       if (!a) { notFound.push(code); continue }
+      // Breakdown mensile (stessa conversione ore→gg del totale): righe malformate scartate
+      const mesi = (Array.isArray(item.mesi) ? item.mesi : [])
+        .filter((m): m is { mese: string; ore: number } =>
+          typeof m?.mese === 'string' && MESE_RE.test(m.mese) &&
+          typeof m?.ore === 'number' && isFinite(m.ore) && m.ore >= 0)
+        .map((m) => ({ mese: m.mese, gg: Math.round((m.ore / 8) * 100) / 100 }))
+        .sort((x, y) => x.mese.localeCompare(y.mese))
       matched.push({
         attivitaId: a.id,
         cliente: a.cliente,
@@ -1862,11 +2001,129 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         ore,
         attuale: a.giornateConsuntivate === null ? null : toNumber(a.giornateConsuntivate),
         nuovo: Math.round((ore / 8) * 100) / 100,
+        mesi,
       })
     }
     matched.sort((x, y) => x.codice.localeCompare(y.codice))
     notFound.sort()
     return c.json({ matched, notFound })
+  })
+
+  // ── Storico sessioni di import Zoho ──
+  // Ogni conferma di import registra una ZohoImportSession con i delta
+  // effettivamente applicati (righe con prima ≠ dopo); lo storico è tenuto
+  // per gli ultimi 5 giorni e le sessioni più vecchie vengono eliminate a
+  // ogni lettura/scrittura.
+
+  const ZOHO_SESSION_RETENTION_MS = 5 * 24 * 60 * 60 * 1000
+
+  const pruneZohoSessions = (prisma: PrismaClient) =>
+    prisma.zohoImportSession.deleteMany({
+      where: { createdAt: { lt: new Date(Date.now() - ZOHO_SESSION_RETENTION_MS) } },
+    })
+
+  // Conferma dell'import Zoho: applica gli aggiornamenti (stessa semantica di
+  // PATCH /api/attivita/bulk-consuntivato) e registra la sessione con i delta.
+  // I valori "prima" vengono riletti dal DB, non fidandosi del payload.
+  hono.post('/api/zoho/import/confirm', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
+    const { updates } = await readJSON<{
+      updates?: Array<{
+        id?: unknown; giornateConsuntivate?: unknown
+        mesi?: Array<{ mese?: unknown; giornateConsuntivate?: unknown }>
+      }>
+    }>(c)
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return c.json({ error: 'updates deve essere un array non vuoto' }, 400)
+    }
+    const clean: Array<{
+      id: string; giornateConsuntivate: number
+      mesi: Array<{ mese: string; giornateConsuntivate: number }>
+    }> = []
+    for (const u of updates) {
+      if (typeof u?.id !== 'string' || typeof u?.giornateConsuntivate !== 'number' || !isFinite(u.giornateConsuntivate) || u.giornateConsuntivate < 0) {
+        return c.json({ error: 'Ogni update richiede id e giornateConsuntivate ≥ 0' }, 400)
+      }
+      const mesi = (Array.isArray(u.mesi) ? u.mesi : [])
+        .filter((m): m is { mese: string; giornateConsuntivate: number } =>
+          typeof m?.mese === 'string' && MESE_RE.test(m.mese) &&
+          typeof m?.giornateConsuntivate === 'number' && isFinite(m.giornateConsuntivate) && m.giornateConsuntivate >= 0)
+      clean.push({ id: u.id, giornateConsuntivate: u.giornateConsuntivate, mesi })
+    }
+
+    const prisma = c.get('prisma')
+    const attuali = await prisma.attivita.findMany({ where: { id: { in: clean.map((u) => u.id) } } })
+    if (attuali.length !== clean.length) return c.json({ error: 'Una o più attività non trovate' }, 404)
+    const byId = new Map(attuali.map((a) => [a.id, a]))
+
+    try {
+      await Promise.all(
+        clean.map(({ id, giornateConsuntivate }) =>
+          prisma.attivita.update({ where: { id }, data: { giornateConsuntivate } })
+        )
+      )
+      // Breakdown mensile: upsert per (attività, mese) — aggiorna le
+      // consuntivate del mese preservando le fatturate già compilate dal PM.
+      // I mesi presenti a DB ma assenti dall'import restano invariati.
+      await Promise.all(
+        clean.flatMap(({ id, mesi }) =>
+          mesi.map((m) =>
+            prisma.attivitaConsuntivoMese.upsert({
+              where: { attivitaId_mese: { attivitaId: id, mese: m.mese } },
+              create: { attivitaId: id, mese: m.mese, giornateConsuntivate: m.giornateConsuntivate },
+              update: { giornateConsuntivate: m.giornateConsuntivate },
+            })
+          )
+        )
+      )
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Una o più attività non trovate' }, 404)
+      return c.json({ error: 'Errore aggiornamento consuntivato' }, 500)
+    }
+
+    // Solo le attività il cui valore è effettivamente cambiato entrano nelle
+    // righe della sessione (delta ≠ 0); prima = null → trattato come 0.
+    const righe = clean.flatMap(({ id, giornateConsuntivate }) => {
+      const a = byId.get(id)!
+      const prima = a.giornateConsuntivate === null ? null : toNumber(a.giornateConsuntivate)
+      const delta = Math.round((giornateConsuntivate - (prima ?? 0)) * 100) / 100
+      if (delta === 0) return []
+      return [{
+        attivitaId: id,
+        cliente: a.cliente,
+        progetto: a.progetto,
+        attivita: a.attivita,
+        codice: a.riferimentoOrdineVendita ? `GO-ORDV-${a.riferimentoOrdineVendita.trim()}` : null,
+        prima,
+        dopo: giornateConsuntivate,
+        delta,
+      }]
+    })
+
+    const session = await prisma.zohoImportSession.create({
+      data: { userId: c.get('currentUserId'), righe },
+    })
+    await pruneZohoSessions(prisma)
+    return c.json({ updated: clean.length, sessionId: session.id, modificate: righe.length })
+  })
+
+  // Sessioni di import degli ultimi 5 giorni, più recenti prima.
+  hono.get('/api/zoho/import/sessions', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
+    const prisma = c.get('prisma')
+    await pruneZohoSessions(prisma)
+    const rows = await prisma.zohoImportSession.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { user: { select: { name: true, firstName: true, lastName: true, email: true } } },
+    })
+    return c.json({
+      sessions: rows.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt,
+        utente: s.user
+          ? ([s.user.firstName, s.user.lastName].filter(Boolean).join(' ') || s.user.name || s.user.email)
+          : null,
+        righe: s.righe,
+      })),
+    })
   })
 
   // PATCH /api/attivita/bulk-consuntivato — aggiornamento massivo giornateConsuntivate
@@ -1887,6 +2144,63 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Una o più attività non trovate' }, 404)
       return c.json({ error: 'Errore aggiornamento consuntivato' }, 500)
     }
+  })
+
+  // PUT /api/attivita/:id/fatturato-mensile — compilazione del rapportino PM
+  // sugli ordini bucket: giornate fatturate per mese. Upsert delle righe mese
+  // indicate (senza toccare le consuntivate, che arrivano dall'import Zoho) e
+  // riallineamento del totale giornateFatturate sull'attività alla somma dei
+  // mesi — per i bucket il totale non si edita più a mano ma è derivato.
+  hono.put('/api/attivita/:id/fatturato-mensile', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { mesi } = await readJSON<{ mesi?: Array<{ mese?: unknown; giornateFatturate?: unknown }> }>(c)
+    if (!Array.isArray(mesi) || mesi.length === 0) {
+      return c.json({ error: 'mesi deve essere un array non vuoto di {mese, giornateFatturate}' }, 400)
+    }
+    const clean: Array<{ mese: string; giornateFatturate: number | null }> = []
+    for (const m of mesi) {
+      const meseOk = typeof m?.mese === 'string' && MESE_RE.test(m.mese)
+      const ggOk = m?.giornateFatturate === null ||
+        (typeof m?.giornateFatturate === 'number' && isFinite(m.giornateFatturate) && m.giornateFatturate >= 0)
+      if (!meseOk || !ggOk) {
+        return c.json({ error: 'Ogni riga richiede mese "YYYY-MM" e giornateFatturate ≥ 0 (o null)' }, 400)
+      }
+      clean.push({ mese: m.mese as string, giornateFatturate: m.giornateFatturate as number | null })
+    }
+
+    const prisma = c.get('prisma')
+    const att = await prisma.attivita.findUnique({ where: { id } })
+    if (!att) return c.json({ error: 'Attività non trovata' }, 404)
+
+    await Promise.all(
+      clean.map((m) =>
+        prisma.attivitaConsuntivoMese.upsert({
+          where: { attivitaId_mese: { attivitaId: id, mese: m.mese } },
+          create: { attivitaId: id, mese: m.mese, giornateFatturate: m.giornateFatturate },
+          update: { giornateFatturate: m.giornateFatturate },
+        })
+      )
+    )
+
+    // Totale = somma dei mesi valorizzati; null se nessun mese è compilato
+    const righe = await prisma.attivitaConsuntivoMese.findMany({
+      where: { attivitaId: id },
+      orderBy: { mese: 'asc' },
+    })
+    const valorizzate = righe.filter((r) => r.giornateFatturate !== null)
+    const totale = valorizzate.length > 0
+      ? Math.round(valorizzate.reduce((s, r) => s + toNumber(r.giornateFatturate), 0) * 100) / 100
+      : null
+    await prisma.attivita.update({ where: { id }, data: { giornateFatturate: totale } })
+
+    return c.json({
+      giornateFatturate: totale,
+      consuntiviMese: righe.map((r) => ({
+        mese: r.mese,
+        giornateConsuntivate: r.giornateConsuntivate !== null ? toNumber(r.giornateConsuntivate) : null,
+        giornateFatturate: r.giornateFatturate !== null ? toNumber(r.giornateFatturate) : null,
+      })),
+    })
   })
 
   // ── Gantt Milestones ────────────────────────────────────────

@@ -48,6 +48,7 @@ model User {
   attivitaAccount Attivita[]  @relation("AttivitaAccount")
   attivitaPresaleAssegnate Attivita[] @relation("AttivitaPresaleAssegnatario")
   attivitaStatoLog         AttivitaStatoLog[]
+  zohoImportSessions       ZohoImportSession[]
 
   @@map("users")
 }
@@ -358,6 +359,9 @@ model Attivita {
   presaleLinkRequisiti     String?         @map("presale_link_requisiti")
   presaleLinkStima         String?         @map("presale_link_stima")
   presaleLinkOfferta       String?         @map("presale_link_offerta")
+  // Cartella Drive del file analisi (valorizzata quando il file è scelto col
+  // picker): il picker della fase Stima si apre bloccato su questa cartella.
+  presaleDriveFolderId     String?         @map("presale_drive_folder_id")
   presaleGiornateStimate   Decimal?        @map("presale_giornate_stimate") @db.Decimal(10, 2)
   presaleScadenzaStima     DateTime?       @map("presale_scadenza_stima")
   presaleTipoIntervento    String?         @map("presale_tipo_intervento") // NUOVO_PROGETTO | MODIFICA
@@ -371,6 +375,7 @@ model Attivita {
   pms                      AttivitaPM[]
   milestones               GanttMilestone[]
   statoLog                 AttivitaStatoLog[]
+  consuntiviMese           AttivitaConsuntivoMese[]
 
   @@index([cliente, progetto])
   @@index([stato])
@@ -389,6 +394,25 @@ model AttivitaPM {
 
   @@id([attivitaId, pmId])
   @@map("attivita_pms")
+}
+
+// Dettaglio mensile di un'attività: giornate consuntivate (alimentate
+// dall'import Zoho, che aggrega i timelog per mese) e giornate fatturate
+// (compilate a mano dal PM per il rapportino degli ordini bucket).
+// `mese` in formato "YYYY-MM". Per le attività BUCKET il totale
+// giornateFatturate sull'Attivita è mantenuto pari alla somma dei mesi.
+model AttivitaConsuntivoMese {
+  id                   String   @id @default(cuid())
+  attivitaId           String   @map("attivita_id")
+  attivita             Attivita @relation(fields: [attivitaId], references: [id], onDelete: Cascade)
+  mese                 String
+  giornateConsuntivate Decimal? @map("giornate_consuntivate") @db.Decimal(10, 2)
+  giornateFatturate    Decimal? @map("giornate_fatturate") @db.Decimal(10, 2)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@unique([attivitaId, mese])
+  @@map("attivita_consuntivi_mese")
 }
 
 // Storico dei passaggi di stato di un'attività — alimenta la timeline del
@@ -522,6 +546,23 @@ model RoadmapItemTag {
   @@id([roadmapItemId, tagId])
   @@map("roadmap_item_tags")
 }
+// Storico delle sessioni di import consuntivi da Zoho Projects — alimenta la
+// sezione "Storico import" della pagina Consuntivi Zoho. `righe` è lo snapshot
+// JSON dei delta applicati: [{attivitaId, cliente, progetto, attivita, codice,
+// prima, dopo, delta}], solo le attività il cui valore è effettivamente
+// cambiato. Le sessioni più vecchie di 5 giorni vengono eliminate a ogni
+// lettura/scrittura dello storico.
+model ZohoImportSession {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  righe     Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("zoho_import_sessions")
+}
+
 // Configurazione applicativa key-value (singole righe: chiave → valore stringa).
 // Usata per i parametri delle notifiche Presale via SAIOT (endpoint, codici,
 // mail gruppo DevHub, interruttore invii). Editabile dalla schermata Impostazioni.

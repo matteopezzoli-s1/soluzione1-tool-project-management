@@ -407,3 +407,21 @@
   .ps-dl-row { grid-template-columns: 1fr; gap: 0.15rem; }
   .ps-search { min-width: 0; flex: 1; }
 }
+
+/* ── Link documento non valido (valori storici non-URL) ───────── */
+.ps-link-invalid {
+  color: #B45309; font-size: 0.78rem; font-weight: 600; cursor: help;
+}
+
+/* ── Crea nuovo doc (fase Stima) ──────────────────────────────── */
+.ps-create-doc { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; flex-wrap: wrap; }
+.ps-create-doc-btn {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.35rem 0.65rem; border-radius: 8px;
+  border: 1.5px dashed #CBD5E1; background: transparent;
+  font-family: inherit; font-size: 0.75rem; font-weight: 600; color: #475569;
+  cursor: pointer; transition: background 150ms ease, border-color 150ms ease;
+}
+.ps-create-doc-btn:hover:not(:disabled) { background: #F8FAFC; border-color: #94A3B8; }
+.ps-create-doc-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.ps-create-doc-err { font-size: 0.75rem; color: #B91C1C; }
