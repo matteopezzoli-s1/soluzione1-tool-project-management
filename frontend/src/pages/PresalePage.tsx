@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
+import { DriveLinkField } from '../components/DriveLinkField'
+import { useDriveConfig, type DriveConfig } from '../lib/useDriveConfig'
+import {
+  createDriveDoc, extractDriveFileId, getParentFolderId,
+  isDrivePickerConfigured, isValidHttpUrl,
+} from '../lib/googleDrive'
 import './PresalePage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -20,6 +26,7 @@ interface PresaleItem {
   presaleLinkRequisiti: string | null
   presaleLinkStima: string | null
   presaleLinkOfferta: string | null
+  presaleDriveFolderId: string | null
   presaleGiornateStimate: number | null
   presaleScadenzaStima: string | null
   presaleTipoIntervento: string | null
@@ -57,6 +64,8 @@ type FormData = {
   presaleLinkRequisiti: string
   presaleLinkStima: string
   presaleLinkOfferta: string
+  // Cartella Drive del file analisi (dal picker): radice bloccata della Stima
+  presaleDriveFolderId: string
   presaleTipoIntervento: string
   presaleNotePerFase: Record<string, string>
   note: string
@@ -68,7 +77,7 @@ const EMPTY_FORM: FormData = {
   clienteId: '', progettoId: '', attivita: '', stato: '',
   pmIds: [], presaleAssegnatarioId: '',
   presaleGiornateStimate: '', presaleScadenzaStima: '', giornateVendute: '',
-  presaleLinkRequisiti: '', presaleLinkStima: '', presaleLinkOfferta: '',
+  presaleLinkRequisiti: '', presaleLinkStima: '', presaleLinkOfferta: '', presaleDriveFolderId: '',
   presaleTipoIntervento: '', presaleNotePerFase: {}, note: '', inizio: '', deadline: '',
 }
 
@@ -180,6 +189,14 @@ function faseItemCompleta(item: PresaleItem, stato: string): boolean {
 
 // ─── PM chips (multi-select) ────────────────────────────────────────────────
 
+// Link documento nel drawer: anchor se URL valido, altrimenti avviso "link
+// non valido" (i tre campi presale erano testo libero prima della validazione)
+function PresaleLink({ url }: { url: string }) {
+  return isValidHttpUrl(url)
+    ? <a href={url} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a>
+    : <span className="ps-link-invalid" title={`Valore attuale: "${url}"`}>link non valido — correggilo dalla modifica</span>
+}
+
 function PmChips({ pms, value, onChange }: {
   pms: UserRef[]; value: string[]; onChange: (ids: string[]) => void
 }) {
@@ -211,7 +228,7 @@ function PmChips({ pms, value, onChange }: {
 
 function PresaleModal({
   mode, form, statiPresale, clienti, progetti, pms, devHubs, suggestedDevHub,
-  loading, apiError, mailGiaInviata, onChange, onSave, onClose,
+  loading, apiError, mailGiaInviata, driveCfg, onChange, onSave, onClose,
 }: {
   mode: 'add' | 'edit'
   form: FormData
@@ -224,10 +241,44 @@ function PresaleModal({
   loading: boolean
   apiError: string | null
   mailGiaInviata: boolean
+  driveCfg: DriveConfig | null
   onChange: (f: FormData) => void
   onSave: (inviaMail: boolean) => void
   onClose: () => void
 }) {
+  // Bottone "Crea nuovo doc" (fase Stima): crea il Google Doc dell'analisi di
+  // dettaglio nella cartella dell'analisi iniziale e compila il campo link.
+  const [creatingDoc, setCreatingDoc] = useState(false)
+  const [createDocErr, setCreateDocErr] = useState<string | null>(null)
+
+  // Cartella dell'analisi iniziale: quella memorizzata dal picker, oppure
+  // risolta via Drive API dal link (anche incollato a mano). null = ignota.
+  const resolveAnalisiFolder = async (): Promise<string | null> => {
+    if (form.presaleDriveFolderId) return form.presaleDriveFolderId
+    const fileId = extractDriveFileId(form.presaleLinkRequisiti)
+    if (!fileId) return null
+    return getParentFolderId(fileId)
+  }
+
+  const handleCreateStimaDoc = async () => {
+    setCreatingDoc(true); setCreateDocErr(null)
+    try {
+      const folderId = await resolveAnalisiFolder()
+      if (!folderId) {
+        setCreateDocErr('Cartella dell\'analisi iniziale non determinabile: compila prima il link dell\'analisi requisiti.')
+        return
+      }
+      const nome = `${form.attivita.trim() || 'Analisi'} — Analisi di dettaglio`
+      const doc = await createDriveDoc(nome, folderId)
+      onChange({ ...form, presaleLinkStima: doc.url, presaleDriveFolderId: folderId })
+      window.open(doc.url, '_blank', 'noopener')
+    } catch (e) {
+      setCreateDocErr(e instanceof Error ? e.message : 'Errore nella creazione del documento.')
+    } finally {
+      setCreatingDoc(false)
+    }
+  }
+
   const progettiFiltrati = useMemo(
     () => progetti.filter(p => !form.clienteId || p.clienteId === form.clienteId),
     [progetti, form.clienteId],
@@ -281,8 +332,21 @@ function PresaleModal({
       case 'presaleLinkRequisiti': return (
         <div key={f} className="ps-field">
           <label className="ps-label" htmlFor="ps-req">Link Drive — analisi requisiti</label>
-          <input id="ps-req" className="ps-input" type="url" value={form.presaleLinkRequisiti}
-            onChange={e => onChange({ ...form, presaleLinkRequisiti: e.target.value })} placeholder="https://drive.google.com/…" />
+          <DriveLinkField
+            id="ps-req"
+            inputClassName="ps-input"
+            value={form.presaleLinkRequisiti}
+            rootId={driveCfg?.devId || undefined}
+            pickerTitle="Scegli il documento di analisi (Drive Sviluppo)"
+            // Digitazione manuale: la cartella memorizzata non è più affidabile
+            onChange={url => onChange({ ...form, presaleLinkRequisiti: url, presaleDriveFolderId: '' })}
+            // Scelta via picker: memorizzo anche la cartella (radice della Stima)
+            onPicked={file => onChange({
+              ...form,
+              presaleLinkRequisiti: file.url,
+              presaleDriveFolderId: file.parentId ?? '',
+            })}
+          />
         </div>
       )
       case 'presaleScadenzaStima': return (
@@ -322,8 +386,39 @@ function PresaleModal({
       case 'presaleLinkStima': return (
         <div key={f} className="ps-field">
           <label className="ps-label" htmlFor="ps-stima">Link Drive — analisi dettaglio (opzionale)</label>
-          <input id="ps-stima" className="ps-input" type="url" value={form.presaleLinkStima}
-            onChange={e => onChange({ ...form, presaleLinkStima: e.target.value })} placeholder="https://drive.google.com/…" />
+          <DriveLinkField
+            id="ps-stima"
+            inputClassName="ps-input"
+            value={form.presaleLinkStima}
+            rootId={form.presaleDriveFolderId || driveCfg?.devId || undefined}
+            locked={!!form.presaleDriveFolderId}
+            // Al click risolve la cartella dell'analisi iniziale (memorizzata
+            // dal picker o ricavata via Drive API da un link incollato a
+            // mano) e ci blocca dentro il picker; senza cartella → radice
+            // del Drive Sviluppo.
+            resolveRoot={async () => {
+              const folderId = await resolveAnalisiFolder().catch(() => null)
+              return folderId ? { rootId: folderId, locked: true } : null
+            }}
+            pickerTitle="Scegli l'analisi di dettaglio (cartella dell'analisi iniziale)"
+            onChange={url => onChange({ ...form, presaleLinkStima: url })}
+          />
+          {isDrivePickerConfigured() && (
+            <div className="ps-create-doc">
+              <button
+                className="ps-create-doc-btn"
+                type="button"
+                onClick={handleCreateStimaDoc}
+                disabled={creatingDoc}
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="13" height="13" aria-hidden="true">
+                  <path d="M10 4v12M4 10h12" strokeLinecap="round" />
+                </svg>
+                {creatingDoc ? 'Creazione…' : 'Crea nuovo doc nella cartella dell\'analisi'}
+              </button>
+              {createDocErr && <span className="ps-create-doc-err" role="alert">{createDocErr}</span>}
+            </div>
+          )}
         </div>
       )
       case 'giornateVendute': return (
@@ -339,8 +434,14 @@ function PresaleModal({
       case 'presaleLinkOfferta': return (
         <div key={f} className="ps-field">
           <label className="ps-label" htmlFor="ps-offerta">Link Drive — documento di offerta (opzionale)</label>
-          <input id="ps-offerta" className="ps-input" type="url" value={form.presaleLinkOfferta}
-            onChange={e => onChange({ ...form, presaleLinkOfferta: e.target.value })} placeholder="https://drive.google.com/…" />
+          <DriveLinkField
+            id="ps-offerta"
+            inputClassName="ps-input"
+            value={form.presaleLinkOfferta}
+            rootId={driveCfg?.commId || undefined}
+            pickerTitle="Scegli il documento di offerta (Drive Commerciale)"
+            onChange={url => onChange({ ...form, presaleLinkOfferta: url })}
+          />
         </div>
       )
       default: return null
@@ -653,19 +754,19 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, mailSent, mailSend
             {item.presaleLinkRequisiti && (
               <div className="ps-dl-row">
                 <dt>Analisi requisiti</dt>
-                <dd><a href={item.presaleLinkRequisiti} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a></dd>
+                <dd><PresaleLink url={item.presaleLinkRequisiti} /></dd>
               </div>
             )}
             {item.presaleLinkStima && (
               <div className="ps-dl-row">
                 <dt>Analisi dettaglio</dt>
-                <dd><a href={item.presaleLinkStima} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a></dd>
+                <dd><PresaleLink url={item.presaleLinkStima} /></dd>
               </div>
             )}
             {item.presaleLinkOfferta && (
               <div className="ps-dl-row">
                 <dt>Documento di offerta</dt>
-                <dd><a href={item.presaleLinkOfferta} target="_blank" rel="noreferrer" className="ps-link">Apri su Drive ↗</a></dd>
+                <dd><PresaleLink url={item.presaleLinkOfferta} /></dd>
               </div>
             )}
             {item.presaleNotePerFase && Object.entries(item.presaleNotePerFase)
@@ -782,6 +883,7 @@ function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, o
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PresalePage({ token }: { token: string }) {
+  const driveCfg = useDriveConfig(token)
   const [items, setItems] = useState<PresaleItem[]>([])
   const [stati, setStati] = useState<StatoConfig[]>([])
   const [clienti, setClienti] = useState<ClienteOption[]>([])
@@ -867,8 +969,11 @@ export default function PresalePage({ token }: { token: string }) {
   }, [items, clienti])
 
   // ── Cambio fase (drop su colonna o bottone "avanza" sulla card) ──
-  // Sposta la card nella fase e apre subito il modal su quella fase, così si
-  // compilano i campi richiesti dalla nuova fase.
+  // Sposta la card nella fase (solo in UI) e apre il modal su quella fase: il
+  // nuovo stato viene persistito SOLO al "Salva" (la PUT include lo stato).
+  // Annulla/chiusura del modal ripristinano la card nella fase di partenza.
+  const phaseRevertRef = useRef<{ id: string; stato: string } | null>(null)
+
   const changePhaseAndOpen = (item: PresaleItem, statoChiave: string) => {
     // Avanzando (fase successiva) i campi obbligatori della fase corrente devono
     // essere compilati. Tornare indietro è sempre consentito.
@@ -881,12 +986,21 @@ export default function PresalePage({ token }: { token: string }) {
     setApiError(null)
     const moved = { ...item, stato: statoChiave }
     if (item.stato !== statoChiave) {
+      phaseRevertRef.current = { id: item.id, stato: item.stato }
       setItems(prev => prev.map(i => i.id === item.id ? moved : i))
-      fetch(`${API_URL}/api/attivita/${item.id}/stato`, {
-        method: 'PATCH', headers: authHeadersJson(token), body: JSON.stringify({ stato: statoChiave }),
-      }).then(res => { if (!res.ok) fetchAll() }).catch(() => fetchAll())
     }
     openEdit(moved)
+  }
+
+  // Chiusura del modal senza salvare: se il modal era stato aperto da un
+  // cambio fase, la card torna nella fase di partenza (niente era persistito).
+  const closeModalWithRevert = () => {
+    const rev = phaseRevertRef.current
+    if (rev) {
+      setItems(prev => prev.map(i => i.id === rev.id ? { ...i, stato: rev.stato } : i))
+      phaseRevertRef.current = null
+    }
+    setModal(null)
   }
 
   const onCardDrop = (statoChiave: string) => {
@@ -919,6 +1033,7 @@ export default function PresalePage({ token }: { token: string }) {
 
   // ── CRUD ──
   const openAdd = () => {
+    phaseRevertRef.current = null
     setForm({ ...EMPTY_FORM, stato: statiPresale[0]?.chiave ?? '' })
     setFormErr(null)
     setEditingId(null)
@@ -942,6 +1057,7 @@ export default function PresalePage({ token }: { token: string }) {
       presaleLinkRequisiti: item.presaleLinkRequisiti ?? '',
       presaleLinkStima: item.presaleLinkStima ?? '',
       presaleLinkOfferta: item.presaleLinkOfferta ?? '',
+      presaleDriveFolderId: item.presaleDriveFolderId ?? '',
       presaleTipoIntervento: item.presaleTipoIntervento ?? '',
       presaleNotePerFase: item.presaleNotePerFase ?? {},
       note: item.note ?? '',
@@ -961,6 +1077,19 @@ export default function PresalePage({ token }: { token: string }) {
     if (mancanti.length) {
       setFormErr('Compila i campi obbligatori: ' + mancanti.map(f => CAMPO_LABEL[f] ?? f).join(', ') + '.'); return
     }
+    // Valida solo i link nuovi o modificati: i valori storici non conformi
+    // (testo libero pre-validazione) non bloccano salvataggi che non li toccano.
+    const itemCorrente = modal === 'edit' ? items.find(i => i.id === editingId) : undefined
+    for (const [label, value, attuale] of [
+      ['analisi requisiti', form.presaleLinkRequisiti, itemCorrente?.presaleLinkRequisiti ?? ''],
+      ['analisi dettaglio', form.presaleLinkStima, itemCorrente?.presaleLinkStima ?? ''],
+      ['documento di offerta', form.presaleLinkOfferta, itemCorrente?.presaleLinkOfferta ?? ''],
+    ] as const) {
+      const invariato = value.trim() === attuale.trim()
+      if (!invariato && value.trim() && !isValidHttpUrl(value)) {
+        setFormErr(`Il link ${label} non è un URL valido (deve iniziare con http:// o https://).`); return
+      }
+    }
     setSaving(true); setFormErr(null)
     try {
       const url = modal === 'edit' ? `${API_URL}/api/attivita/${editingId}` : `${API_URL}/api/attivita`
@@ -978,6 +1107,7 @@ export default function PresalePage({ token }: { token: string }) {
         presaleLinkRequisiti: form.presaleLinkRequisiti.trim() || null,
         presaleLinkStima: form.presaleLinkStima.trim() || null,
         presaleLinkOfferta: form.presaleLinkOfferta.trim() || null,
+        presaleDriveFolderId: form.presaleDriveFolderId.trim() || null,
         presaleTipoIntervento: form.presaleTipoIntervento || null,
         presaleNotePerFase: form.presaleNotePerFase,
         note: form.note.trim() || null,
@@ -992,6 +1122,8 @@ export default function PresalePage({ token }: { token: string }) {
         setFormErr((data as { error?: string }).error ?? `Errore ${res.status}`)
         return
       }
+      // Salvataggio riuscito: il nuovo stato è persistito, niente revert
+      phaseRevertRef.current = null
       setModal(null)
       await fetchAll()
     } catch {
@@ -1154,9 +1286,10 @@ export default function PresalePage({ token }: { token: string }) {
           loading={saving}
           apiError={formErr}
           mailGiaInviata={modal === 'edit' && !!editingId ? (items.find(i => i.id === editingId)?.presaleEmailFasiInviate.includes(STATO_TO_FASE_MAIL[form.stato] ?? '') ?? false) : false}
+          driveCfg={driveCfg}
           onChange={setForm}
           onSave={handleSave}
-          onClose={() => setModal(null)}
+          onClose={closeModalWithRevert}
         />
       )}
 

@@ -1636,32 +1636,16 @@
 .ea-mesi-toggle--open svg { transform: rotate(90deg); }
 .ea-mesi-toggle:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
 
-.ea-mesi-row .ea-mesi-cell {
-  padding: 0; background: #F8FAFC;
+/* Righe mensili dentro la tabella padre: stesse colonne della testata,
+   così GG Fatturate / GG Consuntivate dei mesi si leggono in colonna */
+.ea-mesi-tr td {
+  background: #F8FAFC;
   border-top: 1px solid #F1F5F9;
+  padding-top: 0.32rem; padding-bottom: 0.32rem;
+  font-size: 0.82rem;
 }
-
-.ea-mesi {
-  padding: 0.75rem 1rem 0.85rem 2.4rem;
-  display: flex; flex-direction: column; gap: 0.6rem;
-  max-width: 560px;
-}
-
-.ea-mesi-empty {
-  padding: 0.75rem 1rem 0.75rem 2.4rem;
-  font-size: 0.8rem; color: #94A3B8;
-}
-
-.ea-mesi-table { border-collapse: collapse; font-size: 0.82rem; width: 100%; }
-.ea-mesi-th {
-  text-align: left; font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.04em; color: #94A3B8; padding: 0.3rem 0.6rem 0.3rem 0;
-  border-bottom: 1px solid #E2E8F0;
-}
-.ea-mesi-th--num { text-align: right; }
-.ea-mesi-td { padding: 0.32rem 0.6rem 0.32rem 0; color: #1E293B; }
-.ea-mesi-td--num { text-align: right; font-variant-numeric: tabular-nums; }
-.ea-mesi-tr + .ea-mesi-tr td { border-top: 1px solid #F1F5F9; }
+.ea-mesi-lbl { padding-left: 2.55rem !important; color: #475569; }
+.ea-mesi-empty { color: #94A3B8; padding-left: 2.55rem !important; }
 
 .ea-mesi-input {
   width: 84px; padding: 0.3rem 0.5rem; text-align: right;
@@ -1671,13 +1655,12 @@
 }
 .ea-mesi-input:focus { outline: none; border-color: #0D9488; box-shadow: 0 0 0 3px rgba(13,148,136,0.12); }
 
-.ea-mesi-total td {
-  border-top: 1.5px solid #E2E8F0; font-weight: 600; color: #0F172A;
-  padding-top: 0.45rem;
-}
+.ea-mesi-total td { font-weight: 600; color: #0F172A; border-top: 1.5px solid #E2E8F0; }
 
+.ea-mesi-actions-cell { text-align: right; }
 .ea-mesi-actions {
   display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem;
+  padding: 0.15rem 0 0.25rem;
 }
 .ea-mesi-err { font-size: 0.78rem; color: #B91C1C; }
 .ea-mesi-ok  { font-size: 0.78rem; color: #0F766E; }

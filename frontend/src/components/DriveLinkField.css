@@ -1,0 +1,39 @@
+/* =============================================================
+   DriveLinkField — campo link con Google Drive Picker
+   (prefisso dlf-)
+   ============================================================= */
+
+.dlf { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+
+.dlf-row { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+
+.dlf-input {
+  flex: 1; min-width: 0;
+  padding: 0.55rem 0.8rem; border-radius: 10px;
+  border: 1.5px solid #E2E8F0; background: #fff;
+  font-family: inherit; font-size: 0.875rem; color: #0F172A;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.dlf-input:focus { outline: none; border-color: #0D9488; box-shadow: 0 0 0 3px rgba(13,148,136,0.12); }
+
+.dlf-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.5rem 0.75rem; border-radius: 9px;
+  border: 1.5px solid #E2E8F0; background: #fff;
+  font-family: inherit; font-size: 0.78rem; font-weight: 600; color: #475569;
+  cursor: pointer; white-space: nowrap;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.dlf-btn:hover:not(:disabled) { background: #F8FAFC; border-color: #CBD5E1; }
+.dlf-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.dlf-btn:focus-visible { outline: 2.5px solid #0D9488; outline-offset: 2px; }
+
+.dlf-err { font-size: 0.75rem; color: #B91C1C; }
+
+/* Badge "link non valido" per valori storici non-URL (riusato dalle pagine) */
+.dlf-invalid {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.75rem; font-weight: 600; color: #B45309;
+  background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 6px;
+  padding: 0.15rem 0.5rem;
+}

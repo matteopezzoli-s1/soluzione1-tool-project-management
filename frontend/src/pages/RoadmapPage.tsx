@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
+import { DriveLinkField } from '../components/DriveLinkField'
+import { useDriveConfig } from '../lib/useDriveConfig'
+import { isValidHttpUrl } from '../lib/googleDrive'
 import './RoadmapPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -233,10 +236,12 @@ function MultiSelect({ label, options, value, onChange }: {
 interface ModalProps {
   title: string; form: FormData; loading: boolean; apiError: string | null
   prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]; tags: TagRef[]
+  // Radice del picker Drive (Drive Sviluppo configurato in Impostazioni)
+  devDriveId?: string
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
-function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, onChange, onSave, onClose }: ModalProps) {
+function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, devDriveId, onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
@@ -311,8 +316,14 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
 
           <div className="rm-field">
             <label htmlFor="rm-analisi" className="rm-label">Link analisi (Google Drive)</label>
-            <input id="rm-analisi" className="rm-input" type="url" value={form.analisiUrl} onChange={set('analisiUrl')}
-              placeholder="https://drive.google.com/…" />
+            <DriveLinkField
+              id="rm-analisi"
+              inputClassName="rm-input"
+              value={form.analisiUrl}
+              onChange={url => onChange({ ...form, analisiUrl: url })}
+              rootId={devDriveId}
+              pickerTitle="Scegli il documento di analisi"
+            />
           </div>
 
           <div className="rm-field">
@@ -350,10 +361,13 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onD
         </span>
         {(item.analisiUrl || !readOnly) && (
           <span className="rm-card-actions">
-            {item.analisiUrl && (
-              <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link" aria-label="Apri analisi">
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14"><path d="M8 12l5-5M9 4h6v6M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              </a>
+            {item.analisiUrl && (isValidHttpUrl(item.analisiUrl)
+              ? <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link" aria-label="Apri analisi">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14"><path d="M8 12l5-5M9 4h6v6M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </a>
+              : <span className="rm-analisi-invalid" title={`Link analisi non valido: "${item.analisiUrl}" — correggilo dalla modifica`} aria-label="Link analisi non valido">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14" aria-hidden="true"><path d="M10 3l8 14H2L10 3z" strokeLinejoin="round" /><path d="M10 8.5v3.5M10 14.5v.5" strokeLinecap="round" /></svg>
+                </span>
             )}
             {!readOnly && (
               <button className="rm-card-del" type="button" aria-label={`Elimina ${item.titolo}`}
@@ -440,7 +454,11 @@ function ItemDetailModal({ item, statiMap, po, onClose }: {
             {item.analisiUrl && (
               <div className="rm-detail-row">
                 <dt>Analisi</dt>
-                <dd><a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link">Apri link ↗</a></dd>
+                <dd>
+                  {isValidHttpUrl(item.analisiUrl)
+                    ? <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link">Apri link ↗</a>
+                    : <span className="rm-analisi-invalid" title={`Valore attuale: "${item.analisiUrl}"`}>link non valido — correggilo dalla modifica</span>}
+                </dd>
               </div>
             )}
           </dl>
@@ -506,6 +524,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [tags,        setTags]        = useState<TagRef[]>([])
   const [loading,     setLoading]     = useState(true)
   const [apiError,    setApiError]    = useState<string | null>(null)
+  const driveCfg = useDriveConfig(token)
 
   const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('kanban-trimestre')
   const [anno, setAnno] = useState(currentYear)
@@ -659,6 +678,12 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const handleSave = async () => {
     if (!form.progettoId) { setFormErr('Seleziona un prodotto.'); return }
     if (!form.titolo.trim()) { setFormErr('Il titolo è obbligatorio.'); return }
+    // Solo un link nuovo/modificato viene validato (i valori storici non
+    // conformi non bloccano salvataggi che non li toccano)
+    const analisiInvariato = modal === 'edit' && form.analisiUrl.trim() === (editing?.analisiUrl ?? '').trim()
+    if (!analisiInvariato && form.analisiUrl.trim() && !isValidHttpUrl(form.analisiUrl)) {
+      setFormErr('Il link analisi non è un URL valido (deve iniziare con http:// o https://).'); return
+    }
     setSaving(true); setFormErr(null)
     try {
       const url    = modal === 'edit' ? `${API_URL}/api/roadmap-items/${editing!.id}` : `${API_URL}/api/roadmap-items`
@@ -847,9 +872,13 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                   </td>
                   <td className="rm-cell-text" onClick={e => e.stopPropagation()}>
                     {item.analisiUrl
-                      ? <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link" aria-label="Apri analisi">
-                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15"><path d="M8 12l5-5M9 4h6v6M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                        </a>
+                      ? (isValidHttpUrl(item.analisiUrl)
+                          ? <a href={item.analisiUrl} target="_blank" rel="noreferrer" className="rm-analisi-link" aria-label="Apri analisi">
+                              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15"><path d="M8 12l5-5M9 4h6v6M15 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                            </a>
+                          : <span className="rm-analisi-invalid" title={`Link analisi non valido: "${item.analisiUrl}" — correggilo dalla modifica`} aria-label="Link analisi non valido">
+                              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true"><path d="M10 3l8 14H2L10 3z" strokeLinejoin="round" /><path d="M10 8.5v3.5M10 14.5v.5" strokeLinecap="round" /></svg>
+                            </span>)
                       : <span className="rm-empty-cell">—</span>}
                   </td>
                   {!readOnly && (
@@ -937,6 +966,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
         <ItemModal
           title={modal === 'add' ? 'Nuova attività roadmap' : 'Modifica attività roadmap'}
           form={form} loading={saving} apiError={formErr} prodotti={prodotti} statiList={statiList} tags={tags}
+          devDriveId={driveCfg?.devId || undefined}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
       )}
       {selected && (

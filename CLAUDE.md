@@ -101,6 +101,7 @@ docker compose down     # Stop
     - `POST /api/zoho/import/preview` — diff codici aggregati vs attività (match su `riferimentoOrdineVendita` = codice senza prefisso `GO-ORDV-`, come l'import CSV manuale)
     - `POST /api/zoho/import/confirm` — conferma dell'import: applica gli aggiornamenti (stessa semantica di `bulk-consuntivato`, valori "prima" riletti dal DB), salva il breakdown mensile in `AttivitaConsuntivoMese` (upsert per attività+mese, preservando le fatturate compilate dal PM) e registra una `ZohoImportSession` con i delta per attività (solo righe con delta ≠ 0)
     - `GET /api/zoho/import/sessions` — storico sessioni import degli ultimi 5 giorni (utente + righe delta); entrambe le route eliminano le sessioni più vecchie di 5 giorni
+  - **Google Drive** (`components/DriveLinkField.tsx` prefisso `dlf-`, `lib/googleDrive.ts`, `lib/useDriveConfig.ts`): campi link "dual-mode" (URL manuale o Google Picker) su Roadmap analisi e i 3 link presale. `GET/PUT /api/config/google-drive` — radici dei drive condivisi (`AppConfig`: `gdrive_dev_*` Sviluppo per roadmap+presale analisi/stima, `gdrive_comm_*` Commerciale per trattativa; PUT solo `requireRole('BOARD')`, estrazione ID da URL cartella/shared drive). Il Picker (scope `drive` completo — app interna Workspace, serve per creare doc e risolvere cartelle; tutto client-side, nessun token server) compare solo se `VITE_GOOGLE_CLIENT_ID` + `VITE_GOOGLE_API_KEY` sono valorizzate; la fase Stima apre il picker vincolato alla cartella dell'analisi (`Attivita.presaleDriveFolderId`, salvata dal picker o risolta via Drive API anche per link incollati a mano) e ha il bottone "Crea nuovo doc" che crea il Google Doc dell'analisi di dettaglio direttamente in quella cartella (`createDriveDoc` in `lib/googleDrive.ts`); solo Stima — sull'offerta (drive Commerciale) si sceglie sempre la cartella a mano. Validazione link http(s) su `analisiUrl` + link presale: **solo valori nuovi/modificati** (i valori storici non-URL sono tollerati finché non toccati e mostrati come "link non valido" in UI)
   - `GET /api/gantt/milestones` — Gantt milestones (optional `?activityId=` filter)
   - `POST /api/gantt/milestones` — Create milestone
   - `PUT /api/gantt/milestones/:id` — Update milestone
@@ -132,6 +133,13 @@ VITE_API_URL=http://localhost:8080
 ```
 
 Vite reads this at server start. If missing, the login page shows "VITE_API_URL non impostato".
+
+Opzionali per il Google Drive Picker (il bottone "Scegli da Drive" compare solo se entrambe valorizzate):
+
+```
+VITE_GOOGLE_CLIENT_ID=<stesso OAuth client del login>
+VITE_GOOGLE_API_KEY=<API key Google Cloud con Picker API abilitata>
+```
 
 ## Deploy (Cloudflare)
 
