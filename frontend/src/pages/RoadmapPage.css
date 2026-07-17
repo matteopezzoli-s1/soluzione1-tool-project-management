@@ -325,3 +325,10 @@
   .rm-topbar-actions { flex-wrap: wrap; }
   .rm-topbar-actions > * { flex: 1 1 auto; justify-content: center; }
 }
+
+/* ── Link analisi non valido (valori storici non-URL) ─────────── */
+.rm-analisi-invalid {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  color: #B45309; font-size: 0.75rem; font-weight: 600;
+  cursor: help;
+}

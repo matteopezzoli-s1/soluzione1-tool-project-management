@@ -1001,9 +1001,117 @@ function PresaleEmailSezione({ token }: { token: string }) {
 // scalavano più: i gruppi della nav sono il punto di estensione per le
 // prossime impostazioni.
 
+// ─── Sezione Google Drive ─────────────────────────────────────────────────────
+// Radici dei drive condivisi per i picker: Sviluppo (analisi prodotti +
+// presale analisi/stima) e Commerciale (presale trattativa). L'utente incolla
+// il link dello shared drive/cartella, il backend estrae e salva l'ID.
+
+interface GDriveConfigForm { devUrl: string; commUrl: string }
+
+function GoogleDriveSezione({ token }: { token: string }) {
+  const [form, setForm]       = useState<GDriveConfigForm>({ devUrl: '', commUrl: '' })
+  const [ids, setIds]         = useState<{ devId: string; commId: string }>({ devId: '', commId: '' })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [pageErr, setPageErr] = useState<string | null>(null)
+  const [okMsg, setOkMsg]     = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/config/google-drive`, { headers: authHeaders(token) })
+        if (!res.ok) throw new Error()
+        const data = await res.json() as { devUrl: string; devId: string; commUrl: string; commId: string }
+        if (cancelled) return
+        setForm({ devUrl: data.devUrl, commUrl: data.commUrl })
+        setIds({ devId: data.devId, commId: data.commId })
+      } catch {
+        if (!cancelled) setPageErr('Impossibile caricare la configurazione.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [token])
+
+  const set = (key: keyof GDriveConfigForm) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setForm(prev => ({ ...prev, [key]: e.target.value }))
+    setOkMsg(null)
+  }
+
+  const handleSave = async () => {
+    setSaving(true); setPageErr(null); setOkMsg(null)
+    try {
+      const res = await fetch(`${API_URL}/api/config/google-drive`, {
+        method: 'PUT', headers: authHeadersJson(token), body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setPageErr((data as { error?: string }).error ?? `Errore ${res.status}`)
+        return
+      }
+      const data = await res.json() as { devUrl: string; devId: string; commUrl: string; commId: string }
+      setForm({ devUrl: data.devUrl, commUrl: data.commUrl })
+      setIds({ devId: data.devId, commId: data.commId })
+      setOkMsg('Configurazione salvata.')
+    } catch {
+      setPageErr('Errore di rete. Riprova.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="imp-skeleton-list">{[...Array(3)].map((_, i) => <div key={i} className="imp-skeleton" />)}</div>
+  }
+
+  return (
+    <div className="imp-sezione">
+      <div className="imp-sezione-topbar">
+        <p className="imp-sezione-sub">
+          Drive condivisi usati dai picker "Scegli da Drive": incolla il link dello shared drive o di una sua cartella.
+          Gli utenti vedono solo ciò a cui hanno già accesso su Drive.
+        </p>
+      </div>
+
+      {pageErr && <p className="imp-page-error" role="alert">{pageErr}</p>}
+      {okMsg && <p className="imp-ok-banner" role="status">{okMsg}</p>}
+
+      <div className="imp-cfg-card">
+        <div className="imp-field">
+          <label htmlFor="cfg-gdrive-dev" className="imp-label">Drive Sviluppo</label>
+          <input id="cfg-gdrive-dev" className="imp-input" type="url" value={form.devUrl}
+            onChange={set('devUrl')} placeholder="https://drive.google.com/drive/folders/…" />
+          <span className="imp-field-hint">
+            Analisi della Roadmap Prodotti e fasi presale Analisi iniziale + Stima.
+            {ids.devId && <> ID rilevato: <code>{ids.devId}</code></>}
+          </span>
+        </div>
+
+        <div className="imp-field">
+          <label htmlFor="cfg-gdrive-comm" className="imp-label">Drive Commerciale</label>
+          <input id="cfg-gdrive-comm" className="imp-input" type="url" value={form.commUrl}
+            onChange={set('commUrl')} placeholder="https://drive.google.com/drive/folders/…" />
+          <span className="imp-field-hint">
+            Fase presale Trattativa cliente (offerte).
+            {ids.commId && <> ID rilevato: <code>{ids.commId}</code></>}
+          </span>
+        </div>
+
+        <div className="imp-cfg-actions">
+          <button className="imp-btn imp-btn--primary" type="button" onClick={handleSave} disabled={saving}>
+            {saving ? 'Salvataggio…' : 'Salva configurazione'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface ImpostazioniPageProps { token: string; showPresaleEmail?: boolean }
 
-type SettingsKey = Sezione | 'notifiche'
+type SettingsKey = Sezione | 'notifiche' | 'gdrive'
 
 interface SettingsNavItem {
   key: SettingsKey
@@ -1064,6 +1172,15 @@ const NAV_GROUPS: Array<{ label: string; items: SettingsNavItem[] }> = [
           </svg>
         ),
       },
+      {
+        key: 'gdrive', label: 'Google Drive',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+            <path d="M7 3h6l5 8.5-3 5.5H5l-3-5.5L7 3z" strokeLinejoin="round" />
+            <path d="M7 3l5 8.5M13 3l-5 8.5h10M2 11.5h10l-3 5.5" strokeLinejoin="round" />
+          </svg>
+        ),
+      },
     ],
   },
 ]
@@ -1110,9 +1227,11 @@ export default function ImpostazioniPage({ token, showPresaleEmail }: Impostazio
         <div className="imp-content" role="region" aria-label={activeLabel}>
           {tab === 'notifiche'
             ? <PresaleEmailSezione token={token} />
-            : tab === 'tag'
-              ? <TagSezione token={token} />
-              : <StatiSezione key={tab} token={token} sezione={tab} />}
+            : tab === 'gdrive'
+              ? <GoogleDriveSezione token={token} />
+              : tab === 'tag'
+                ? <TagSezione token={token} />
+                : <StatiSezione key={tab} token={token} sezione={tab} />}
         </div>
       </div>
     </div>

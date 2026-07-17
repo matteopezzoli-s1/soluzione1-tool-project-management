@@ -51,6 +51,21 @@ export type Env = { Variables: Vars }
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/
 const MESE_RE  = /^\d{4}-(0[1-9]|1[0-2])$/ // chiave mese "YYYY-MM" (consuntivi mensili)
+// Link http(s) per i campi documento (analisi roadmap, link presale): i valori
+// storici non conformi restano leggibili, ma al salvataggio si accettano solo URL.
+const HTTP_URL_RE = /^https?:\/\/\S+$/i
+
+// Valida i campi link di un payload: ritorna il messaggio d'errore della prima
+// violazione, null se tutto ok. Campi vuoti/assenti sono sempre validi.
+function invalidLinkError(links: Record<string, string | null | undefined>): string | null {
+  for (const [label, value] of Object.entries(links)) {
+    const v = value?.trim()
+    if (v && !HTTP_URL_RE.test(v)) {
+      return `${label}: non è un link valido (deve iniziare con http:// o https://)`
+    }
+  }
+  return null
+}
 
 function toNumber(d: unknown): number {
   if (d === null || d === undefined) return 0
@@ -1053,6 +1068,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!progettoId?.trim()) return c.json({ error: 'progettoId è obbligatorio' }, 400)
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
     if (!anno) return c.json({ error: 'L\'anno è obbligatorio' }, 400)
+    const analisiErr = invalidLinkError({ 'Link analisi': analisiUrl })
+    if (analisiErr) return c.json({ error: analisiErr }, 400)
     const prisma = c.get('prisma')
     const statoVal = stato?.trim() ?? 'DA_FARE'
     const statiValidi = await prisma.statoRoadmapConfig.findMany({ select: { chiave: true } })
@@ -1096,6 +1113,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
     if (!anno) return c.json({ error: 'L\'anno è obbligatorio' }, 400)
     const prisma = c.get('prisma')
+    // Solo i link nuovi/modificati vengono validati (grandfathering dei
+    // valori storici non conformi — vedi PUT /api/attivita/:id)
+    const existingItem = await prisma.roadmapItem.findUnique({ where: { id }, select: { analisiUrl: true } })
+    if (!existingItem) return c.json({ error: 'Attività roadmap non trovata' }, 404)
+    if ((analisiUrl?.trim() || null) !== existingItem.analisiUrl) {
+      const analisiErrPut = invalidLinkError({ 'Link analisi': analisiUrl })
+      if (analisiErrPut) return c.json({ error: analisiErrPut }, 400)
+    }
     const statoVal = stato?.trim() ?? 'DA_FARE'
     const statiValidi = await prisma.statoRoadmapConfig.findMany({ select: { chiave: true } })
     if (statiValidi.length > 0 && !statiValidi.some(s => s.chiave === statoVal)) {
@@ -1442,6 +1467,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         presaleLinkRequisiti: a.presaleLinkRequisiti,
         presaleLinkStima: a.presaleLinkStima,
         presaleLinkOfferta: a.presaleLinkOfferta,
+        presaleDriveFolderId: a.presaleDriveFolderId ?? null,
         presaleGiornateStimate: a.presaleGiornateStimate !== null ? toNumber(a.presaleGiornateStimate) : null,
         presaleScadenzaStima: a.presaleScadenzaStima?.toISOString().split('T')[0] ?? null,
         presaleNotePerFase: (a.presaleNotePerFase as Record<string, string> | null) ?? null,
@@ -1467,7 +1493,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       clienteId, progettoId, pmIds, attivita, tipo,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
-      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
+      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
@@ -1476,6 +1502,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
+      presaleDriveFolderId?: string | null
       presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
       presaleNotePerFase?: Record<string, string> | null; presaleTipoIntervento?: string | null
       inviaMail?: boolean
@@ -1484,6 +1511,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
       return c.json({ error: 'cliente, progetto e attivita sono obbligatori' }, 400)
     }
+
+    const linkErr = invalidLinkError({
+      'Link analisi iniziale': presaleLinkRequisiti,
+      'Link stima': presaleLinkStima,
+      'Link offerta': presaleLinkOfferta,
+    })
+    if (linkErr) return c.json({ error: linkErr }, 400)
 
     const [linkedCliente, linkedProgetto] = await Promise.all([
       prisma.cliente.findUnique({
@@ -1522,6 +1556,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           presaleLinkRequisiti: presaleLinkRequisiti?.trim() || null,
           presaleLinkStima: presaleLinkStima?.trim() || null,
           presaleLinkOfferta: presaleLinkOfferta?.trim() || null,
+          presaleDriveFolderId: presaleDriveFolderId?.trim() || null,
           presaleGiornateStimate: presaleGiornateStimate != null ? presaleGiornateStimate : null,
           presaleScadenzaStima: presaleScadenzaStima ? new Date(presaleScadenzaStima) : null,
           presaleNotePerFase: presaleNotePerFase ?? undefined,
@@ -1552,7 +1587,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       clienteId, progettoId, pmIds, attivita,
       giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
-      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
+      presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmIds?: string[]
@@ -1561,6 +1596,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
+      presaleDriveFolderId?: string | null
       presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
       presaleNotePerFase?: Record<string, string> | null; presaleTipoIntervento?: string | null
       inviaMail?: boolean
@@ -1570,8 +1606,26 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json({ error: 'cliente, progetto e attivita sono obbligatori' }, 400)
     }
 
-    const existing = await prisma.attivita.findUnique({ where: { id }, select: { tipo: true, stato: true } })
+    const existing = await prisma.attivita.findUnique({
+      where: { id },
+      select: {
+        tipo: true, stato: true,
+        presaleLinkRequisiti: true, presaleLinkStima: true, presaleLinkOfferta: true,
+      },
+    })
     if (!existing) return c.json({ error: 'Attività non trovata' }, 404)
+
+    // Valida solo i link nuovi o modificati: i valori storici non conformi
+    // (testo libero pre-validazione) non devono bloccare salvataggi che non
+    // li toccano — magari da fasi che nemmeno mostrano quel campo.
+    const changed = (nuovo: string | null | undefined, attuale: string | null) =>
+      (nuovo?.trim() || null) !== attuale
+    const linkErrPut = invalidLinkError({
+      ...(changed(presaleLinkRequisiti, existing.presaleLinkRequisiti) ? { 'Link analisi iniziale': presaleLinkRequisiti } : {}),
+      ...(changed(presaleLinkStima, existing.presaleLinkStima) ? { 'Link stima': presaleLinkStima } : {}),
+      ...(changed(presaleLinkOfferta, existing.presaleLinkOfferta) ? { 'Link offerta': presaleLinkOfferta } : {}),
+    })
+    if (linkErrPut) return c.json({ error: linkErrPut }, 400)
 
     const [linkedCliente, linkedProgetto] = await Promise.all([
       prisma.cliente.findUnique({
@@ -1610,6 +1664,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           presaleLinkRequisiti: presaleLinkRequisiti?.trim() || null,
           presaleLinkStima: presaleLinkStima?.trim() || null,
           presaleLinkOfferta: presaleLinkOfferta?.trim() || null,
+          presaleDriveFolderId: presaleDriveFolderId?.trim() || null,
           presaleGiornateStimate: presaleGiornateStimate != null ? presaleGiornateStimate : null,
           presaleScadenzaStima: presaleScadenzaStima ? new Date(presaleScadenzaStima) : null,
           presaleNotePerFase: presaleNotePerFase ?? undefined,
@@ -1781,6 +1836,70 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
     await savePresaleEmailConfig(prisma, cfg)
     return c.json(await getPresaleEmailConfig(prisma))
+  })
+
+  // ── Config Google Drive (drive condivisi Sviluppo/Commerciale) ──────
+  // Radici dei picker Drive: Sviluppo per analisi prodotti + presale
+  // analisi/stima, Commerciale per presale trattativa. Si salva l'URL
+  // incollato dall'utente e l'ID estratto (usato dal Picker come radice).
+  // GET aperta a tutti gli autenticati (serve alle pagine per aprire il
+  // picker); PUT solo Board, come la visibilità della pagina Impostazioni.
+
+  const GDRIVE_KEYS = {
+    devUrl: 'gdrive_dev_url', devId: 'gdrive_dev_id',
+    commUrl: 'gdrive_comm_url', commId: 'gdrive_comm_id',
+  } as const
+
+  // Estrae l'ID di un drive condiviso / cartella da un URL Drive, oppure
+  // accetta un ID nudo (gli ID Drive reali sono ≥ 19 caratteri). null = non
+  // riconosciuto; un URL http che non è un link a cartella viene rifiutato.
+  const extractDriveId = (raw: string): string | null => {
+    const s = raw.trim()
+    if (s === '') return null
+    const m = s.match(/\/(?:folders|drive\/(?:u\/\d+\/)?folders)\/([\w-]{10,})/) ??
+              s.match(/\/drive\/(?:u\/\d+\/)?(?:shared-drives|folders)\/([\w-]{10,})/)
+    if (m) return m[1]
+    if (/^http/i.test(s)) return null
+    return /^[\w-]{19,}$/.test(s) ? s : null
+  }
+
+  const readGDriveConfig = async (prisma: PrismaClient) => {
+    const rows = await prisma.appConfig.findMany({ where: { chiave: { in: Object.values(GDRIVE_KEYS) } } })
+    const map = new Map(rows.map((r) => [r.chiave, r.valore]))
+    return {
+      devUrl: map.get(GDRIVE_KEYS.devUrl) ?? '',
+      devId: map.get(GDRIVE_KEYS.devId) ?? '',
+      commUrl: map.get(GDRIVE_KEYS.commUrl) ?? '',
+      commId: map.get(GDRIVE_KEYS.commId) ?? '',
+    }
+  }
+
+  hono.get('/api/config/google-drive', requireAuth(), async (c) => {
+    return c.json(await readGDriveConfig(c.get('prisma')))
+  })
+
+  hono.put('/api/config/google-drive', requireAuth(), requireRole('BOARD'), async (c) => {
+    const { devUrl, commUrl } = await readJSON<{ devUrl?: unknown; commUrl?: unknown }>(c)
+    if (typeof devUrl !== 'string' || typeof commUrl !== 'string') {
+      return c.json({ error: 'devUrl e commUrl devono essere stringhe (vuote per disattivare)' }, 400)
+    }
+    const devId = extractDriveId(devUrl)
+    const commId = extractDriveId(commUrl)
+    if (devUrl.trim() !== '' && devId === null) {
+      return c.json({ error: 'Link Drive Sviluppo non riconosciuto: incolla il link di uno shared drive o di una cartella' }, 400)
+    }
+    if (commUrl.trim() !== '' && commId === null) {
+      return c.json({ error: 'Link Drive Commerciale non riconosciuto: incolla il link di uno shared drive o di una cartella' }, 400)
+    }
+    const prisma = c.get('prisma')
+    const entries: Array<[string, string]> = [
+      [GDRIVE_KEYS.devUrl, devUrl.trim()], [GDRIVE_KEYS.devId, devId ?? ''],
+      [GDRIVE_KEYS.commUrl, commUrl.trim()], [GDRIVE_KEYS.commId, commId ?? ''],
+    ]
+    await prisma.$transaction(entries.map(([chiave, valore]) =>
+      prisma.appConfig.upsert({ where: { chiave }, create: { chiave, valore }, update: { valore } })
+    ))
+    return c.json(await readGDriveConfig(prisma))
   })
 
   // ── Zoho Projects: import consuntivazioni (solo Board) ──────────────

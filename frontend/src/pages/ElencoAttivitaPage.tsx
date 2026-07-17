@@ -630,10 +630,14 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
 // ─── Rapportino mensile bucket ────────────────────────────────────────────────
 // Dettaglio espandibile di un ordine bucket: consuntivate per mese (in sola
 // lettura, alimentate dall'import Zoho) e fatturate per mese compilabili dal
-// PM. Il salvataggio riallinea il totale GG Fatturate dell'attività alla
-// somma dei mesi (PUT /api/attivita/:id/fatturato-mensile).
+// PM. Renderizzato come righe della stessa tabella del padre, così le colonne
+// GG Fatturate / GG Consuntivate dei mesi sono allineate a quelle di testata.
+// Il salvataggio riallinea il totale GG Fatturate dell'attività alla somma
+// dei mesi (PUT /api/attivita/:id/fatturato-mensile).
 
-function BucketMesiEditor({ item, readOnly }: { item: AttivitaItem; readOnly?: boolean }) {
+function BucketMesiRows({ item, showProgetto, readOnly }: {
+  item: AttivitaItem; showProgetto?: boolean; readOnly?: boolean
+}) {
   const ctx  = useContext(BucketMeseCtx)
   const mesi = item.consuntiviMese ?? []
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -653,11 +657,20 @@ function BucketMesiEditor({ item, readOnly }: { item: AttivitaItem; readOnly?: b
     return s + (isFinite(v) ? v : 0)
   }, 0)
 
+  // Colonne della tabella padre (vista bucket): Attività, [Progetto], Stato,
+  // GG Vendute, GG Fatturate, GG Consuntivate, Residuo, Deadline, Ord, DevHub,
+  // [azioni]. I mesi occupano le stesse colonne per allineare i numeri.
+  const leadCols = 2 + (showProgetto ? 1 : 0)          // fino a Stato inclusa
+  const trailCols = 4 + (readOnly ? 0 : 1)             // da Residuo in poi
+  const fullColSpan = leadCols + 3 + trailCols + 1     // +1: colonna GG Vendute
+
   if (mesi.length === 0) {
     return (
-      <p className="ea-mesi-empty">
-        Nessuna consuntivazione mensile: i mesi compaiono dopo il primo import da Consuntivi Zoho.
-      </p>
+      <tr className="ea-mesi-tr">
+        <td className="ea-cell ea-mesi-empty" colSpan={fullColSpan}>
+          Nessuna consuntivazione mensile: i mesi compaiono dopo il primo import da Consuntivi Zoho.
+        </td>
+      </tr>
     )
   }
 
@@ -697,64 +710,62 @@ function BucketMesiEditor({ item, readOnly }: { item: AttivitaItem; readOnly?: b
   }
 
   return (
-    <div className="ea-mesi">
-      <table className="ea-mesi-table" aria-label={`Rapportino mensile: ${item.attivita}`}>
-        <thead>
-          <tr>
-            <th scope="col" className="ea-mesi-th">Mese</th>
-            <th scope="col" className="ea-mesi-th ea-mesi-th--num">Consuntivate (gg)</th>
-            <th scope="col" className="ea-mesi-th ea-mesi-th--num">Fatturate (gg)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {mesi.map(m => (
-            <tr key={m.mese} className="ea-mesi-tr">
-              <td className="ea-mesi-td">{fmtMese(m.mese)}</td>
-              <td className="ea-mesi-td ea-mesi-td--num ea-cell--mono">{fmt(m.giornateConsuntivate)}</td>
-              <td className="ea-mesi-td ea-mesi-td--num">
-                {readOnly ? (
-                  <span className="ea-cell--mono">{fmt(m.giornateFatturate)}</span>
-                ) : (
-                  <input
-                    className="ea-mesi-input"
-                    type="number" min="0" step="0.5"
-                    value={draftValue(m)}
-                    onChange={e => {
-                      setDrafts(prev => ({ ...prev, [m.mese]: e.target.value }))
-                      setSaved(false)
-                    }}
-                    placeholder="0"
-                    aria-label={`Giornate fatturate ${fmtMese(m.mese)}`}
-                  />
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="ea-mesi-total">
-            <td className="ea-mesi-td">Totale</td>
-            <td className="ea-mesi-td ea-mesi-td--num ea-cell--mono">{fmt(Math.round(totConsuntivate * 100) / 100)}</td>
-            <td className="ea-mesi-td ea-mesi-td--num ea-cell--mono">{fmt(Math.round(totFatturate * 100) / 100)}</td>
-          </tr>
-        </tfoot>
-      </table>
+    <>
+      {mesi.map(m => (
+        <tr key={m.mese} className="ea-mesi-tr">
+          <td className="ea-cell ea-mesi-lbl" colSpan={leadCols}>{fmtMese(m.mese)}</td>
+          <td className="ea-cell" />
+          <td className="ea-cell ea-cell--num">
+            {readOnly ? (
+              <span className="ea-cell--mono">{fmt(m.giornateFatturate)}</span>
+            ) : (
+              <input
+                className="ea-mesi-input"
+                type="number" min="0" step="0.5"
+                value={draftValue(m)}
+                onChange={e => {
+                  setDrafts(prev => ({ ...prev, [m.mese]: e.target.value }))
+                  setSaved(false)
+                }}
+                placeholder="0"
+                aria-label={`Giornate fatturate ${fmtMese(m.mese)}`}
+              />
+            )}
+          </td>
+          <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(m.giornateConsuntivate)}</td>
+          <td className="ea-cell" colSpan={trailCols} />
+        </tr>
+      ))}
+
+      <tr className="ea-mesi-tr ea-mesi-total">
+        <td className="ea-cell ea-mesi-lbl" colSpan={leadCols}>Totale mesi</td>
+        <td className="ea-cell" />
+        <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(Math.round(totFatturate * 100) / 100)}</td>
+        <td className="ea-cell ea-cell--num ea-cell--mono">{fmt(Math.round(totConsuntivate * 100) / 100)}</td>
+        <td className="ea-cell" colSpan={trailCols} />
+      </tr>
 
       {!readOnly && (
-        <div className="ea-mesi-actions">
-          {err && <span className="ea-mesi-err" role="alert">{err}</span>}
-          {saved && !dirty && <span className="ea-mesi-ok" role="status">Rapportino salvato.</span>}
-          <button
-            className="ea-btn ea-btn--primary ea-mesi-save"
-            type="button"
-            disabled={saving || !dirty}
-            onClick={handleSave}
-          >
-            {saving ? 'Salvataggio…' : 'Salva rapportino'}
-          </button>
-        </div>
+        <tr className="ea-mesi-tr ea-mesi-actions-row">
+          <td className="ea-cell" colSpan={leadCols} />
+          <td className="ea-cell ea-mesi-actions-cell" colSpan={3}>
+            <div className="ea-mesi-actions">
+              {err && <span className="ea-mesi-err" role="alert">{err}</span>}
+              {saved && !dirty && <span className="ea-mesi-ok" role="status">Rapportino salvato.</span>}
+              <button
+                className="ea-btn ea-btn--primary ea-mesi-save"
+                type="button"
+                disabled={saving || !dirty}
+                onClick={handleSave}
+              >
+                {saving ? 'Salvataggio…' : 'Salva rapportino'}
+              </button>
+            </div>
+          </td>
+          <td className="ea-cell" colSpan={trailCols} />
+        </tr>
       )}
-    </div>
+    </>
   )
 }
 
@@ -782,8 +793,6 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
     if (next.has(id)) next.delete(id); else next.add(id)
     return next
   })
-  // Colonne della riga principale (per il colSpan del dettaglio mensile)
-  const colSpan = 9 + (showProgetto ? 1 : 0) + (readOnly ? 0 : 1)
   return (
     <div className="ea-group-body">
       <div className="ea-table-wrap">
@@ -889,11 +898,7 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
                   )}
                 </tr>
                 {mesiOpen && (
-                  <tr className="ea-mesi-row">
-                    <td className="ea-mesi-cell" colSpan={colSpan}>
-                      <BucketMesiEditor item={item} readOnly={readOnly} />
-                    </td>
-                  </tr>
+                  <BucketMesiRows item={item} showProgetto={showProgetto} readOnly={readOnly} />
                 )}
                 </Fragment>
               )

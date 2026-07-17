@@ -359,6 +359,9 @@ model Attivita {
   presaleLinkRequisiti     String?         @map("presale_link_requisiti")
   presaleLinkStima         String?         @map("presale_link_stima")
   presaleLinkOfferta       String?         @map("presale_link_offerta")
+  // Cartella Drive del file analisi (valorizzata quando il file è scelto col
+  // picker): il picker della fase Stima si apre bloccato su questa cartella.
+  presaleDriveFolderId     String?         @map("presale_drive_folder_id")
   presaleGiornateStimate   Decimal?        @map("presale_giornate_stimate") @db.Decimal(10, 2)
   presaleScadenzaStima     DateTime?       @map("presale_scadenza_stima")
   presaleTipoIntervento    String?         @map("presale_tipo_intervento") // NUOVO_PROGETTO | MODIFICA
