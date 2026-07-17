@@ -11,6 +11,7 @@ import DashboardPage         from './pages/DashboardPage'
 import RoadmapPage           from './pages/RoadmapPage'
 import PresalePage           from './pages/PresalePage'
 import ConsuntiviZohoPage    from './pages/ConsuntiviZohoPage'
+import ContrattiPage         from './pages/ContrattiPage'
 import './App.css'
 
 // ─── Sidebar icons ──────────────────────────────────────────────────────────
@@ -100,6 +101,17 @@ function IconPresale() {
   )
 }
 
+function IconContract() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75"
+      width="20" height="20" aria-hidden="true">
+      <path d="M6 2h6.586a1 1 0 0 1 .707.293l2.414 2.414a1 1 0 0 1 .293.707V17a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"
+        strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 8h5M8 11h5M8 14h2.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function IconSettings() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true">
@@ -130,7 +142,7 @@ function BrandMark() {
 
 // ─── Sezione placeholder ─────────────────────────────────────────────────────
 
-type NavPage = 'dashboard' | 'clienti' | 'progetti' | 'timeline' | 'attivita' | 'presale' | 'consuntivi' | 'utenti' | 'roadmap' | 'impostazioni'
+type NavPage = 'dashboard' | 'clienti' | 'progetti' | 'timeline' | 'attivita' | 'presale' | 'consuntivi' | 'contratti' | 'utenti' | 'roadmap' | 'impostazioni'
 
 const PAGE_LABELS: Record<NavPage, string> = {
   dashboard:    'Dashboard',
@@ -140,6 +152,7 @@ const PAGE_LABELS: Record<NavPage, string> = {
   attivita:     'Elenco Attività Progetti',
   presale:      'Presale',
   consuntivi:   'Consuntivi Zoho',
+  contratti:    'Contratti Assistenza',
   utenti:       'Anagrafica Utenti',
   roadmap:      'Roadmap Prodotti',
   impostazioni: 'Impostazioni',
@@ -271,6 +284,8 @@ export default function App() {
   // Consuntivi Zoho: import consuntivazioni, riservato a Board/PM/Account
   // (stesso gating delle route /api/zoho/* lato backend)
   const canConsuntivi = isBoard || roles.includes('PM') || roles.includes('ACCOUNT')
+  // Contratti assistenza/AMS: stesso gating (route /api/contratti lato backend)
+  const canContratti = canConsuntivi
   // Presale: per ora visibile solo a questi indirizzi (allowlist temporanea,
   // in attesa di gestirlo con permessi/ruoli veri).
   const PRESALE_ALLOWED = ['matteo.pezzoli@soluzione1.it']
@@ -308,6 +323,7 @@ export default function App() {
           {!isDevHub && navBtn('dashboard', 'Dashboard',            <IconGrid />)}
           {canPresale && navBtn('presale', 'Presale',      <IconPresale />)}
           {navBtn('attivita',      'Elenco Attività Progetti', <IconClipboard />)}
+          {canContratti && navBtn('contratti', 'Contratti Assistenza', <IconContract />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
           {!isDevHub && navBtn('clienti',   'Anagrafica Clienti',   <IconBuilding />)}
@@ -376,10 +392,11 @@ export default function App() {
         {effectivePage === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={isDevHub} />}
         {effectivePage === 'presale'       && canPresale && <PresalePage token={token} />}
         {effectivePage === 'consuntivi'    && canConsuntivi && <ConsuntiviZohoPage token={token} />}
+        {effectivePage === 'contratti'     && canContratti && <ContrattiPage token={token} />}
         {effectivePage === 'roadmap'       && <RoadmapPage           token={token} readOnly={isDevHub} />}
         {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} showPresaleEmail={canPresale} />}
         {effectivePage === 'timeline'      && <GanttPage             token={token} />}
-        {effectivePage !== 'dashboard' && effectivePage !== 'clienti' && effectivePage !== 'progetti' && effectivePage !== 'utenti' && effectivePage !== 'attivita' && effectivePage !== 'presale' && effectivePage !== 'consuntivi' && effectivePage !== 'roadmap' && effectivePage !== 'impostazioni' && effectivePage !== 'timeline' && (
+        {effectivePage !== 'dashboard' && effectivePage !== 'clienti' && effectivePage !== 'progetti' && effectivePage !== 'utenti' && effectivePage !== 'attivita' && effectivePage !== 'presale' && effectivePage !== 'consuntivi' && effectivePage !== 'contratti' && effectivePage !== 'roadmap' && effectivePage !== 'impostazioni' && effectivePage !== 'timeline' && (
           <PlaceholderPage page={effectivePage} />
         )}
       </div>

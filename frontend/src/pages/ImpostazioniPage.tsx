@@ -14,10 +14,13 @@ export interface StatoConfig {
   isArchiviato: boolean
   escludiDaConteggio: boolean
   isPresale?: boolean
+  // Solo stati contratto: contratto concluso, escluso dal banner scadenze.
+  // In questa pagina viaggia mappato su isArchiviato (stesso toggle, label diverse).
+  isChiuso?: boolean
   ordine: number
 }
 
-type Sezione = 'attivita' | 'progetto' | 'roadmap' | 'tag'
+type Sezione = 'attivita' | 'progetto' | 'roadmap' | 'tag' | 'contratto'
 
 interface FormState {
   label: string
@@ -86,12 +89,14 @@ interface StatoModalProps {
   loading: boolean
   apiError: string | null
   showEscludi?: boolean
+  // Stati contratto: il toggle Archiviato assume la semantica Chiuso/Aperto
+  chiusoMode?: boolean
   onChange: (f: FormState) => void
   onSave: () => void
   onClose: () => void
 }
 
-function StatoModal({ title, form, chiavePreview, loading, apiError, showEscludi, onChange, onSave, onClose }: StatoModalProps) {
+function StatoModal({ title, form, chiavePreview, loading, apiError, showEscludi, chiusoMode, onChange, onSave, onClose }: StatoModalProps) {
   const firstRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { firstRef.current?.focus() }, [])
@@ -183,9 +188,13 @@ function StatoModal({ title, form, chiavePreview, loading, apiError, showEscludi
                 <span className="imp-toggle-thumb" />
               </span>
               <span className="imp-toggle-label">
-                {form.isArchiviato
-                  ? <><span className="imp-tipo-tag imp-tipo-tag--arch">Archiviato</span> — non visibile nei filtri attivi</>
-                  : <><span className="imp-tipo-tag imp-tipo-tag--active">Attivo</span> — visibile nel filtro "Solo attivi"</>
+                {chiusoMode
+                  ? (form.isArchiviato
+                      ? <><span className="imp-tipo-tag imp-tipo-tag--arch">Chiuso</span> — escluso dal banner scadenze</>
+                      : <><span className="imp-tipo-tag imp-tipo-tag--active">Aperto</span> — monitorato per le scadenze</>)
+                  : (form.isArchiviato
+                      ? <><span className="imp-tipo-tag imp-tipo-tag--arch">Archiviato</span> — non visibile nei filtri attivi</>
+                      : <><span className="imp-tipo-tag imp-tipo-tag--active">Attivo</span> — visibile nel filtro "Solo attivi"</>)
                 }
               </span>
             </label>
@@ -317,11 +326,12 @@ interface StatiTableProps {
   stati: StatoConfig[]
   loading: boolean
   showEscludi?: boolean
+  chiusoMode?: boolean
   onEdit: (s: StatoConfig) => void
   onDelete: (s: StatoConfig) => void
 }
 
-function StatiTable({ stati, loading, showEscludi, onEdit, onDelete }: StatiTableProps) {
+function StatiTable({ stati, loading, showEscludi, chiusoMode, onEdit, onDelete }: StatiTableProps) {
   if (loading) {
     return (
       <div className="imp-skeleton-list">
@@ -369,7 +379,7 @@ function StatiTable({ stati, loading, showEscludi, onEdit, onDelete }: StatiTabl
               </td>
               <td className="imp-cell">
                 <span className={`imp-tipo-tag ${s.isArchiviato ? 'imp-tipo-tag--arch' : 'imp-tipo-tag--active'}`}>
-                  {s.isArchiviato ? 'Archiviato' : 'Attivo'}
+                  {chiusoMode ? (s.isArchiviato ? 'Chiuso' : 'Aperto') : (s.isArchiviato ? 'Archiviato' : 'Attivo')}
                 </span>
               </td>
               {showEscludi && (
@@ -419,14 +429,18 @@ interface StatiSezioneProps {
 }
 
 const SEZIONE_ENDPOINT: Record<Sezione, string> = {
-  attivita: '/api/stati-attivita',
-  progetto: '/api/stati-progetto',
-  roadmap:  '/api/stati-roadmap',
-  tag:      '/api/roadmap-tags',
+  attivita:  '/api/stati-attivita',
+  progetto:  '/api/stati-progetto',
+  roadmap:   '/api/stati-roadmap',
+  tag:       '/api/roadmap-tags',
+  contratto: '/api/stati-contratto',
 }
 
 function StatiSezione({ token, sezione }: StatiSezioneProps) {
   const endpoint = SEZIONE_ENDPOINT[sezione]
+  // Gli stati contratto hanno isChiuso al posto di isArchiviato: qui viaggia
+  // mappato sul toggle isArchiviato del form, con label Chiuso/Aperto.
+  const isContratto = sezione === 'contratto'
 
   const [stati,    setStati]    = useState<StatoConfig[]>([])
   const [loading,  setLoading]  = useState(true)
@@ -444,13 +458,14 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
     try {
       const res = await fetch(`${API_URL}${endpoint}`, { headers: authHeaders(token) })
       if (!res.ok) throw new Error(`Errore ${res.status}`)
-      setStati(await res.json())
+      const data = (await res.json()) as StatoConfig[]
+      setStati(isContratto ? data.map(s => ({ ...s, isArchiviato: !!s.isChiuso })) : data)
     } catch {
       setPageErr('Impossibile caricare gli stati.')
     } finally {
       setLoading(false)
     }
-  }, [token, endpoint])
+  }, [token, endpoint, isContratto])
 
   useEffect(() => {
     queueMicrotask(() => { fetchStati() })
@@ -478,14 +493,21 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
     try {
       const url    = modal === 'edit' ? `${API_URL}${endpoint}/${editing!.id}` : `${API_URL}${endpoint}`
       const method = modal === 'edit' ? 'PUT' : 'POST'
-      const body = {
-        label:              form.label.trim(),
-        colore:             form.colore || '#94a3b8',
-        isArchiviato:       form.isArchiviato,
-        escludiDaConteggio: sezione === 'attivita' ? form.escludiDaConteggio : false,
-        isPresale:          sezione === 'attivita' ? form.isPresale : false,
-        ordine:             parseInt(form.ordine) || 99,
-      }
+      const body = isContratto
+        ? {
+            label:    form.label.trim(),
+            colore:   form.colore || '#94a3b8',
+            isChiuso: form.isArchiviato,
+            ordine:   parseInt(form.ordine) || 99,
+          }
+        : {
+            label:              form.label.trim(),
+            colore:             form.colore || '#94a3b8',
+            isArchiviato:       form.isArchiviato,
+            escludiDaConteggio: sezione === 'attivita' ? form.escludiDaConteggio : false,
+            isPresale:          sezione === 'attivita' ? form.isPresale : false,
+            ordine:             parseInt(form.ordine) || 99,
+          }
       const res = await fetch(url, { method, headers: authHeadersJson(token), body: JSON.stringify(body) })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -554,6 +576,7 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
         stati={stati}
         loading={loading}
         showEscludi={sezione === 'attivita'}
+        chiusoMode={isContratto}
         onEdit={openEdit}
         onDelete={setDelTarget}
       />
@@ -566,6 +589,7 @@ function StatiSezione({ token, sezione }: StatiSezioneProps) {
           loading={saving}
           apiError={formErr}
           showEscludi={sezione === 'attivita'}
+          chiusoMode={isContratto}
           onChange={setForm}
           onSave={handleSave}
           onClose={() => setModal(null)}
@@ -1006,11 +1030,11 @@ function PresaleEmailSezione({ token }: { token: string }) {
 // presale analisi/stima) e Commerciale (presale trattativa). L'utente incolla
 // il link dello shared drive/cartella, il backend estrae e salva l'ID.
 
-interface GDriveConfigForm { devUrl: string; commUrl: string }
+interface GDriveConfigForm { devUrl: string; commUrl: string; contrattiUrl: string }
 
 function GoogleDriveSezione({ token }: { token: string }) {
-  const [form, setForm]       = useState<GDriveConfigForm>({ devUrl: '', commUrl: '' })
-  const [ids, setIds]         = useState<{ devId: string; commId: string }>({ devId: '', commId: '' })
+  const [form, setForm]       = useState<GDriveConfigForm>({ devUrl: '', commUrl: '', contrattiUrl: '' })
+  const [ids, setIds]         = useState<{ devId: string; commId: string; contrattiId: string }>({ devId: '', commId: '', contrattiId: '' })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving]   = useState(false)
   const [pageErr, setPageErr] = useState<string | null>(null)
@@ -1022,10 +1046,10 @@ function GoogleDriveSezione({ token }: { token: string }) {
       try {
         const res = await fetch(`${API_URL}/api/config/google-drive`, { headers: authHeaders(token) })
         if (!res.ok) throw new Error()
-        const data = await res.json() as { devUrl: string; devId: string; commUrl: string; commId: string }
+        const data = await res.json() as { devUrl: string; devId: string; commUrl: string; commId: string; contrattiUrl: string; contrattiId: string }
         if (cancelled) return
-        setForm({ devUrl: data.devUrl, commUrl: data.commUrl })
-        setIds({ devId: data.devId, commId: data.commId })
+        setForm({ devUrl: data.devUrl, commUrl: data.commUrl, contrattiUrl: data.contrattiUrl })
+        setIds({ devId: data.devId, commId: data.commId, contrattiId: data.contrattiId })
       } catch {
         if (!cancelled) setPageErr('Impossibile caricare la configurazione.')
       } finally {
@@ -1051,9 +1075,9 @@ function GoogleDriveSezione({ token }: { token: string }) {
         setPageErr((data as { error?: string }).error ?? `Errore ${res.status}`)
         return
       }
-      const data = await res.json() as { devUrl: string; devId: string; commUrl: string; commId: string }
-      setForm({ devUrl: data.devUrl, commUrl: data.commUrl })
-      setIds({ devId: data.devId, commId: data.commId })
+      const data = await res.json() as { devUrl: string; devId: string; commUrl: string; commId: string; contrattiUrl: string; contrattiId: string }
+      setForm({ devUrl: data.devUrl, commUrl: data.commUrl, contrattiUrl: data.contrattiUrl })
+      setIds({ devId: data.devId, commId: data.commId, contrattiId: data.contrattiId })
       setOkMsg('Configurazione salvata.')
     } catch {
       setPageErr('Errore di rete. Riprova.')
@@ -1099,6 +1123,106 @@ function GoogleDriveSezione({ token }: { token: string }) {
           </span>
         </div>
 
+        <div className="imp-field">
+          <label htmlFor="cfg-gdrive-contratti" className="imp-label">Drive Contratti</label>
+          <input id="cfg-gdrive-contratti" className="imp-input" type="url" value={form.contrattiUrl}
+            onChange={set('contrattiUrl')} placeholder="https://drive.google.com/drive/folders/…" />
+          <span className="imp-field-hint">
+            Documenti dei contratti assistenza/AMS (drive condiviso "Contratti annuali clienti e prodotti").
+            {ids.contrattiId && <> ID rilevato: <code>{ids.contrattiId}</code></>}
+          </span>
+        </div>
+
+        <div className="imp-cfg-actions">
+          <button className="imp-btn imp-btn--primary" type="button" onClick={handleSave} disabled={saving}>
+            {saving ? 'Salvataggio…' : 'Salva configurazione'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Sezione Parametri Contratti ──────────────────────────────────────────────
+// Costo medio giornata risorsa (€): usato dalla pagina Contratti per il
+// confronto economico consuntivato × costo medio vs budget ordini.
+
+function ContrattiConfigSezione({ token }: { token: string }) {
+  const [valore, setValore]   = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [pageErr, setPageErr] = useState<string | null>(null)
+  const [okMsg, setOkMsg]     = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/config/contratti`, { headers: authHeaders(token) })
+        if (!res.ok) throw new Error()
+        const data = await res.json() as { costoMedioGiornata: number | null }
+        if (!cancelled) setValore(data.costoMedioGiornata !== null ? String(data.costoMedioGiornata) : '')
+      } catch {
+        if (!cancelled) setPageErr('Impossibile caricare la configurazione.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [token])
+
+  const handleSave = async () => {
+    const n = valore.trim() === '' ? null : Number(valore.replace(',', '.'))
+    if (n !== null && (!Number.isFinite(n) || n < 0)) {
+      setPageErr('Il costo medio deve essere un numero ≥ 0.'); return
+    }
+    setSaving(true); setPageErr(null); setOkMsg(null)
+    try {
+      const res = await fetch(`${API_URL}/api/config/contratti`, {
+        method: 'PUT', headers: authHeadersJson(token),
+        body: JSON.stringify({ costoMedioGiornata: n }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setPageErr((data as { error?: string }).error ?? `Errore ${res.status}`)
+        return
+      }
+      const data = await res.json() as { costoMedioGiornata: number | null }
+      setValore(data.costoMedioGiornata !== null ? String(data.costoMedioGiornata) : '')
+      setOkMsg('Configurazione salvata.')
+    } catch {
+      setPageErr('Errore di rete. Riprova.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="imp-skeleton-list">{[...Array(2)].map((_, i) => <div key={i} className="imp-skeleton" />)}</div>
+  }
+
+  return (
+    <div className="imp-sezione">
+      <div className="imp-sezione-topbar">
+        <p className="imp-sezione-sub">
+          Parametri della pagina Contratti Assistenza / AMS.
+        </p>
+      </div>
+
+      {pageErr && <p className="imp-page-error" role="alert">{pageErr}</p>}
+      {okMsg && <p className="imp-ok-banner" role="status">{okMsg}</p>}
+
+      <div className="imp-cfg-card">
+        <div className="imp-field imp-field--half">
+          <label htmlFor="cfg-costo-medio" className="imp-label">Costo medio giornata risorsa (€)</label>
+          <input id="cfg-costo-medio" className="imp-input" type="number" min="0" step="0.01"
+            value={valore} onChange={e => { setValore(e.target.value); setOkMsg(null) }} placeholder="es. 350" />
+          <span className="imp-field-hint">
+            Consumato € di un contratto = giornate consuntivate delle attività collegate × questo valore,
+            confrontato col budget ordini. Vuoto = confronto disattivato.
+          </span>
+        </div>
+
         <div className="imp-cfg-actions">
           <button className="imp-btn imp-btn--primary" type="button" onClick={handleSave} disabled={saving}>
             {saving ? 'Salvataggio…' : 'Salva configurazione'}
@@ -1111,7 +1235,7 @@ function GoogleDriveSezione({ token }: { token: string }) {
 
 interface ImpostazioniPageProps { token: string; showPresaleEmail?: boolean }
 
-type SettingsKey = Sezione | 'notifiche' | 'gdrive'
+type SettingsKey = Sezione | 'notifiche' | 'gdrive' | 'contratti-cfg'
 
 interface SettingsNavItem {
   key: SettingsKey
@@ -1155,6 +1279,29 @@ const NAV_GROUPS: Array<{ label: string; items: SettingsNavItem[] }> = [
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
             <path d="M3 9l6-6h5a1 1 0 0 1 1 1v5l-6 6a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4z" strokeLinecap="round" strokeLinejoin="round" />
             <circle cx="12.5" cy="6.5" r="1.2" />
+          </svg>
+        ),
+      },
+      {
+        key: 'contratto', label: 'Stati Contratti',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+            <path d="M6 2h6.586a1 1 0 0 1 .707.293l2.414 2.414a1 1 0 0 1 .293.707V17a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M8 8h5M8 11h5M8 14h2.5" strokeLinecap="round" />
+          </svg>
+        ),
+      },
+    ],
+  },
+  {
+    label: 'Contratti',
+    items: [
+      {
+        key: 'contratti-cfg', label: 'Parametri Contratti',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+            <circle cx="10" cy="10" r="7.5" />
+            <path d="M7.5 12.2c.5.8 1.4 1.3 2.5 1.3 1.4 0 2.5-.8 2.5-1.9 0-2.6-4.8-1.3-4.8-3.6 0-1 1-1.8 2.3-1.8 1 0 1.9.4 2.4 1.1M10 4.8v10.4" strokeLinecap="round" />
           </svg>
         ),
       },
@@ -1229,9 +1376,11 @@ export default function ImpostazioniPage({ token, showPresaleEmail }: Impostazio
             ? <PresaleEmailSezione token={token} />
             : tab === 'gdrive'
               ? <GoogleDriveSezione token={token} />
-              : tab === 'tag'
-                ? <TagSezione token={token} />
-                : <StatiSezione key={tab} token={token} sezione={tab} />}
+              : tab === 'contratti-cfg'
+                ? <ContrattiConfigSezione token={token} />
+                : tab === 'tag'
+                  ? <TagSezione token={token} />
+                  : <StatiSezione key={tab} token={token} sezione={tab} />}
         </div>
       </div>
     </div>
