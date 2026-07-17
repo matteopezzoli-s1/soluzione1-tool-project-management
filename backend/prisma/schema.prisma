@@ -43,7 +43,7 @@ model User {
   progettiDevHub  Progetto[]  @relation("ProgettoDevHub")
   progettiPO      Progetto[]  @relation("ProgettoPO")
   progettiPmRiferimento Progetto[] @relation("ProgettoPmRiferimento")
-  attivitaPM      AttivitaPM[]
+  attivitaPM      Attivita[]  @relation("AttivitaPM")
   clientiAccount  Cliente[]   @relation("ClienteAccount")
   attivitaAccount Attivita[]  @relation("AttivitaAccount")
   attivitaPresaleAssegnate Attivita[] @relation("AttivitaPresaleAssegnatario")
@@ -355,6 +355,11 @@ model Attivita {
   accountId                String?         @map("account_id")
   accountRel               User?           @relation("AttivitaAccount", fields: [accountId], references: [id], onDelete: SetNull)
 
+  // PM di riferimento dell'attività (un solo PM per attività). Nullable:
+  // un'attività può non avere ancora un PM assegnato.
+  pmId                     String?         @map("pm_id")
+  pm                       User?           @relation("AttivitaPM", fields: [pmId], references: [id], onDelete: SetNull)
+
   // ── Presale (valorizzati solo mentre l'attività è in uno stato isPresale) ──
   presaleLinkRequisiti     String?         @map("presale_link_requisiti")
   presaleLinkStima         String?         @map("presale_link_stima")
@@ -372,7 +377,6 @@ model Attivita {
   // già stata inviata: evita doppioni quando la card viene ri-salvata.
   presaleEmailFasiInviate  String[]        @default([]) @map("presale_email_fasi_inviate")
 
-  pms                      AttivitaPM[]
   milestones               GanttMilestone[]
   statoLog                 AttivitaStatoLog[]
   consuntiviMese           AttivitaConsuntivoMese[]
@@ -382,18 +386,9 @@ model Attivita {
   @@index([clienteId])
   @@index([progettoId])
   @@index([accountId])
+  @@index([pmId])
   @@index([presaleAssegnatarioId])
   @@map("attivita")
-}
-
-model AttivitaPM {
-  attivitaId  String   @map("attivita_id")
-  pmId        String   @map("pm_id")
-  attivita    Attivita @relation(fields: [attivitaId], references: [id], onDelete: Cascade)
-  pm          User     @relation(fields: [pmId], references: [id], onDelete: Cascade)
-
-  @@id([attivitaId, pmId])
-  @@map("attivita_pms")
 }
 
 // Dettaglio mensile di un'attività: giornate consuntivate (alimentate

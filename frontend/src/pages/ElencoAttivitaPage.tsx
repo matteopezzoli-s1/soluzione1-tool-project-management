@@ -60,7 +60,7 @@ interface AttivitaItem {
   cliente: string;        clienteId: string | null
   progetto: string;       progettoId: string | null
   account: string;        accountId: string | null
-  projectManager: string; pmIds: string[]
+  projectManager: string; pmId: string | null
   devHub: string;         devHubId: string | null
   attivita: string
   giornateVendute: number | null
@@ -124,7 +124,7 @@ interface ClienteOption {
 interface ProgettoOption { id: string; nome: string; clienteId: string | null; clienteNome: string | null; pmRiferimentoId: string | null }
 
 type AttivitaFormData = {
-  clienteId: string; progettoId: string; pmIds: string[]
+  clienteId: string; progettoId: string; pmId: string
   attivita: string
   stato: StatoAttivita
   giornateVendute: string; giornateFatturate: string; giornateConsuntivate: string
@@ -133,7 +133,7 @@ type AttivitaFormData = {
 }
 
 const EMPTY_FORM: AttivitaFormData = {
-  clienteId: '', progettoId: '', pmIds: [],
+  clienteId: '', progettoId: '', pmId: '',
   attivita: '', stato: 'IN_CORSO',
   giornateVendute: '', giornateFatturate: '', giornateConsuntivate: '',
   riferimentoOrdineVendita: '', inizio: '', deadline: '', note: '',
@@ -1179,74 +1179,6 @@ function exportCSV(gruppi: GruppoAttivita[], vista: TipoAttivita) {
   URL.revokeObjectURL(url)
 }
 
-// ─── PM multi-select ─────────────────────────────────────────────────────────
-
-function PMMultiSelect({ pms, value, onChange }: {
-  pms: PMOption[]; value: string[]; onChange: (v: string[]) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function outside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', outside)
-    return () => document.removeEventListener('mousedown', outside)
-  }, [])
-
-  const toggle = (id: string) =>
-    onChange(value.includes(id) ? value.filter(v => v !== id) : [...value, id])
-
-  const selectedNames = pms.filter(p => value.includes(p.id))
-    .map(p => [p.firstName, p.lastName].filter(Boolean).join(' '))
-  const label = value.length === 0
-    ? '— Nessun PM —'
-    : value.length === 1
-      ? selectedNames[0]
-      : `${value.length} PM selezionati`
-
-  return (
-    <div className="ea-pm-wrap" ref={ref}>
-      <button
-        type="button"
-        className={`ea-form-input ea-pm-btn${open ? ' ea-pm-btn--open' : ''}`}
-        onClick={() => setOpen(o => !o)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-      >
-        <span className={value.length > 0 ? 'ea-pm-btn-active' : 'ea-pm-btn-placeholder'}>{label}</span>
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
-          width="14" height="14" aria-hidden="true">
-          <path d="M5 7.5l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-      {open && (
-        <div className="ea-pm-dropdown" role="listbox" aria-multiselectable="true">
-          {pms.length === 0 && (
-            <span className="ea-pm-empty">Nessun PM disponibile</span>
-          )}
-          {pms.map(p => {
-            const name = [p.firstName, p.lastName].filter(Boolean).join(' ')
-            const checked = value.includes(p.id)
-            return (
-              <label key={p.id} className={`ea-pm-item${checked ? ' ea-pm-item--checked' : ''}`}>
-                <input type="checkbox" checked={checked} onChange={() => toggle(p.id)} />
-                <span>{name}</span>
-              </label>
-            )
-          })}
-          {value.length > 0 && (
-            <button type="button" className="ea-pm-clear" onClick={() => { onChange([]); setOpen(false) }}>
-              Rimuovi selezione
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Attività Modal ───────────────────────────────────────────────────────────
 
 interface AttivitaModalProps {
@@ -1321,7 +1253,7 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
                 value={form.progettoId} onChange={e => {
                   // Pre-compila il PM col riferimento del progetto (se non già scelto).
                   const pmRif = progettiCliente.find(p => p.id === e.target.value)?.pmRiferimentoId
-                  onChange({ ...form, progettoId: e.target.value, pmIds: pmRif && form.pmIds.length === 0 ? [pmRif] : form.pmIds })
+                  onChange({ ...form, progettoId: e.target.value, pmId: !form.pmId && pmRif ? pmRif : form.pmId })
                 }}
                 disabled={!form.clienteId}>
                 <option value="">
@@ -1350,9 +1282,14 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
                   </span>}
             </div>
             <div className="ea-form-field">
-              <label className="ea-form-label">Project Manager</label>
-              <PMMultiSelect pms={pms} value={form.pmIds}
-                onChange={v => onChange({ ...form, pmIds: v })} />
+              <label htmlFor="ea-f-pm" className="ea-form-label">Project Manager</label>
+              <select id="ea-f-pm" className="ea-form-input ea-form-select"
+                value={form.pmId} onChange={e => onChange({ ...form, pmId: e.target.value })}>
+                <option value="">— Nessun PM —</option>
+                {pms.map(p => (
+                  <option key={p.id} value={p.id}>{[p.firstName, p.lastName].filter(Boolean).join(' ')}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -1987,7 +1924,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
     setForm({
       clienteId:                item.clienteId  ?? '',
       progettoId:               item.progettoId ?? '',
-      pmIds:                    item.pmIds       ?? [],
+      pmId:                     item.pmId       ?? '',
       attivita:                 item.attivita,
       stato:                    item.stato,
       giornateVendute:          item.giornateVendute  != null ? String(item.giornateVendute)  : '',
@@ -2014,7 +1951,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       const body = {
         clienteId:                form.clienteId,
         progettoId:               form.progettoId,
-        pmIds:                    form.pmIds,
+        pmId:                     form.pmId || null,
         attivita:                 form.attivita.trim(),
         tipo:                     modal === 'edit' ? editing!.tipo : vista,
         stato:                    form.stato,
@@ -2048,7 +1985,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       const body = {
         clienteId:                item.clienteId,
         progettoId:               item.progettoId,
-        pmIds:                    item.pmIds ?? [],
+        pmId:                     item.pmId ?? null,
         attivita:                 item.attivita,
         tipo:                     item.tipo,
         stato:                    newStato,
