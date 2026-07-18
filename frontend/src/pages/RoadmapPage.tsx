@@ -265,7 +265,9 @@ function AvviaModal({ item, clienti, pms, loading, apiError, onConfirm, onClose 
   const [clienteId, setClienteId] = useState('')
   const [gg, setGg] = useState(residuo !== null && residuo > 0 ? String(residuo) : '')
   const [ordine, setOrdine] = useState('')
-  const [pmId, setPmId] = useState('')
+  // PM precompilato col PO di riferimento del prodotto (se ha ruolo PM)
+  const poDefault = item.progetto.poId && pms.some(p => p.id === item.progetto.poId) ? item.progetto.poId : ''
+  const [pmId, setPmId] = useState(poDefault)
 
   const ggNum = gg.trim() === '' ? null : Number(gg.replace(',', '.'))
   const ggValido = ggNum === null || (Number.isFinite(ggNum) && ggNum >= 0)
@@ -324,6 +326,9 @@ function AvviaModal({ item, clienti, pms, loading, apiError, onConfirm, onClose 
               <option value="">— Nessun PM —</option>
               {pms.map(p => <option key={p.id} value={p.id}>{poFullName(p)}</option>)}
             </select>
+            {poDefault !== '' && pmId === poDefault && (
+              <span className="rm-field-hint">Precompilato col PO di riferimento di {item.progetto.nome}.</span>
+            )}
           </div>
         </div>
         <div className="rm-modal-footer">
