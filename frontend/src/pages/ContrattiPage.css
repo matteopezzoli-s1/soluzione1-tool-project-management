@@ -1,0 +1,324 @@
+/* =============================================================
+   ContrattiPage — Contratti di assistenza / AMS (prefisso ct-)
+   ============================================================= */
+
+@keyframes ct-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes ct-modal-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes ct-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-page, .ct-modal { animation: none !important; }
+}
+
+/* ── Page ──────────────────────────────────────────────────── */
+
+.ct-page {
+  flex: 1;
+  padding: 2rem 1.75rem;
+  max-width: 1240px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  animation: ct-fade-up 0.35s ease both;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.ct-topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; }
+.ct-title { font-size: 1.5rem; font-weight: 800; color: #0F172A; letter-spacing: -0.03em; line-height: 1.2; }
+.ct-subtitle { font-size: 0.8rem; color: #94A3B8; margin-top: 0.2rem; font-weight: 500; }
+
+/* ── Buttons ───────────────────────────────────────────────── */
+
+.ct-btn {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  padding: 0.6rem 1.1rem; border-radius: 10px; font-family: inherit;
+  font-size: 0.875rem; font-weight: 600; cursor: pointer;
+  border: 1.5px solid transparent;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 100ms ease;
+  white-space: nowrap;
+}
+.ct-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; }
+.ct-btn:focus-visible { outline: 2.5px solid #0D9488; outline-offset: 3px; }
+.ct-btn--primary { background: #0D9488; color: #fff; border-color: #0D9488; }
+.ct-btn--primary:hover:not(:disabled) { background: #0F766E; box-shadow: 0 4px 14px rgba(13,148,136,.3); transform: translateY(-1px); }
+.ct-btn--ghost { background: transparent; color: #475569; border-color: #E2E8F0; }
+.ct-btn--ghost:hover:not(:disabled) { background: #F8FAFC; border-color: #CBD5E1; }
+.ct-btn--danger { background: #DC2626; color: #fff; border-color: #DC2626; }
+.ct-btn--danger:hover:not(:disabled) { background: #B91C1C; box-shadow: 0 4px 14px rgba(220,38,38,.25); transform: translateY(-1px); }
+
+.ct-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px; border: none;
+  background: transparent; color: #94A3B8; cursor: pointer; text-decoration: none;
+  transition: background 150ms ease, color 150ms ease;
+}
+.ct-icon-btn:hover { background: #F1F5F9; color: #475569; }
+.ct-icon-btn--danger:hover { background: #FEF2F2; color: #DC2626; }
+.ct-icon-btn:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+
+/* ── Banner scadenze ───────────────────────────────────────── */
+
+.ct-warning {
+  background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 14px;
+  padding: 0.9rem 1.1rem; display: flex; flex-direction: column; gap: 0.6rem;
+}
+.ct-warning-head { display: flex; align-items: center; gap: 0.5rem; color: #B45309; font-size: 0.875rem; flex-wrap: wrap; }
+.ct-warning-head strong { font-weight: 700; }
+.ct-warning-sub { color: #D97706; font-size: 0.78rem; font-weight: 500; }
+.ct-warning-list { list-style: none; display: flex; flex-direction: column; gap: 0.25rem; margin: 0; padding: 0; }
+.ct-warning-item {
+  display: flex; align-items: baseline; gap: 0.6rem; width: 100%;
+  background: transparent; border: none; border-radius: 8px;
+  padding: 0.35rem 0.5rem; cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 0.83rem;
+  transition: background 120ms ease;
+}
+.ct-warning-item:hover { background: #FEF3C7; }
+.ct-warning-item:focus-visible { outline: 2px solid #D97706; outline-offset: 1px; }
+.ct-warning-cliente { font-weight: 700; color: #92400E; white-space: nowrap; }
+.ct-warning-titolo { color: #B45309; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-warning-quando { margin-left: auto; color: #D97706; font-weight: 600; white-space: nowrap; }
+.ct-warning-item--overdue .ct-warning-quando { color: #DC2626; }
+
+/* ── Filtri ────────────────────────────────────────────────── */
+
+.ct-filters { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.ct-filter { min-width: 130px; max-width: 220px; font-size: 0.85rem; }
+
+/* ── Error / empty / skeleton ──────────────────────────────── */
+
+.ct-page-error {
+  font-size: 0.875rem; color: #991B1B;
+  background: #FEF2F2; border: 1px solid #FECACA; border-radius: 10px; padding: 0.75rem 1rem;
+}
+.ct-empty {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 1rem; padding: 4rem 2rem;
+  background: #fff; border: 1px solid #E2E8F0; border-radius: 16px; text-align: center;
+}
+.ct-empty-text { font-size: 0.9rem; color: #94A3B8; }
+.ct-loading { display: flex; flex-direction: column; gap: 0.75rem; }
+.ct-skeleton {
+  height: 60px;
+  background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+  background-size: 200% 100%; border-radius: 12px; animation: ct-shimmer 1.4s infinite;
+}
+
+/* ── Table ─────────────────────────────────────────────────── */
+
+.ct-table-wrap { background: #fff; border: 1px solid #E2E8F0; border-radius: 16px; overflow-x: auto; }
+.ct-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.ct-table thead { background: #F8FAFC; border-bottom: 1px solid #E2E8F0; }
+.ct-table th {
+  padding: 0.75rem 0.9rem; text-align: left;
+  font-size: 0.68rem; font-weight: 700; color: #94A3B8;
+  letter-spacing: 0.07em; text-transform: uppercase; white-space: nowrap;
+}
+.ct-th--actions { text-align: right; }
+.ct-th--num { text-align: right; }
+.ct-table td { padding: 0.8rem 0.9rem; vertical-align: middle; }
+
+.ct-group-row td {
+  background: #F8FAFC; border-top: 1px solid #E2E8F0; border-bottom: 1px solid #E2E8F0;
+  padding: 0.5rem 0.9rem;
+}
+.ct-group:first-of-type .ct-group-row td { border-top: none; }
+.ct-group-nome { font-weight: 700; color: #0F172A; font-size: 0.85rem; }
+.ct-group-count { margin-left: 0.6rem; font-size: 0.72rem; color: #94A3B8; font-weight: 600; }
+
+.ct-row { border-bottom: 1px solid #F1F5F9; transition: background 120ms ease; }
+.ct-row:hover { background: #FAFCFF; }
+.ct-row--warn { background: #FFFDF5; }
+.ct-row--warn:hover { background: #FFFBEB; }
+
+.ct-cell-expand { width: 34px; padding-right: 0 !important; }
+.ct-expand-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border: none; border-radius: 6px;
+  background: transparent; color: #94A3B8; cursor: pointer;
+  transition: transform 150ms ease, background 120ms ease;
+}
+.ct-expand-btn:hover { background: #F1F5F9; color: #475569; }
+.ct-expand-btn--open { transform: rotate(90deg); }
+.ct-expand-btn:focus-visible { outline: 2px solid #0D9488; outline-offset: 1px; }
+
+.ct-cell-titolo { display: flex; flex-direction: column; gap: 0.15rem; min-width: 160px; }
+.ct-titolo { font-weight: 600; color: #1E293B; }
+.ct-app-count {
+  font-size: 0.72rem; color: #94A3B8;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;
+}
+
+.ct-cell-text { color: #475569; font-size: 0.82rem; white-space: nowrap; }
+.ct-cell-num { color: #1E293B; font-weight: 600; font-size: 0.85rem; text-align: right; white-space: nowrap; }
+.ct-empty-cell { color: #CBD5E1; }
+.ct-cell-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.15rem; }
+
+/* ── Badge fatturato ───────────────────────────────────────── */
+
+.ct-fatt-badge {
+  display: inline-flex; align-items: center;
+  padding: 0.2rem 0.6rem; border-radius: 999px;
+  background: #F8FAFC; border: 1px solid #E2E8F0; color: #94A3B8;
+  font-size: 0.72rem; font-weight: 700; white-space: nowrap;
+}
+.ct-fatt-badge--si { background: #F0FDF4; border-color: #BBF7D0; color: #15803D; }
+.ct-hint-inline { color: #CBD5E1; font-size: 0.72rem; }
+
+/* ── Tipo badge ────────────────────────────────────────────── */
+
+.ct-tipo {
+  display: inline-flex; align-items: center;
+  padding: 0.2rem 0.6rem; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 700; white-space: nowrap;
+}
+.ct-tipo--man { background: #EFF6FF; border: 1px solid #BFDBFE; color: #1D4ED8; }
+.ct-tipo--ams { background: #F5F3FF; border: 1px solid #DDD6FE; color: #6D28D9; }
+
+/* ── Stato chip ────────────────────────────────────────────── */
+
+.ct-stato-chip {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.2rem 0.65rem; border-radius: 999px; border: 1px solid;
+  font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+}
+.ct-stato-dot { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; }
+
+/* ── Scadenza badge in riga ────────────────────────────────── */
+
+.ct-scad-badge {
+  margin-left: 0.5rem; display: inline-flex; align-items: center;
+  padding: 0.1rem 0.5rem; border-radius: 999px;
+  background: #FEF3C7; border: 1px solid #FDE68A; color: #B45309;
+  font-size: 0.7rem; font-weight: 700;
+}
+.ct-scad-badge--overdue { background: #FEF2F2; border-color: #FECACA; color: #DC2626; }
+
+/* ── Budget bar ────────────────────────────────────────────── */
+
+.ct-cell-budget { min-width: 150px; }
+.ct-budget { display: flex; flex-direction: column; gap: 0.3rem; }
+.ct-budget-labels { display: flex; align-items: baseline; gap: 0.3rem; font-size: 0.78rem; font-weight: 700; color: #1E293B; white-space: nowrap; }
+.ct-budget-tot { color: #94A3B8; font-weight: 500; font-size: 0.72rem; }
+.ct-bar { height: 6px; border-radius: 999px; background: #F1F5F9; overflow: hidden; }
+.ct-bar-fill { height: 100%; border-radius: 999px; transition: width 300ms ease; }
+.ct-bar-fill--ok   { background: #10B981; }
+.ct-bar-fill--warn { background: #F59E0B; }
+.ct-bar-fill--over { background: #EF4444; }
+
+/* ── Detail row ────────────────────────────────────────────── */
+
+.ct-detail-row td { background: #FAFCFF; border-bottom: 1px solid #F1F5F9; padding: 0.9rem 1.25rem 1.1rem 2.9rem; }
+.ct-detail { display: flex; flex-direction: column; gap: 0.8rem; }
+.ct-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; }
+.ct-detail-grid > div { display: flex; flex-direction: column; gap: 0.2rem; }
+.ct-detail-label {
+  display: block; font-size: 0.66rem; font-weight: 700; color: #94A3B8;
+  letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 0.2rem;
+}
+.ct-detail-value { font-size: 0.83rem; color: #334155; }
+.ct-detail-note { font-size: 0.83rem; color: #475569; white-space: pre-wrap; line-height: 1.55; }
+.ct-detail-att ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.ct-detail-att li { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.82rem; }
+
+/* ── Modal ─────────────────────────────────────────────────── */
+
+.ct-modal {
+  background: #fff; border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.08);
+  width: 100%; max-width: 640px; display: flex; flex-direction: column;
+  max-height: calc(100vh - 4rem);
+  animation: ct-modal-in 0.25s cubic-bezier(0.34,1.56,0.64,1) both;
+}
+.ct-modal--sm { max-width: 400px; }
+
+.ct-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1.5rem 0; flex-shrink: 0; }
+.ct-modal-title { font-size: 1.1rem; font-weight: 700; color: #0F172A; letter-spacing: -0.02em; }
+.ct-modal-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border: none; border-radius: 8px;
+  background: transparent; color: #94A3B8; cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.ct-modal-close:hover { background: #F1F5F9; color: #475569; }
+.ct-modal-close:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+.ct-modal-body { padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; }
+.ct-modal-footer { display: flex; justify-content: flex-end; gap: 0.6rem; padding: 1rem 1.5rem 1.25rem; border-top: 1px solid #F1F5F9; flex-shrink: 0; }
+
+/* ── Form fields ───────────────────────────────────────────── */
+
+.ct-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.ct-field-row--3 { grid-template-columns: 1fr 1fr 1fr; }
+.ct-field { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+.ct-field--half { max-width: 50%; }
+.ct-label { font-size: 0.78rem; font-weight: 600; color: #374151; letter-spacing: 0.01em; }
+.ct-label span { color: #0D9488; }
+.ct-input {
+  padding: 0.6rem 0.875rem; border: 1.5px solid #E2E8F0; border-radius: 9px;
+  font-family: inherit; font-size: 0.9rem; color: #1E293B; background: #fff;
+  outline: none; transition: border-color 150ms ease, box-shadow 150ms ease;
+  min-width: 0;
+}
+.ct-input::placeholder { color: #CBD5E1; }
+.ct-input:focus { border-color: #0D9488; box-shadow: 0 0 0 3px rgba(13,148,136,.12); }
+.ct-textarea { resize: vertical; min-height: 72px; }
+.ct-select {
+  appearance: none; cursor: pointer; padding-right: 2rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2394A3B8' stroke-width='1.5'%3E%3Cpath d='M4 6l4 4 4-4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 0.6rem center; background-size: 16px;
+  background-color: #fff;
+}
+.ct-hint { font-size: 0.72rem; color: #94A3B8; }
+.ct-check {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.85rem; color: #374151; font-weight: 500; cursor: pointer;
+}
+.ct-check input { accent-color: #0D9488; width: 16px; height: 16px; cursor: pointer; }
+
+.ct-field-error { font-size: 0.8rem; color: #DC2626; }
+.ct-field-error--banner {
+  background: #FEF2F2; border: 1px solid #FECACA; border-radius: 8px; padding: 0.6rem 0.875rem;
+}
+
+/* ── Chips applicazioni ────────────────────────────────────── */
+
+.ct-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.ct-chip {
+  padding: 0.35rem 0.8rem; border-radius: 999px;
+  border: 1.5px solid #E2E8F0; background: #fff; color: #475569;
+  font-family: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.ct-chip:hover { border-color: #99F6E4; background: #F0FDFA; }
+.ct-chip--on { background: #0D9488; border-color: #0D9488; color: #fff; }
+.ct-chip--on:hover { background: #0F766E; border-color: #0F766E; }
+.ct-chip:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+
+/* PM ereditati (sola lettura) dalle applicazioni selezionate */
+.ct-pm-line { font-size: 0.78rem; color: #64748B; margin-top: 0.15rem; }
+.ct-pm-line strong { color: #334155; font-weight: 700; }
+
+/* ── Confirm ───────────────────────────────────────────────── */
+
+.ct-confirm-text { font-size: 0.9rem; color: #374151; line-height: 1.6; }
+.ct-confirm-sub  { font-size: 0.82rem; color: #94A3B8; }
+.ct-confirm-warn { font-size: 0.82rem; color: #B45309; }
+
+/* ── Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+  .ct-page { padding: 1.25rem 1rem; }
+  .ct-topbar { flex-direction: column; align-items: stretch; }
+  .ct-field-row, .ct-field-row--3 { grid-template-columns: 1fr; }
+  .ct-table th:nth-child(6), .ct-table td:nth-child(6) { display: none; }
+}

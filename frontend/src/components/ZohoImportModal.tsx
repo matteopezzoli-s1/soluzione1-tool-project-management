@@ -25,6 +25,19 @@ interface PreviewRow {
   mesi: Array<{ mese: string; gg: number }>
 }
 
+// Contratti assistenza/AMS agganciati per ordine di vendita (solo totale,
+// nessun breakdown mensile).
+interface PreviewContrattoRow {
+  contrattoId: string
+  cliente: string
+  titolo: string
+  anno: number
+  codice: string
+  ore: number
+  attuale: number | null
+  nuovo: number
+}
+
 interface ZohoImportModalProps {
   token: string
   projects: ZohoSelectedProject[]
@@ -49,9 +62,11 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
   const [phase,        setPhase]        = useState<Phase>('fetch')
   const [progress,     setProgress]     = useState({ done: 0, name: '' })
   const [rows,         setRows]         = useState<PreviewRow[]>([])
+  const [ctRows,       setCtRows]       = useState<PreviewContrattoRow[]>([])
   const [notFound,     setNotFound]     = useState<string[]>([])
   const [fetchWarns,   setFetchWarns]   = useState<string[]>([])
   const [selectedIds,  setSelectedIds]  = useState<Set<string>>(new Set())
+  const [selectedCtIds, setSelectedCtIds] = useState<Set<string>>(new Set())
   const [importing,    setImporting]    = useState(false)
   const [err,          setErr]          = useState<string | null>(null)
   const [updatedCount, setUpdatedCount] = useState(0)
@@ -127,11 +142,15 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
           const data = await res.json().catch(() => ({}))
           throw new Error((data as { error?: string }).error ?? `Errore ${res.status}`)
         }
-        const data = (await res.json()) as { matched: PreviewRow[]; notFound: string[] }
+        const data = (await res.json()) as {
+          matched: PreviewRow[]; matchedContratti?: PreviewContrattoRow[]; notFound: string[]
+        }
         if (cancelledRef.current) return
         setRows(data.matched)
+        setCtRows(data.matchedContratti ?? [])
         setNotFound(data.notFound)
         setSelectedIds(new Set(data.matched.map((r) => r.attivitaId)))
+        setSelectedCtIds(new Set((data.matchedContratti ?? []).map((r) => r.contrattoId)))
         setPhase('preview')
       } catch (e) {
         if (cancelledRef.current) return
@@ -154,6 +173,20 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
     setSelectedIds(checked ? new Set(rows.map((r) => r.attivitaId)) : new Set())
   }
 
+  function toggleOneCt(id: string) {
+    setSelectedCtIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAllCt(checked: boolean) {
+    setSelectedCtIds(checked ? new Set(ctRows.map((r) => r.contrattoId)) : new Set())
+  }
+
+  const totalSelected = selectedIds.size + selectedCtIds.size
+
   async function handleImport() {
     const updates = rows
       .filter((r) => selectedIds.has(r.attivitaId))
@@ -162,21 +195,24 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
         giornateConsuntivate: r.nuovo,
         mesi: r.mesi.map((m) => ({ mese: m.mese, giornateConsuntivate: m.gg })),
       }))
-    if (updates.length === 0) return
+    const contratti = ctRows
+      .filter((r) => selectedCtIds.has(r.contrattoId))
+      .map((r) => ({ id: r.contrattoId, giornateConsuntivate: r.nuovo }))
+    if (updates.length === 0 && contratti.length === 0) return
     setImporting(true)
     setErr(null)
     try {
       const res = await fetch(`${API_URL}/api/zoho/import/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ updates }),
+        body: JSON.stringify({ updates, contratti }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setErr((data as { error?: string }).error ?? `Errore ${res.status}`)
         return
       }
-      setUpdatedCount(updates.length)
+      setUpdatedCount(updates.length + contratti.length)
       setPhase('done')
       onImported?.()
     } catch {
@@ -238,6 +274,7 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
           <div className="zi-body">
             <p className="zi-summary">
               <strong>{rows.length}</strong> attività con corrispondenza
+              {ctRows.length > 0 && <> · <strong>{ctRows.length}</strong> contratt{ctRows.length === 1 ? 'o' : 'i'}</>}
               {notFound.length > 0 && <> · <strong>{notFound.length}</strong> codici non trovati</>}
             </p>
 
@@ -311,10 +348,74 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
                   </table>
                 </div>
               </>
-            ) : (
+            ) : ctRows.length === 0 ? (
               <p className="zi-empty">
-                Nessuna attività corrisponde ai codici GO-ORDV trovati nei progetti selezionati.
+                Nessuna attività o contratto corrisponde ai codici GO-ORDV trovati nei progetti selezionati.
               </p>
+            ) : null}
+
+            {/* ── Contratti assistenza/AMS agganciati per ordine di vendita ── */}
+            {ctRows.length > 0 && (
+              <>
+                <div className="zi-table-hd">
+                  <span className="zi-section-title">Contratti assistenza/AMS da aggiornare</span>
+                  <label className="zi-select-all">
+                    <input
+                      type="checkbox"
+                      checked={ctRows.length > 0 && ctRows.every((r) => selectedCtIds.has(r.contrattoId))}
+                      onChange={(e) => toggleAllCt(e.target.checked)}
+                    />
+                    Seleziona tutti
+                  </label>
+                </div>
+                <div className="zi-table-wrap">
+                  <table className="zi-table">
+                    <thead>
+                      <tr>
+                        <th className="zi-th zi-th--chk"></th>
+                        <th className="zi-th">Cliente</th>
+                        <th className="zi-th zi-th--wide">Contratto</th>
+                        <th className="zi-th">Anno</th>
+                        <th className="zi-th">Codice GO</th>
+                        <th className="zi-th zi-th--num">Attuale (gg)</th>
+                        <th className="zi-th zi-th--num">Nuovo (gg)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ctRows.map((r) => {
+                        const checked = selectedCtIds.has(r.contrattoId)
+                        const curr    = r.attuale ?? 0
+                        const isUp    = r.nuovo > curr
+                        const isDown  = r.nuovo < curr
+                        return (
+                          <tr
+                            key={r.contrattoId}
+                            className={`zi-row${!checked ? ' zi-row--dim' : ''}`}
+                            onClick={() => toggleOneCt(r.contrattoId)}
+                          >
+                            <td className="zi-td zi-td--chk">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleOneCt(r.contrattoId)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </td>
+                            <td className="zi-td zi-td--trunc">{r.cliente}</td>
+                            <td className="zi-td">{r.titolo}</td>
+                            <td className="zi-td">{r.anno}</td>
+                            <td className="zi-td zi-td--code">{r.codice}</td>
+                            <td className="zi-td zi-td--num">{fmt(r.attuale)}</td>
+                            <td className={`zi-td zi-td--num${isUp ? ' zi-td--up' : isDown ? ' zi-td--down' : ''}`}>
+                              {fmt(r.nuovo)}{isUp ? ' ↑' : isDown ? ' ↓' : ''}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
 
             {notFound.length > 0 && (
@@ -339,7 +440,7 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
                 <path d="M15 24l6 6 12-12" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               <p className="zi-done-msg">
-                <strong>{updatedCount}</strong> {updatedCount === 1 ? 'attività aggiornata' : 'attività aggiornate'}
+                <strong>{updatedCount}</strong> {updatedCount === 1 ? 'riga aggiornata' : 'righe aggiornate'} (attività e contratti)
               </p>
             </div>
           </div>
@@ -354,10 +455,10 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
               <button
                 className="zi-btn zi-btn--primary"
                 type="button"
-                disabled={selectedIds.size === 0 || importing}
+                disabled={totalSelected === 0 || importing}
                 onClick={handleImport}
               >
-                {importing ? 'Importazione…' : `Importa ${selectedIds.size} attività`}
+                {importing ? 'Importazione…' : `Importa ${totalSelected} righe`}
               </button>
             </>
           ) : (

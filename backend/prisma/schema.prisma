@@ -20,6 +20,11 @@ enum TipoAttivita {
   BUCKET
 }
 
+enum TipoContratto {
+  MANUTENZIONE
+  MANUTENZIONE_AMS
+}
+
 model User {
   id             String     @id @default(cuid())
   googleId       String?    @unique @map("google_id")
@@ -278,6 +283,7 @@ model Cliente {
 
   progetti  Progetto[]
   attivita  Attivita[]
+  contratti Contratto[]
 
   @@index([accountId])
   @@map("clienti")
@@ -316,6 +322,7 @@ model Progetto {
 
   attivita     Attivita[]
   roadmapItems RoadmapItem[]
+  contratti    ContrattoApplicazione[]
 
   @@index([clienteId])
   @@index([pmRiferimentoId])
@@ -389,6 +396,65 @@ model Attivita {
   @@index([pmId])
   @@index([presaleAssegnatarioId])
   @@map("attivita")
+}
+
+// ── Contratti di assistenza / AMS ─────────────────────────────
+// Un contratto appartiene a un Cliente e copre 1..N applicazioni
+// (= Progetto, tipo "CLIENTE"). `anno` è l'anno di competenza dichiarato
+// (come i fogli Excel annuali); le date possono comunque sforare l'anno.
+// `dataFine` null = contratto continuativo / a tacito rinnovo.
+// Il PM non è un campo: si eredita in sola lettura dai pmRiferimento dei
+// progetti coperti. `fatturato` è un flag secco (niente importi parziali).
+// Il contratto ha il SUO ordine di vendita, come le attività: l'import
+// consuntivi Zoho aggiorna `giornateConsuntivate` per corrispondenza di
+// codice GO-ORDV — nessun collegamento manuale ad attività.
+
+model Contratto {
+  id                       String        @id @default(cuid())
+  titolo                   String
+  tipo                     TipoContratto @default(MANUTENZIONE)
+  anno                     Int
+  stato                    String        @default("IN_DEFINIZIONE")
+  dataInizio               DateTime?     @map("data_inizio")
+  dataFine                 DateTime?     @map("data_fine")
+  rinnovoTacito            Boolean       @default(false) @map("rinnovo_tacito")
+  // Data entro cui va comunicata l'eventuale disdetta (es. PEC entro fine
+  // ottobre): concorre al banner scadenze insieme a dataFine.
+  disdettaEntro            DateTime?     @map("disdetta_entro")
+  // Riferimento del confronto economico: consumato (giornate consuntivate
+  // × costo medio) vs importo totale del contratto.
+  importoTotale            Decimal?      @map("importo_totale") @db.Decimal(12, 2)
+  fatturato                Boolean       @default(false)
+  // Riferimento dell'ordine di vendita (GO-ORDV) del contratto: l'import
+  // consuntivi Zoho lo usa per agganciare le ore, come per le attività.
+  riferimentoOrdineVendita String?       @map("riferimento_ordine_vendita")
+  // Giornate consuntivate agganciate dall'import Zoho via ordine di vendita.
+  giornateConsuntivate     Decimal?      @map("giornate_consuntivate") @db.Decimal(10, 2)
+  driveUrl                 String?       @map("drive_url")
+  driveFolderId            String?       @map("drive_folder_id")
+  note                     String?
+  createdAt                DateTime      @default(now()) @map("created_at")
+  updatedAt                DateTime      @updatedAt @map("updated_at")
+
+  clienteId                String        @map("cliente_id")
+  cliente                  Cliente       @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+
+  applicazioni             ContrattoApplicazione[]
+
+  @@index([clienteId])
+  @@index([anno])
+  @@index([stato])
+  @@map("contratti")
+}
+
+model ContrattoApplicazione {
+  contrattoId String    @map("contratto_id")
+  progettoId  String    @map("progetto_id")
+  contratto   Contratto @relation(fields: [contrattoId], references: [id], onDelete: Cascade)
+  progetto    Progetto  @relation(fields: [progettoId], references: [id], onDelete: Cascade)
+
+  @@id([contrattoId, progettoId])
+  @@map("contratto_applicazioni")
 }
 
 // Dettaglio mensile di un'attività: giornate consuntivate (alimentate
@@ -473,6 +539,20 @@ model StatoProgettoConfig {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("stato_progetto_config")
+}
+
+model StatoContrattoConfig {
+  id        String   @id @default(cuid())
+  chiave    String   @unique
+  label     String
+  colore    String   @default("#94a3b8")
+  // Contratto concluso/chiuso: escluso dal banner scadenze.
+  isChiuso  Boolean  @default(false) @map("is_chiuso")
+  ordine    Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("stato_contratto_config")
 }
 
 model StatoRoadmapConfig {

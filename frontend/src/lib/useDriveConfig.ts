@@ -12,6 +12,8 @@ export interface DriveConfig {
   devId: string
   commUrl: string
   commId: string
+  contrattiUrl: string
+  contrattiId: string
 }
 
 export function useDriveConfig(token: string): DriveConfig | null {

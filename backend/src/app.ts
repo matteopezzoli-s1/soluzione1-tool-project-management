@@ -1,5 +1,5 @@
 import { Hono, type MiddlewareHandler } from 'hono'
-import type { PrismaClient, UserRole } from '@prisma/client'
+import type { PrismaClient, UserRole, TipoContratto } from '@prisma/client'
 import {
   buildGoogleAuthURL,
   fetchGoogleProfile,
@@ -1835,16 +1835,19 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     return c.json(await getPresaleEmailConfig(prisma))
   })
 
-  // ── Config Google Drive (drive condivisi Sviluppo/Commerciale) ──────
+  // ── Config Google Drive (drive condivisi Sviluppo/Commerciale/Contratti) ──
   // Radici dei picker Drive: Sviluppo per analisi prodotti + presale
-  // analisi/stima, Commerciale per presale trattativa. Si salva l'URL
-  // incollato dall'utente e l'ID estratto (usato dal Picker come radice).
-  // GET aperta a tutti gli autenticati (serve alle pagine per aprire il
-  // picker); PUT solo Board, come la visibilità della pagina Impostazioni.
+  // analisi/stima, Commerciale per presale trattativa, Contratti per i
+  // documenti dei contratti assistenza/AMS ("Contratti annuali clienti e
+  // prodotti"). Si salva l'URL incollato dall'utente e l'ID estratto (usato
+  // dal Picker come radice). GET aperta a tutti gli autenticati (serve alle
+  // pagine per aprire il picker); PUT solo Board, come la visibilità della
+  // pagina Impostazioni.
 
   const GDRIVE_KEYS = {
     devUrl: 'gdrive_dev_url', devId: 'gdrive_dev_id',
     commUrl: 'gdrive_comm_url', commId: 'gdrive_comm_id',
+    contrattiUrl: 'gdrive_contratti_url', contrattiId: 'gdrive_contratti_id',
   } as const
 
   // Estrae l'ID di un drive condiviso / cartella da un URL Drive, oppure
@@ -1868,6 +1871,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       devId: map.get(GDRIVE_KEYS.devId) ?? '',
       commUrl: map.get(GDRIVE_KEYS.commUrl) ?? '',
       commId: map.get(GDRIVE_KEYS.commId) ?? '',
+      contrattiUrl: map.get(GDRIVE_KEYS.contrattiUrl) ?? '',
+      contrattiId: map.get(GDRIVE_KEYS.contrattiId) ?? '',
     }
   }
 
@@ -1876,27 +1881,396 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.put('/api/config/google-drive', requireAuth(), requireRole('BOARD'), async (c) => {
-    const { devUrl, commUrl } = await readJSON<{ devUrl?: unknown; commUrl?: unknown }>(c)
-    if (typeof devUrl !== 'string' || typeof commUrl !== 'string') {
-      return c.json({ error: 'devUrl e commUrl devono essere stringhe (vuote per disattivare)' }, 400)
+    const { devUrl, commUrl, contrattiUrl } = await readJSON<{ devUrl?: unknown; commUrl?: unknown; contrattiUrl?: unknown }>(c)
+    if (typeof devUrl !== 'string' || typeof commUrl !== 'string' || typeof contrattiUrl !== 'string') {
+      return c.json({ error: 'devUrl, commUrl e contrattiUrl devono essere stringhe (vuote per disattivare)' }, 400)
     }
     const devId = extractDriveId(devUrl)
     const commId = extractDriveId(commUrl)
+    const contrattiId = extractDriveId(contrattiUrl)
     if (devUrl.trim() !== '' && devId === null) {
       return c.json({ error: 'Link Drive Sviluppo non riconosciuto: incolla il link di uno shared drive o di una cartella' }, 400)
     }
     if (commUrl.trim() !== '' && commId === null) {
       return c.json({ error: 'Link Drive Commerciale non riconosciuto: incolla il link di uno shared drive o di una cartella' }, 400)
     }
+    if (contrattiUrl.trim() !== '' && contrattiId === null) {
+      return c.json({ error: 'Link Drive Contratti non riconosciuto: incolla il link di uno shared drive o di una cartella' }, 400)
+    }
     const prisma = c.get('prisma')
     const entries: Array<[string, string]> = [
       [GDRIVE_KEYS.devUrl, devUrl.trim()], [GDRIVE_KEYS.devId, devId ?? ''],
       [GDRIVE_KEYS.commUrl, commUrl.trim()], [GDRIVE_KEYS.commId, commId ?? ''],
+      [GDRIVE_KEYS.contrattiUrl, contrattiUrl.trim()], [GDRIVE_KEYS.contrattiId, contrattiId ?? ''],
     ]
     await prisma.$transaction(entries.map(([chiave, valore]) =>
       prisma.appConfig.upsert({ where: { chiave }, create: { chiave, valore }, update: { valore } })
     ))
     return c.json(await readGDriveConfig(prisma))
+  })
+
+  // ── Contratti di assistenza / AMS ────────────────────────────
+  // Registro dei contratti di manutenzione/AMS per cliente (sostituisce
+  // l'Excel "Contratti progetti"). Un contratto copre 1..N applicazioni
+  // (= Progetto) e ha il SUO ordine di vendita: l'import consuntivi Zoho
+  // aggiorna giornateConsuntivate per corrispondenza di codice GO-ORDV
+  // (vedi /api/zoho/import/*). Il consumato € (giornate consuntivate ×
+  // costo medio giornata) si confronta con budgetOrdini. Route riservate
+  // a Board/PM/Account; stati e costo medio (config) solo Board.
+
+  const CONTRATTO_ROLES = ['BOARD', 'PM', 'ACCOUNT'] as const
+  const TIPI_CONTRATTO: TipoContratto[] = ['MANUTENZIONE', 'MANUTENZIONE_AMS']
+
+  // Il PM del contratto non è un campo proprio: si eredita (sola lettura)
+  // dai pmRiferimento dei progetti coperti — da qui la select sul progetto.
+  const CONTRATTI_INCLUDE = {
+    cliente: { select: { id: true, nome: true } },
+    applicazioni: { include: { progetto: { select: { id: true, nome: true, pmRiferimento: { select: { id: true, firstName: true, lastName: true, name: true } } } } } },
+  } as const
+
+  // Decimal → number nel payload JSON (i Decimal serializzano come stringhe)
+  // e appiattimento della join applicazioni in una lista di progetti.
+  const serializeContratto = <T extends {
+    importoTotale: unknown; giornateConsuntivate: unknown
+    applicazioni: Array<{ progetto: { id: string; nome: string } }>
+  }>(row: T) => ({
+    ...row,
+    importoTotale: row.importoTotale == null ? null : toNumber(row.importoTotale),
+    giornateConsuntivate: row.giornateConsuntivate == null ? null : toNumber(row.giornateConsuntivate),
+    applicazioni: row.applicazioni.map((a) => a.progetto),
+  })
+
+  const parseDataOrNull = (v: unknown): Date | null | 'invalid' => {
+    if (v === null || v === undefined || v === '') return null
+    if (typeof v !== 'string') return 'invalid'
+    const d = new Date(v)
+    return isNaN(d.getTime()) ? 'invalid' : d
+  }
+
+  const parseImportoOrNull = (v: unknown): number | null | 'invalid' => {
+    if (v === null || v === undefined || v === '') return null
+    const n = typeof v === 'number' ? v : Number(v)
+    return Number.isFinite(n) && n >= 0 ? n : 'invalid'
+  }
+
+  type ContrattoBody = {
+    titolo?: string; tipo?: string; anno?: unknown; stato?: string
+    clienteId?: string
+    dataInizio?: unknown; dataFine?: unknown
+    rinnovoTacito?: boolean; disdettaEntro?: unknown
+    importoTotale?: unknown; fatturato?: boolean
+    riferimentoOrdineVendita?: string | null; driveUrl?: string | null; driveFolderId?: string | null
+    note?: string | null
+    applicazioniIds?: unknown
+  }
+
+  // Valida e normalizza il payload di POST/PUT contratto: ritorna il primo
+  // errore, oppure i dati pronti per Prisma + gli id delle relazioni.
+  const validateContrattoBody = (b: ContrattoBody) => {
+    if (!b.titolo?.trim()) return { error: 'Il titolo è obbligatorio' }
+    if (!b.clienteId?.trim()) return { error: 'Il cliente è obbligatorio' }
+    const anno = typeof b.anno === 'number' ? b.anno : Number(b.anno)
+    if (!Number.isInteger(anno) || anno < 2000 || anno > 2100) {
+      return { error: 'Anno di competenza non valido' }
+    }
+    const tipo = (b.tipo ?? 'MANUTENZIONE') as TipoContratto
+    if (!TIPI_CONTRATTO.includes(tipo)) {
+      return { error: `Tipo contratto non valido (ammessi: ${TIPI_CONTRATTO.join(', ')})` }
+    }
+    const dataInizio = parseDataOrNull(b.dataInizio)
+    const dataFine = parseDataOrNull(b.dataFine)
+    const disdettaEntro = parseDataOrNull(b.disdettaEntro)
+    if (dataInizio === 'invalid' || dataFine === 'invalid' || disdettaEntro === 'invalid') {
+      return { error: 'Data non valida' }
+    }
+    if (dataInizio && dataFine && dataFine < dataInizio) {
+      return { error: 'La data di fine non può precedere quella di inizio' }
+    }
+    const importoTotale = parseImportoOrNull(b.importoTotale)
+    if (importoTotale === 'invalid') {
+      return { error: 'Importo non valido (numero ≥ 0)' }
+    }
+    const linkError = invalidLinkError({ 'Link contratto': b.driveUrl })
+    if (linkError) return { error: linkError }
+    const applicazioniIds = Array.isArray(b.applicazioniIds)
+      ? [...new Set(b.applicazioniIds.filter((x): x is string => typeof x === 'string' && x.trim() !== ''))]
+      : []
+    return {
+      data: {
+        titolo: b.titolo.trim(),
+        tipo,
+        anno,
+        stato: b.stato?.trim() || 'IN_DEFINIZIONE',
+        clienteId: b.clienteId.trim(),
+        dataInizio, dataFine, disdettaEntro,
+        rinnovoTacito: b.rinnovoTacito ?? false,
+        importoTotale,
+        fatturato: b.fatturato ?? false,
+        riferimentoOrdineVendita: b.riferimentoOrdineVendita?.trim() || null,
+        driveUrl: b.driveUrl?.trim() || null,
+        driveFolderId: b.driveFolderId?.trim() || null,
+        note: b.note?.trim() || null,
+      },
+      applicazioniIds,
+    }
+  }
+
+  hono.get('/api/contratti', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
+    try {
+      const annoRaw = c.req.query('anno')
+      const anno = annoRaw?.trim() ? Number(annoRaw) : undefined
+      if (anno !== undefined && !Number.isInteger(anno)) {
+        return c.json({ error: 'anno non valido' }, 400)
+      }
+      const contratti = await c.get('prisma').contratto.findMany({
+        where: anno !== undefined ? { anno } : undefined,
+        orderBy: [{ cliente: { nome: 'asc' } }, { titolo: 'asc' }],
+        include: CONTRATTI_INCLUDE,
+      })
+      return c.json(contratti.map(serializeContratto))
+    } catch (err) {
+      console.error('[contratti] GET error:', err)
+      return c.json({ error: 'Errore nel recupero dei contratti' }, 500)
+    }
+  })
+
+  hono.post('/api/contratti', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
+    const body = await readJSON<ContrattoBody>(c)
+    const parsed = validateContrattoBody(body)
+    if ('error' in parsed) return c.json({ error: parsed.error }, 400)
+    try {
+      const contratto = await c.get('prisma').contratto.create({
+        data: {
+          ...parsed.data,
+          applicazioni: { create: parsed.applicazioniIds.map((progettoId) => ({ progettoId })) },
+        },
+        include: CONTRATTI_INCLUDE,
+      })
+      return c.json(serializeContratto(contratto), 201)
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code
+      if (code === 'P2003' || code === 'P2025') {
+        return c.json({ error: 'Cliente o applicazione inesistente' }, 400)
+      }
+      console.error('[contratti] POST error:', err)
+      return c.json({ error: 'Errore nella creazione del contratto' }, 500)
+    }
+  })
+
+  hono.put('/api/contratti/:id', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
+    const id = c.req.param('id')
+    const body = await readJSON<ContrattoBody>(c)
+    const parsed = validateContrattoBody(body)
+    if ('error' in parsed) return c.json({ error: parsed.error }, 400)
+    try {
+      const contratto = await c.get('prisma').contratto.update({
+        where: { id },
+        data: {
+          ...parsed.data,
+          applicazioni: {
+            deleteMany: {},
+            create: parsed.applicazioniIds.map((progettoId) => ({ progettoId })),
+          },
+        },
+        include: CONTRATTI_INCLUDE,
+      })
+      return c.json(serializeContratto(contratto))
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code
+      if (code === 'P2025') return c.json({ error: 'Contratto non trovato' }, 404)
+      if (code === 'P2003') return c.json({ error: 'Cliente o applicazione inesistente' }, 400)
+      console.error('[contratti] PUT error:', err)
+      return c.json({ error: 'Errore nell\'aggiornamento del contratto' }, 500)
+    }
+  })
+
+  // Clona un contratto su un altro anno di competenza (rinnovo annuale senza
+  // riscrivere tutto): date shiftate della differenza di anni, stato reset a
+  // IN_DEFINIZIONE, fatturato/consuntivato/ordine di vendita/Drive/note
+  // azzerati (sono dell'anno nuovo), applicazioni e importo copiati.
+  hono.post('/api/contratti/:id/clona', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
+    const id = c.req.param('id')
+    const { anno } = await readJSON<{ anno?: unknown }>(c)
+    const annoNum = typeof anno === 'number' ? anno : Number(anno)
+    if (!Number.isInteger(annoNum) || annoNum < 2000 || annoNum > 2100) {
+      return c.json({ error: 'Anno di competenza non valido' }, 400)
+    }
+    const prisma = c.get('prisma')
+    const src = await prisma.contratto.findUnique({ where: { id }, include: { applicazioni: true } })
+    if (!src) return c.json({ error: 'Contratto non trovato' }, 404)
+    if (annoNum === src.anno) return c.json({ error: 'Scegli un anno diverso da quello del contratto' }, 400)
+
+    const shift = annoNum - src.anno
+    const shiftAnno = (d: Date | null): Date | null => {
+      if (!d) return null
+      const r = new Date(d)
+      r.setFullYear(r.getFullYear() + shift)
+      return r
+    }
+    // Se il titolo contiene l'anno di origine, lo aggiorna al nuovo
+    const titolo = src.titolo.split(String(src.anno)).join(String(annoNum))
+    try {
+      const nuovo = await prisma.contratto.create({
+        data: {
+          titolo,
+          tipo: src.tipo,
+          anno: annoNum,
+          stato: 'IN_DEFINIZIONE',
+          clienteId: src.clienteId,
+          dataInizio: shiftAnno(src.dataInizio),
+          dataFine: shiftAnno(src.dataFine),
+          rinnovoTacito: src.rinnovoTacito,
+          disdettaEntro: shiftAnno(src.disdettaEntro),
+          importoTotale: src.importoTotale,
+          fatturato: false,
+          riferimentoOrdineVendita: null,
+          giornateConsuntivate: null,
+          driveUrl: null,
+          driveFolderId: null,
+          note: null,
+          applicazioni: { create: src.applicazioni.map((a) => ({ progettoId: a.progettoId })) },
+        },
+        include: CONTRATTI_INCLUDE,
+      })
+      return c.json(serializeContratto(nuovo), 201)
+    } catch (err) {
+      console.error('[contratti] clona error:', err)
+      return c.json({ error: 'Errore nella clonazione del contratto' }, 500)
+    }
+  })
+
+  hono.delete('/api/contratti/:id', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
+    const id = c.req.param('id')
+    try {
+      await c.get('prisma').contratto.delete({ where: { id } })
+      return c.body(null, 204)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Contratto non trovato' }, 404)
+      console.error('[contratti] DELETE error:', err)
+      return c.json({ error: 'Errore nella cancellazione del contratto' }, 500)
+    }
+  })
+
+  // ── Stati Contratto Config CRUD ─────────────────────────────
+  // GET aperta agli autenticati (serve ai chip della pagina Contratti);
+  // scritture solo Board, coerenti col resto della config contratti.
+
+  hono.get('/api/stati-contratto', requireAuth(), async (c) => {
+    try {
+      const stati = await c.get('prisma').statoContrattoConfig.findMany({
+        orderBy: [{ ordine: 'asc' }, { label: 'asc' }],
+      })
+      return c.json(stati)
+    } catch (err) {
+      console.error('[stati-contratto] GET error:', err)
+      return c.json({ error: 'Errore nel recupero degli stati' }, 500)
+    }
+  })
+
+  hono.post('/api/stati-contratto', requireAuth(), requireRole('BOARD'), async (c) => {
+    const { label, colore, isChiuso, ordine } = await readJSON<{
+      label?: string; colore?: string; isChiuso?: boolean; ordine?: number
+    }>(c)
+    if (!label?.trim()) return c.json({ error: 'label è obbligatorio' }, 400)
+    if (colore && !COLOR_RE.test(colore)) {
+      return c.json({ error: 'Colore non valido (usa formato hex, es. #3b82f6)' }, 400)
+    }
+    const chiave = label.trim().toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_]/g, '') || 'STATO'
+    try {
+      const stato = await c.get('prisma').statoContrattoConfig.create({
+        data: {
+          chiave,
+          label: label.trim(),
+          colore: colore?.trim() ?? '#94a3b8',
+          isChiuso: isChiuso ?? false,
+          ordine: ordine ?? 99,
+        },
+      })
+      return c.json(stato, 201)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2002') {
+        return c.json({ error: `Esiste già uno stato con chiave "${chiave}"` }, 409)
+      }
+      console.error('[stati-contratto] POST error:', err)
+      return c.json({ error: 'Errore nella creazione dello stato' }, 500)
+    }
+  })
+
+  hono.put('/api/stati-contratto/:id', requireAuth(), requireRole('BOARD'), async (c) => {
+    const id = c.req.param('id')
+    const { label, colore, isChiuso, ordine } = await readJSON<{
+      label?: string; colore?: string; isChiuso?: boolean; ordine?: number
+    }>(c)
+    if (!label?.trim()) return c.json({ error: 'label è obbligatorio' }, 400)
+    if (colore && !COLOR_RE.test(colore)) return c.json({ error: 'Colore non valido' }, 400)
+    try {
+      const stato = await c.get('prisma').statoContrattoConfig.update({
+        where: { id },
+        data: {
+          label: label.trim(),
+          colore: colore?.trim() ?? '#94a3b8',
+          isChiuso: isChiuso ?? false,
+          ordine: ordine ?? 99,
+        },
+      })
+      return c.json(stato)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Stato non trovato' }, 404)
+      console.error('[stati-contratto] PUT error:', err)
+      return c.json({ error: 'Errore nell\'aggiornamento dello stato' }, 500)
+    }
+  })
+
+  hono.delete('/api/stati-contratto/:id', requireAuth(), requireRole('BOARD'), async (c) => {
+    const id = c.req.param('id')
+    const prisma = c.get('prisma')
+    try {
+      const stato = await prisma.statoContrattoConfig.findUnique({ where: { id } })
+      if (!stato) return c.json({ error: 'Stato non trovato' }, 404)
+      const inUso = await prisma.contratto.count({ where: { stato: stato.chiave } })
+      if (inUso > 0) {
+        return c.json({ error: `Stato in uso da ${inUso} contratti — riassegna prima i contratti` }, 409)
+      }
+      await prisma.statoContrattoConfig.delete({ where: { id } })
+      return c.body(null, 204)
+    } catch (err: unknown) {
+      console.error('[stati-contratto] DELETE error:', err)
+      return c.json({ error: 'Errore nella cancellazione dello stato' }, 500)
+    }
+  })
+
+  // ── Config contratti: costo medio giornata risorsa ──────────
+  // Usato per il confronto economico dei contratti (consuntivato ×
+  // costo medio vs budget ordini). GET per chi vede la pagina Contratti,
+  // PUT solo Board (Impostazioni).
+
+  const COSTO_MEDIO_KEY = 'costo_medio_giornata'
+
+  const readCostoMedio = async (prisma: PrismaClient): Promise<number | null> => {
+    const row = await prisma.appConfig.findUnique({ where: { chiave: COSTO_MEDIO_KEY } })
+    const n = row ? Number(row.valore) : NaN
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+
+  hono.get('/api/config/contratti', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
+    return c.json({ costoMedioGiornata: await readCostoMedio(c.get('prisma')) })
+  })
+
+  hono.put('/api/config/contratti', requireAuth(), requireRole('BOARD'), async (c) => {
+    const { costoMedioGiornata } = await readJSON<{ costoMedioGiornata?: unknown }>(c)
+    const valid = costoMedioGiornata === null ||
+      (typeof costoMedioGiornata === 'number' && Number.isFinite(costoMedioGiornata) && costoMedioGiornata >= 0)
+    if (!valid) {
+      return c.json({ error: 'costoMedioGiornata deve essere un numero ≥ 0, o null per disattivare' }, 400)
+    }
+    const prisma = c.get('prisma')
+    const valore = costoMedioGiornata ? String(costoMedioGiornata) : ''
+    await prisma.appConfig.upsert({
+      where: { chiave: COSTO_MEDIO_KEY },
+      create: { chiave: COSTO_MEDIO_KEY, valore },
+      update: { valore },
+    })
+    return c.json({ costoMedioGiornata: await readCostoMedio(prisma) })
   })
 
   // ── Zoho Projects: import consuntivazioni (solo Board) ──────────────
@@ -1954,9 +2328,17 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
   })
 
+  // Normalizza un riferimento ordine di vendita per il matching: senza
+  // prefisso GO-ORDV, maiuscolo. Le attività lo salvano già senza prefisso;
+  // sui contratti può essere stato incollato per intero.
+  const normOrdineVendita = (s: string): string =>
+    s.trim().toUpperCase().replace(/^GO-ORDV-/, '')
+
   // Diff tra i codici aggregati (sommati dal frontend su tutti i progetti
-  // selezionati) e le attività: stesso matching dell'import CSV manuale
-  // (riferimentoOrdineVendita = codice senza prefisso "GO-ORDV-").
+  // selezionati) e attività + contratti: stesso matching dell'import CSV
+  // manuale (riferimentoOrdineVendita = codice senza prefisso "GO-ORDV-").
+  // Un codice può corrispondere sia a un'attività sia a un contratto; finisce
+  // in notFound solo se non corrisponde a nessuno dei due.
   hono.post('/api/zoho/import/preview', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
     const { codes } = await readJSON<{
       codes?: Array<{ code?: unknown; ore?: unknown; mesi?: Array<{ mese?: unknown; ore?: unknown }> }>
@@ -1964,15 +2346,25 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!Array.isArray(codes)) {
       return c.json({ error: 'codes deve essere un array di {code, ore, mesi}' }, 400)
     }
-    const attivita = await c.get('prisma').attivita.findMany({
-      where: { riferimentoOrdineVendita: { not: null } },
-    })
+    const prisma = c.get('prisma')
+    const [attivita, contrattiConOrdine] = await Promise.all([
+      prisma.attivita.findMany({ where: { riferimentoOrdineVendita: { not: null } } }),
+      prisma.contratto.findMany({
+        where: { riferimentoOrdineVendita: { not: null } },
+        include: { cliente: { select: { nome: true } } },
+      }),
+    ])
     const byOrdine = new Map(attivita.map((a) => [a.riferimentoOrdineVendita!.trim(), a]))
+    const contrattiByOrdine = new Map(contrattiConOrdine.map((k) => [normOrdineVendita(k.riferimentoOrdineVendita!), k]))
 
     const matched: Array<{
       attivitaId: string; cliente: string; progetto: string; attivita: string
       codice: string; ore: number; attuale: number | null; nuovo: number
       mesi: Array<{ mese: string; gg: number }>
+    }> = []
+    const matchedContratti: Array<{
+      contrattoId: string; cliente: string; titolo: string; anno: number
+      codice: string; ore: number; attuale: number | null; nuovo: number
     }> = []
     const notFound: string[] = []
 
@@ -1981,29 +2373,46 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       const ore = typeof item?.ore === 'number' && isFinite(item.ore) && item.ore >= 0 ? item.ore : null
       if (!GO_CODE_RE.test(code) || ore === null) continue
       const a = byOrdine.get(code.replace('GO-ORDV-', ''))
-      if (!a) { notFound.push(code); continue }
-      // Breakdown mensile (stessa conversione ore→gg del totale): righe malformate scartate
-      const mesi = (Array.isArray(item.mesi) ? item.mesi : [])
-        .filter((m): m is { mese: string; ore: number } =>
-          typeof m?.mese === 'string' && MESE_RE.test(m.mese) &&
-          typeof m?.ore === 'number' && isFinite(m.ore) && m.ore >= 0)
-        .map((m) => ({ mese: m.mese, gg: Math.round((m.ore / 8) * 100) / 100 }))
-        .sort((x, y) => x.mese.localeCompare(y.mese))
-      matched.push({
-        attivitaId: a.id,
-        cliente: a.cliente,
-        progetto: a.progetto,
-        attivita: a.attivita,
-        codice: code,
-        ore,
-        attuale: a.giornateConsuntivate === null ? null : toNumber(a.giornateConsuntivate),
-        nuovo: Math.round((ore / 8) * 100) / 100,
-        mesi,
-      })
+      const ct = contrattiByOrdine.get(normOrdineVendita(code))
+      if (!a && !ct) { notFound.push(code); continue }
+      const nuovo = Math.round((ore / 8) * 100) / 100
+      if (a) {
+        // Breakdown mensile (stessa conversione ore→gg del totale): righe malformate scartate
+        const mesi = (Array.isArray(item.mesi) ? item.mesi : [])
+          .filter((m): m is { mese: string; ore: number } =>
+            typeof m?.mese === 'string' && MESE_RE.test(m.mese) &&
+            typeof m?.ore === 'number' && isFinite(m.ore) && m.ore >= 0)
+          .map((m) => ({ mese: m.mese, gg: Math.round((m.ore / 8) * 100) / 100 }))
+          .sort((x, y) => x.mese.localeCompare(y.mese))
+        matched.push({
+          attivitaId: a.id,
+          cliente: a.cliente,
+          progetto: a.progetto,
+          attivita: a.attivita,
+          codice: code,
+          ore,
+          attuale: a.giornateConsuntivate === null ? null : toNumber(a.giornateConsuntivate),
+          nuovo,
+          mesi,
+        })
+      }
+      if (ct) {
+        matchedContratti.push({
+          contrattoId: ct.id,
+          cliente: ct.cliente.nome,
+          titolo: ct.titolo,
+          anno: ct.anno,
+          codice: code,
+          ore,
+          attuale: ct.giornateConsuntivate === null ? null : toNumber(ct.giornateConsuntivate),
+          nuovo,
+        })
+      }
     }
     matched.sort((x, y) => x.codice.localeCompare(y.codice))
+    matchedContratti.sort((x, y) => x.codice.localeCompare(y.codice))
     notFound.sort()
-    return c.json({ matched, notFound })
+    return c.json({ matched, matchedContratti, notFound })
   })
 
   // ── Storico sessioni di import Zoho ──
@@ -2022,21 +2431,26 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // Conferma dell'import Zoho: applica gli aggiornamenti (stessa semantica di
   // PATCH /api/attivita/bulk-consuntivato) e registra la sessione con i delta.
   // I valori "prima" vengono riletti dal DB, non fidandosi del payload.
+  // `contratti` è la controparte per i contratti assistenza/AMS agganciati
+  // per ordine di vendita (solo totale, nessun breakdown mensile).
   hono.post('/api/zoho/import/confirm', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
-    const { updates } = await readJSON<{
+    const { updates, contratti } = await readJSON<{
       updates?: Array<{
         id?: unknown; giornateConsuntivate?: unknown
         mesi?: Array<{ mese?: unknown; giornateConsuntivate?: unknown }>
       }>
+      contratti?: Array<{ id?: unknown; giornateConsuntivate?: unknown }>
     }>(c)
-    if (!Array.isArray(updates) || updates.length === 0) {
-      return c.json({ error: 'updates deve essere un array non vuoto' }, 400)
+    const updatesArr = Array.isArray(updates) ? updates : []
+    const contrattiArr = Array.isArray(contratti) ? contratti : []
+    if (updatesArr.length === 0 && contrattiArr.length === 0) {
+      return c.json({ error: 'Serve almeno un update (attività o contratti)' }, 400)
     }
     const clean: Array<{
       id: string; giornateConsuntivate: number
       mesi: Array<{ mese: string; giornateConsuntivate: number }>
     }> = []
-    for (const u of updates) {
+    for (const u of updatesArr) {
       if (typeof u?.id !== 'string' || typeof u?.giornateConsuntivate !== 'number' || !isFinite(u.giornateConsuntivate) || u.giornateConsuntivate < 0) {
         return c.json({ error: 'Ogni update richiede id e giornateConsuntivate ≥ 0' }, 400)
       }
@@ -2046,11 +2460,26 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           typeof m?.giornateConsuntivate === 'number' && isFinite(m.giornateConsuntivate) && m.giornateConsuntivate >= 0)
       clean.push({ id: u.id, giornateConsuntivate: u.giornateConsuntivate, mesi })
     }
+    const cleanContratti: Array<{ id: string; giornateConsuntivate: number }> = []
+    for (const u of contrattiArr) {
+      if (typeof u?.id !== 'string' || typeof u?.giornateConsuntivate !== 'number' || !isFinite(u.giornateConsuntivate) || u.giornateConsuntivate < 0) {
+        return c.json({ error: 'Ogni contratto richiede id e giornateConsuntivate ≥ 0' }, 400)
+      }
+      cleanContratti.push({ id: u.id, giornateConsuntivate: u.giornateConsuntivate })
+    }
 
     const prisma = c.get('prisma')
-    const attuali = await prisma.attivita.findMany({ where: { id: { in: clean.map((u) => u.id) } } })
+    const [attuali, contrattiAttuali] = await Promise.all([
+      prisma.attivita.findMany({ where: { id: { in: clean.map((u) => u.id) } } }),
+      prisma.contratto.findMany({
+        where: { id: { in: cleanContratti.map((u) => u.id) } },
+        include: { cliente: { select: { nome: true } } },
+      }),
+    ])
     if (attuali.length !== clean.length) return c.json({ error: 'Una o più attività non trovate' }, 404)
+    if (contrattiAttuali.length !== cleanContratti.length) return c.json({ error: 'Uno o più contratti non trovati' }, 404)
     const byId = new Map(attuali.map((a) => [a.id, a]))
+    const contrattiById = new Map(contrattiAttuali.map((k) => [k.id, k]))
 
     try {
       await Promise.all(
@@ -2072,13 +2501,20 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           )
         )
       )
+      await Promise.all(
+        cleanContratti.map(({ id, giornateConsuntivate }) =>
+          prisma.contratto.update({ where: { id }, data: { giornateConsuntivate } })
+        )
+      )
     } catch (err: unknown) {
-      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Una o più attività non trovate' }, 404)
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Una o più attività o contratti non trovati' }, 404)
       return c.json({ error: 'Errore aggiornamento consuntivato' }, 500)
     }
 
-    // Solo le attività il cui valore è effettivamente cambiato entrano nelle
-    // righe della sessione (delta ≠ 0); prima = null → trattato come 0.
+    // Solo le righe il cui valore è effettivamente cambiato entrano nella
+    // sessione (delta ≠ 0); prima = null → trattato come 0. Le righe dei
+    // contratti hanno la stessa forma di quelle attività (contrattoId al
+    // posto di attivitaId) così lo storico le rende senza casi speciali.
     const righe = clean.flatMap(({ id, giornateConsuntivate }) => {
       const a = byId.get(id)!
       const prima = a.giornateConsuntivate === null ? null : toNumber(a.giornateConsuntivate)
@@ -2095,12 +2531,33 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         delta,
       }]
     })
+    const righeContratti = cleanContratti.flatMap(({ id, giornateConsuntivate }) => {
+      const k = contrattiById.get(id)!
+      const prima = k.giornateConsuntivate === null ? null : toNumber(k.giornateConsuntivate)
+      const delta = Math.round((giornateConsuntivate - (prima ?? 0)) * 100) / 100
+      if (delta === 0) return []
+      return [{
+        contrattoId: id,
+        cliente: k.cliente.nome,
+        progetto: 'Contratto assistenza/AMS',
+        attivita: k.titolo,
+        codice: k.riferimentoOrdineVendita ? `GO-ORDV-${normOrdineVendita(k.riferimentoOrdineVendita)}` : null,
+        prima,
+        dopo: giornateConsuntivate,
+        delta,
+      }]
+    })
 
     const session = await prisma.zohoImportSession.create({
-      data: { userId: c.get('currentUserId'), righe },
+      data: { userId: c.get('currentUserId'), righe: [...righe, ...righeContratti] },
     })
     await pruneZohoSessions(prisma)
-    return c.json({ updated: clean.length, sessionId: session.id, modificate: righe.length })
+    return c.json({
+      updated: clean.length,
+      updatedContratti: cleanContratti.length,
+      sessionId: session.id,
+      modificate: righe.length + righeContratti.length,
+    })
   })
 
   // Sessioni di import degli ultimi 5 giorni, più recenti prima.
