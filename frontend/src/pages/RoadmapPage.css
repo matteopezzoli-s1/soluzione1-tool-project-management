@@ -332,3 +332,46 @@
   color: #B45309; font-size: 0.75rem; font-weight: 600;
   cursor: help;
 }
+
+/* ── Avvia (card → attività) e finanziamento derivato ────────── */
+
+.rm-card-avvia {
+  display: inline-flex; align-items: center; justify-content: center; line-height: 0;
+  border: none; background: transparent; color: #94A3B8; cursor: pointer;
+  padding: 0.1rem; border-radius: 6px; opacity: 0;
+  transition: opacity 150ms ease, color 150ms ease, background 150ms ease;
+}
+.rm-card:hover .rm-card-avvia, .rm-card-avvia:focus-visible { opacity: 1; }
+.rm-card-avvia:hover { color: #0D9488; background: #F0FDFA; }
+.rm-card-avvia:focus-visible { outline: 2px solid #0D9488; outline-offset: 1px; }
+
+.rm-card-fin { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.45rem; }
+.rm-fin-badge {
+  display: inline-flex; align-items: center;
+  padding: 0.12rem 0.55rem; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 700; white-space: nowrap;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.rm-fin-progress { display: inline-flex; align-items: center; gap: 0.35rem; min-width: 0; }
+.rm-fin-progress-track {
+  width: 54px; height: 5px; border-radius: 999px; background: #F1F5F9;
+  overflow: hidden; flex-shrink: 0; display: inline-block;
+}
+.rm-fin-progress-fill { display: block; height: 100%; border-radius: 999px; }
+.rm-fin-progress-label { font-size: 0.68rem; color: #94A3B8; font-weight: 600; white-space: nowrap; }
+
+.rm-avvia-intro { font-size: 0.85rem; color: #475569; line-height: 1.55; }
+
+.rm-collegate {
+  list-style: none; margin: 0; padding: 0.35rem;
+  display: flex; flex-direction: column; gap: 0.15rem;
+  border: 1.5px solid #E2E8F0; border-radius: 9px;
+}
+.rm-collegate-item {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  padding: 0.3rem 0.5rem; border-radius: 7px; font-size: 0.83rem;
+}
+.rm-collegate-item:hover { background: #F8FAFC; }
+.rm-collegate-cliente { font-weight: 600; color: #1E293B; white-space: nowrap; }
+.rm-collegate-cliente--interno { color: #64748B; }
+.rm-collegate-meta { font-size: 0.74rem; color: #94A3B8; }

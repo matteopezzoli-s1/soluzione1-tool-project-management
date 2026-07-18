@@ -1004,12 +1004,37 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       },
     },
     tags: { include: { tag: true } },
+    // Attività generate/agganciate alla card: da qui derivano finanziamento
+    // e avanzamento (mai persistiti sulla card)
+    attivita: {
+      select: {
+        id: true, attivita: true, cliente: true, clienteId: true, stato: true,
+        giornateVendute: true, giornateConsuntivate: true, riferimentoOrdineVendita: true,
+      },
+    },
   } as const
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function flattenRoadmapItem(item: any) {
-    const { tags, progetto, ...rest } = item
+    const { tags, progetto, attivita, ...rest } = item
     const { responsabileDevHubId, responsabileDevHub, ...progettoRest } = progetto ?? {}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const figlie = ((attivita ?? []) as any[]).map((a) => ({
+      ...a,
+      giornateVendute: a.giornateVendute === null ? null : toNumber(a.giornateVendute),
+      giornateConsuntivate: a.giornateConsuntivate === null ? null : toNumber(a.giornateConsuntivate),
+    }))
+    // Finanziamento derivato: chi paga si legge dalle figlie. Co-finanziata =
+    // più committenti, oppure un committente + quota interna (clienteId null).
+    const clientiFinanziatori = [...new Map(
+      figlie.filter((a) => a.clienteId !== null).map((a) => [a.clienteId as string, a.cliente as string])
+    ).entries()].map(([cId, nome]) => ({ id: cId, nome }))
+    const hasInterno = figlie.some((a) => a.clienteId === null)
+    const finanziamento = figlie.length === 0
+      ? null
+      : clientiFinanziatori.length === 0
+        ? 'INVESTIMENTO'
+        : (clientiFinanziatori.length > 1 || hasInterno) ? 'CO_FINANZIATA' : 'FINANZIATA'
     return {
       ...rest,
       progetto: progettoRest,
@@ -1018,6 +1043,11 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       devHub: responsabileDevHub ?? null,
       devHubId: responsabileDevHubId ?? null,
       tags: (tags ?? []).map((t: { tag: unknown }) => t.tag),
+      attivitaCollegate: figlie,
+      finanziamento,
+      clientiFinanziatori,
+      totaleVendute: figlie.reduce((s, a) => s + (a.giornateVendute ?? 0), 0),
+      totaleConsuntivate: figlie.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0),
     }
   }
 
@@ -1199,6 +1229,73 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Associazione tag non trovata' }, 404)
       console.error('[roadmap-items] DELETE tag error:', err)
       return c.json({ error: 'Errore nella rimozione del tag' }, 500)
+    }
+  })
+
+  // POST /api/roadmap-items/:id/avvia — card roadmap → attività.
+  // Crea un'Attivita collegata alla card: con clienteId è la quota
+  // commissionata da quel cliente (account ereditato dal cliente se non
+  // indicato), senza clienteId è la quota di investimento interna
+  // (cliente = "Interno", giornateVendute lette come stanziamento — così la
+  // logica di sforamento segnala l'investimento oltre il previsto).
+  // Ripetibile sulla stessa card: una chiamata per committente.
+  hono.post('/api/roadmap-items/:id/avvia', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { clienteId, giornateVendute, riferimentoOrdineVendita, pmId, accountId, inizio, deadline, stato } = await readJSON<{
+      clienteId?: string | null; giornateVendute?: unknown; riferimentoOrdineVendita?: string | null
+      pmId?: string | null; accountId?: string | null
+      inizio?: unknown; deadline?: unknown; stato?: string
+    }>(c)
+    const prisma = c.get('prisma')
+    const item = await prisma.roadmapItem.findUnique({
+      where: { id },
+      include: { progetto: { select: { id: true, nome: true } } },
+    })
+    if (!item) return c.json({ error: 'Card roadmap non trovata' }, 404)
+
+    const gg = parseImportoOrNull(giornateVendute)
+    if (gg === 'invalid') return c.json({ error: 'Giornate non valide (numero ≥ 0)' }, 400)
+    const inizioDate = parseDataOrNull(inizio)
+    const deadlineDate = parseDataOrNull(deadline)
+    if (inizioDate === 'invalid' || deadlineDate === 'invalid') return c.json({ error: 'Data non valida' }, 400)
+
+    const resolved = await resolveAttivitaTipoStato(prisma, 'STANDARD', stato)
+    if ('error' in resolved) return c.json({ error: resolved.error }, 400)
+
+    let clienteNome = 'Interno'
+    let effAccountId: string | null = accountId?.trim() || null
+    if (clienteId?.trim()) {
+      const cliente = await prisma.cliente.findUnique({ where: { id: clienteId.trim() } })
+      if (!cliente) return c.json({ error: 'Cliente non trovato' }, 400)
+      clienteNome = cliente.nome
+      if (!effAccountId) effAccountId = cliente.accountId
+    }
+
+    try {
+      const attivita = await prisma.attivita.create({
+        data: {
+          cliente: clienteNome,
+          clienteId: clienteId?.trim() || null,
+          progetto: item.progetto?.nome ?? '',
+          progettoId: item.progettoId,
+          attivita: item.titolo,
+          tipo: 'STANDARD',
+          stato: resolved.statoVal,
+          giornateVendute: gg,
+          riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
+          pmId: pmId?.trim() || null,
+          accountId: effAccountId,
+          inizio: inizioDate,
+          deadline: deadlineDate,
+          roadmapItemId: item.id,
+        },
+      })
+      await logStatoChange(prisma, attivita.id, null, resolved.statoVal, c.get('currentUserId'))
+      return c.json({ id: attivita.id, cliente: clienteNome, attivita: attivita.attivita }, 201)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2003') return c.json({ error: 'PM o account inesistente' }, 400)
+      console.error('[roadmap-items] avvia error:', err)
+      return c.json({ error: 'Errore nella creazione dell\'attività' }, 500)
     }
   })
 

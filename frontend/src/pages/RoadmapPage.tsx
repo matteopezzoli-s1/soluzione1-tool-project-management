@@ -19,6 +19,18 @@ interface StatoRoadmapConfig {
 
 interface TagRef { id: string; label: string; colore: string }
 
+// Attività generata dalla card ("Avvia") o agganciata: clienteId = chi paga,
+// null = quota di investimento interna (cliente "Interno")
+interface AttivitaCollegata {
+  id: string; attivita: string; cliente: string; clienteId: string | null; stato: string
+  giornateVendute: number | null; giornateConsuntivate: number | null
+  riferimentoOrdineVendita: string | null
+}
+
+type Finanziamento = 'INVESTIMENTO' | 'FINANZIATA' | 'CO_FINANZIATA' | null
+
+interface ClienteOption { id: string; nome: string }
+
 interface RoadmapItem {
   id: string; progettoId: string; progetto: ProdottoRef
   anno: number; quarter: string | null; dataDeadline: string | null
@@ -26,6 +38,11 @@ interface RoadmapItem {
   analisiUrl: string | null; stimaGg: number | null; ordine: number
   tags: TagRef[]
   devHubId: string | null; devHub: PoRef | null
+  attivitaCollegate: AttivitaCollegata[]
+  finanziamento: Finanziamento
+  clientiFinanziatori: Array<{ id: string; nome: string }>
+  totaleVendute: number
+  totaleConsuntivate: number
 }
 
 type FormData = {
@@ -180,6 +197,152 @@ function TagPicker({ tags, selectedIds, onToggle }: { tags: TagRef[]; selectedId
   )
 }
 
+// ─── Finanziamento (derivato dalle attività collegate) ────────────────────────
+
+function FinanziamentoBadge({ item }: { item: RoadmapItem }) {
+  if (!item.finanziamento) return null
+  const meta = item.finanziamento === 'INVESTIMENTO'
+    ? { label: 'Investimento', colore: '#64748B' }
+    : item.finanziamento === 'FINANZIATA'
+      ? { label: `Finanziata · ${item.clientiFinanziatori[0]?.nome ?? ''}`, colore: '#1D4ED8' }
+      : { label: `Co-finanziata (${item.clientiFinanziatori.length + (item.attivitaCollegate.some(a => a.clienteId === null) ? 1 : 0)})`, colore: '#6D28D9' }
+  return (
+    <span className="rm-fin-badge" style={{ backgroundColor: meta.colore + '1A', color: meta.colore, border: `1px solid ${meta.colore}44` }}>
+      {meta.label}
+    </span>
+  )
+}
+
+// Mini avanzamento consuntivato/venduto delle attività figlie
+function FinProgress({ item }: { item: RoadmapItem }) {
+  if (item.attivitaCollegate.length === 0 || item.totaleVendute <= 0) return null
+  const pct = (item.totaleConsuntivate / item.totaleVendute) * 100
+  const level = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981'
+  return (
+    <span className="rm-fin-progress" title={`${item.totaleConsuntivate} gg consuntivate su ${item.totaleVendute} vendute/stanziate`}>
+      <span className="rm-fin-progress-track" aria-hidden="true">
+        <span className="rm-fin-progress-fill" style={{ width: `${Math.min(100, pct)}%`, background: level }} />
+      </span>
+      <span className="rm-fin-progress-label">{item.totaleConsuntivate}/{item.totaleVendute}gg</span>
+    </span>
+  )
+}
+
+// Elenco figlie (sola lettura) nei modal di modifica/dettaglio
+function CollegateList({ collegate }: { collegate: AttivitaCollegata[] }) {
+  if (collegate.length === 0) return null
+  return (
+    <div className="rm-field">
+      <span className="rm-label">Attività collegate</span>
+      <ul className="rm-collegate">
+        {collegate.map(a => (
+          <li key={a.id} className="rm-collegate-item">
+            <span className={`rm-collegate-cliente${a.clienteId === null ? ' rm-collegate-cliente--interno' : ''}`}>{a.cliente}</span>
+            <span className="rm-collegate-meta">
+              {a.giornateVendute !== null ? `${a.giornateVendute} gg ${a.clienteId === null ? 'stanziate' : 'vendute'}` : 'gg da definire'}
+              {a.giornateConsuntivate !== null && ` · ${a.giornateConsuntivate} cons.`}
+              {a.riferimentoOrdineVendita && ` · ${a.riferimentoOrdineVendita}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// ─── Modal Avvia (card → attività) ────────────────────────────────────────────
+// Con cliente = quota commissionata; senza = quota di investimento interna
+// ("Interno", giornate lette come stanziamento). Ripetibile per committente.
+
+function AvviaModal({ item, clienti, pms, loading, apiError, onConfirm, onClose }: {
+  item: RoadmapItem; clienti: ClienteOption[]; pms: PoRef[]
+  loading: boolean; apiError: string | null
+  onConfirm: (body: { clienteId: string | null; giornateVendute: number | null; riferimentoOrdineVendita: string | null; pmId: string | null }) => void
+  onClose: () => void
+}) {
+  // Precompila con la parte di stima non ancora coperta dalle figlie
+  const residuo = item.stimaGg !== null ? Math.max(0, item.stimaGg - item.totaleVendute) : null
+  const [clienteId, setClienteId] = useState('')
+  const [gg, setGg] = useState(residuo !== null && residuo > 0 ? String(residuo) : '')
+  const [ordine, setOrdine] = useState('')
+  const [pmId, setPmId] = useState('')
+
+  const ggNum = gg.trim() === '' ? null : Number(gg.replace(',', '.'))
+  const ggValido = ggNum === null || (Number.isFinite(ggNum) && ggNum >= 0)
+
+  return (
+    <SectionModal onClose={onClose} labelledBy="rm-avvia-title">
+      <div className="rm-modal">
+        <div className="rm-modal-header">
+          <h2 id="rm-avvia-title" className="rm-modal-title">Avvia — crea attività</h2>
+          <button className="rm-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="rm-modal-body">
+          {apiError && <p className="rm-field-error rm-field-error--banner" role="alert">{apiError}</p>}
+          <p className="rm-avvia-intro">
+            <strong>{item.titolo}</strong> ({item.progetto.nome}) — l'attività entra nell'Elenco Attività
+            e riceve i consuntivi Zoho tramite il suo ordine di vendita.
+          </p>
+
+          <div className="rm-field">
+            <label htmlFor="rm-avvia-cliente" className="rm-label">Committente</label>
+            <select id="rm-avvia-cliente" className="rm-input rm-select" value={clienteId}
+              onChange={e => setClienteId(e.target.value)} autoFocus>
+              <option value="">— Nessuno: quota di investimento interna —</option>
+              {clienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+            <span className="rm-field-hint">
+              {clienteId === ''
+                ? 'Senza committente l\'attività va nel gruppo "Interno": le giornate sono lo stanziamento dell\'investimento.'
+                : 'L\'attività compare sotto questo cliente, con il suo account, come una commessa normale.'}
+            </span>
+          </div>
+
+          <div className="rm-field-row">
+            <div className="rm-field">
+              <label htmlFor="rm-avvia-gg" className="rm-label">{clienteId === '' ? 'Giornate stanziate' : 'Giornate vendute'}</label>
+              <input id="rm-avvia-gg" className="rm-input" type="number" min="0" step="0.5"
+                value={gg} onChange={e => setGg(e.target.value)} placeholder="anche vuote" />
+              {residuo !== null && residuo > 0 && (
+                <span className="rm-field-hint">Proposta: stima {item.stimaGg}gg − {item.totaleVendute}gg già coperte</span>
+              )}
+            </div>
+            <div className="rm-field">
+              <label htmlFor="rm-avvia-ordine" className="rm-label">Ordine di vendita</label>
+              <input id="rm-avvia-ordine" className="rm-input" type="text" value={ordine}
+                onChange={e => setOrdine(e.target.value)} placeholder="es. 2026-142" />
+            </div>
+          </div>
+
+          <div className="rm-field">
+            <label htmlFor="rm-avvia-pm" className="rm-label">PM</label>
+            <select id="rm-avvia-pm" className="rm-input rm-select" value={pmId} onChange={e => setPmId(e.target.value)}>
+              <option value="">— Nessun PM —</option>
+              {pms.map(p => <option key={p.id} value={p.id}>{poFullName(p)}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="rm-modal-footer">
+          <button className="rm-btn rm-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
+          <button className="rm-btn rm-btn--primary" type="button" disabled={loading || !ggValido}
+            onClick={() => onConfirm({
+              clienteId: clienteId || null,
+              giornateVendute: ggNum,
+              riferimentoOrdineVendita: ordine.trim() || null,
+              pmId: pmId || null,
+            })}>
+            {loading ? 'Creazione…' : 'Crea attività'}
+          </button>
+        </div>
+      </div>
+    </SectionModal>
+  )
+}
+
 // ─── Multi-select (filtro DevHub) ─────────────────────────────────────────────
 
 function MultiSelect({ label, options, value, onChange }: {
@@ -238,10 +401,12 @@ interface ModalProps {
   prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]; tags: TagRef[]
   // Radice del picker Drive (Drive Sviluppo configurato in Impostazioni)
   devDriveId?: string
+  // Attività figlie della card (solo in modifica, sola lettura)
+  collegate?: AttivitaCollegata[]
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
-function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, devDriveId, onChange, onSave, onClose }: ModalProps) {
+function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, devDriveId, collegate, onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
@@ -330,6 +495,8 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
             <span className="rm-label">Tag</span>
             <TagPicker tags={tags} selectedIds={form.tagIds} onToggle={toggleTag} />
           </div>
+
+          {collegate && collegate.length > 0 && <CollegateList collegate={collegate} />}
         </div>
         <div className="rm-modal-footer">
           <button className="rm-btn rm-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
@@ -346,9 +513,10 @@ interface RoadmapCardProps {
   item: RoadmapItem; secondary: 'stato' | 'quarter'; statiMap: Map<string, StatoRoadmapConfig>
   po: PoRef | undefined; readOnly?: boolean
   onDragStart: () => void; onDrop: (e: React.DragEvent) => void; onOpen: () => void; onDelete: () => void
+  onAvvia: () => void
 }
 
-function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onDrop, onOpen, onDelete }: RoadmapCardProps) {
+function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onDrop, onOpen, onDelete, onAvvia }: RoadmapCardProps) {
   return (
     <div className="rm-card" draggable={!readOnly}
       onDragStart={readOnly ? undefined : onDragStart}
@@ -368,6 +536,13 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onD
               : <span className="rm-analisi-invalid" title={`Link analisi non valido: "${item.analisiUrl}" — correggilo dalla modifica`} aria-label="Link analisi non valido">
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14" aria-hidden="true"><path d="M10 3l8 14H2L10 3z" strokeLinejoin="round" /><path d="M10 8.5v3.5M10 14.5v.5" strokeLinecap="round" /></svg>
                 </span>
+            )}
+            {!readOnly && (
+              <button className="rm-card-avvia" type="button" title="Avvia — crea attività"
+                aria-label={`Avvia ${item.titolo}: crea attività`}
+                onClick={e => { e.stopPropagation(); onAvvia() }}>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14" aria-hidden="true"><path d="M6 4.5l9 5.5-9 5.5V4.5z" strokeLinejoin="round" /></svg>
+              </button>
             )}
             {!readOnly && (
               <button className="rm-card-del" type="button" aria-label={`Elimina ${item.titolo}`}
@@ -401,6 +576,12 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onD
         <div className="rm-card-tags">
           <IconTag />
           <TagList tags={item.tags} />
+        </div>
+      )}
+      {item.finanziamento && (
+        <div className="rm-card-fin">
+          <FinanziamentoBadge item={item} />
+          <FinProgress item={item} />
         </div>
       )}
     </div>
@@ -469,6 +650,14 @@ function ItemDetailModal({ item, statiMap, po, onClose }: {
               <TagList tags={item.tags} />
             </div>
           )}
+
+          {item.finanziamento && (
+            <div className="rm-detail-tags">
+              <span className="rm-label">Finanziamento</span>
+              <div className="rm-card-fin"><FinanziamentoBadge item={item} /><FinProgress item={item} /></div>
+            </div>
+          )}
+          <CollegateList collegate={item.attivitaCollegate} />
         </div>
         <div className="rm-modal-footer">
           <button className="rm-btn rm-btn--ghost" type="button" onClick={onClose}>Chiudi</button>
@@ -522,6 +711,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [devHubs,     setDevHubs]     = useState<PoRef[]>([])
   const [statiConfig, setStatiConfig] = useState<StatoRoadmapConfig[]>([])
   const [tags,        setTags]        = useState<TagRef[]>([])
+  const [clienti,     setClienti]     = useState<ClienteOption[]>([])
   const [loading,     setLoading]     = useState(true)
   const [apiError,    setApiError]    = useState<string | null>(null)
   const driveCfg = useDriveConfig(token)
@@ -542,6 +732,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [formErr,   setFormErr]   = useState<string | null>(null)
   const [delTarget, setDelTarget] = useState<RoadmapItem | null>(null)
   const [deleting,  setDeleting]  = useState(false)
+  const [avviaTarget, setAvviaTarget] = useState<RoadmapItem | null>(null)
+  const [avviando,    setAvviando]    = useState(false)
+  const [avviaErr,    setAvviaErr]    = useState<string | null>(null)
 
   const dragIdRef = useRef<string | null>(null)
 
@@ -553,20 +746,22 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const fetchAll = useCallback(async () => {
     setLoading(true); setApiError(null)
     try {
-      const [rI, rP, rPm, rDh, rS, rT] = await Promise.all([
+      const [rI, rP, rPm, rDh, rS, rT, rC] = await Promise.all([
         fetch(`${API_URL}/api/roadmap-items`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/progetti?tipo=PRODOTTO`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/users?role=PM`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/users?role=DEVHUB`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/stati-roadmap`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/roadmap-tags`,    { headers: authHeaders(token) }),
+        fetch(`${API_URL}/clienti`,             { headers: authHeaders(token) }),
       ])
       if (!rI.ok || !rP.ok) throw new Error()
-      const [i, p, pm, dh, s, t] = await Promise.all([
+      const [i, p, pm, dh, s, t, cl] = await Promise.all([
         rI.json(), rP.json(), rPm.ok ? rPm.json() : Promise.resolve([]), rDh.ok ? rDh.json() : Promise.resolve([]),
         rS.ok ? rS.json() : Promise.resolve([]), rT.ok ? rT.json() : Promise.resolve([]),
+        rC.ok ? rC.json() : Promise.resolve([]),
       ])
-      setItems(i); setProdotti(p); setPms(pm); setDevHubs(dh); setStatiConfig(s); setTags(t)
+      setItems(i); setProdotti(p); setPms(pm); setDevHubs(dh); setStatiConfig(s); setTags(t); setClienti(cl)
     } catch { setApiError('Impossibile caricare i dati della roadmap.') }
     finally { setLoading(false) }
   }, [token])
@@ -732,6 +927,23 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
     finally { setDeleting(false) }
   }
 
+  // "Avvia": crea l'attività collegata alla card (una per committente)
+  const handleAvvia = async (body: { clienteId: string | null; giornateVendute: number | null; riferimentoOrdineVendita: string | null; pmId: string | null }) => {
+    if (!avviaTarget) return
+    setAvviando(true); setAvviaErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/roadmap-items/${avviaTarget.id}/avvia`, {
+        method: 'POST', headers: authHeaders(token), body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setAvviaErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
+      }
+      setAvviaTarget(null); await fetchAll()
+    } catch { setAvviaErr('Errore di rete. Riprova.') }
+    finally { setAvviando(false) }
+  }
+
   // ── Render ────────────────────────────────────────────────
 
   return (
@@ -883,6 +1095,12 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                   </td>
                   {!readOnly && (
                     <td className="rm-cell-actions">
+                      <button className="rm-icon-btn" type="button" aria-label={`Avvia ${item.titolo}: crea attività`} title="Avvia — crea attività"
+                        onClick={() => { setAvviaErr(null); setAvviaTarget(item) }}>
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+                          <path d="M6 4.5l9 5.5-9 5.5V4.5z" strokeLinejoin="round" />
+                        </svg>
+                      </button>
                       <button className="rm-icon-btn" type="button" aria-label={`Modifica ${item.titolo}`} onClick={() => openEdit(item)}>
                         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
                           <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
@@ -921,7 +1139,8 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       readOnly={readOnly}
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { quarter: col.key })}
-                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)} />
+                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
+                      onAvvia={() => { setAvviaErr(null); setAvviaTarget(item) }} />
                   ))}
                 </div>
               </div>
@@ -953,7 +1172,8 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       readOnly={readOnly}
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { stato: col.chiave })}
-                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)} />
+                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
+                      onAvvia={() => { setAvviaErr(null); setAvviaTarget(item) }} />
                   ))}
                 </div>
               </div>
@@ -967,7 +1187,13 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           title={modal === 'add' ? 'Nuova attività roadmap' : 'Modifica attività roadmap'}
           form={form} loading={saving} apiError={formErr} prodotti={prodotti} statiList={statiList} tags={tags}
           devDriveId={driveCfg?.devId || undefined}
+          collegate={modal === 'edit' ? editing?.attivitaCollegate : undefined}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
+      )}
+      {!readOnly && avviaTarget && (
+        <AvviaModal item={avviaTarget} clienti={clienti} pms={pms}
+          loading={avviando} apiError={avviaErr}
+          onConfirm={handleAvvia} onClose={() => setAvviaTarget(null)} />
       )}
       {selected && (
         <ItemDetailModal

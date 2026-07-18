@@ -367,6 +367,13 @@ model Attivita {
   pmId                     String?         @map("pm_id")
   pm                       User?           @relation("AttivitaPM", fields: [pmId], references: [id], onDelete: SetNull)
 
+  // Card roadmap da cui l'attività discende (o a cui è stata agganciata):
+  // il finanziamento di una feature di prodotto si legge dalle attività
+  // figlie (clienteId = chi paga, null = quota di investimento interna).
+  // SetNull: cancellare la card non tocca le attività.
+  roadmapItemId            String?         @map("roadmap_item_id")
+  roadmapItem              RoadmapItem?    @relation(fields: [roadmapItemId], references: [id], onDelete: SetNull)
+
   // ── Presale (valorizzati solo mentre l'attività è in uno stato isPresale) ──
   presaleLinkRequisiti     String?         @map("presale_link_requisiti")
   presaleLinkStima         String?         @map("presale_link_stima")
@@ -395,6 +402,7 @@ model Attivita {
   @@index([accountId])
   @@index([pmId])
   @@index([presaleAssegnatarioId])
+  @@index([roadmapItemId])
   @@map("attivita")
 }
 
@@ -592,6 +600,9 @@ model RoadmapItem {
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   tags         RoadmapItemTag[]
+  // Attività generate dalla card ("Avvia") o agganciate a posteriori:
+  // una per committente (clienteId) + eventuale quota interna (clienteId null)
+  attivita     Attivita[]
 
   @@index([progettoId])
   @@index([anno, quarter])
