@@ -24,7 +24,7 @@ interface ProgettoRef { id: string; nome: string; pmRiferimento: UserRef | null 
 interface Contratto {
   id: string; titolo: string; tipo: TipoContratto; anno: number; stato: string
   dataInizio: string | null; dataFine: string | null
-  rinnovoTacito: boolean; disdettaEntro: string | null
+  disdettaEntro: string | null
   importoTotale: number | null; fatturato: boolean
   riferimentoOrdineVendita: string | null
   // Agganciate dall'import Zoho via ordine di vendita (come le attività)
@@ -42,7 +42,7 @@ interface ProgettoOption { id: string; nome: string; clienteId: string | null; p
 type FormData = {
   clienteId: string; titolo: string; tipo: TipoContratto; anno: string; stato: string
   dataInizio: string; dataFine: string
-  rinnovoTacito: boolean; disdettaEntro: string
+  disdettaEntro: string
   importoTotale: string; fatturato: boolean
   riferimentoOrdineVendita: string; driveUrl: string; driveFolderId: string; note: string
   applicazioniIds: string[]
@@ -52,7 +52,7 @@ const ANNO_CORRENTE = new Date().getFullYear()
 
 const EMPTY_FORM: FormData = {
   clienteId: '', titolo: '', tipo: 'MANUTENZIONE', anno: String(ANNO_CORRENTE), stato: '',
-  dataInizio: '', dataFine: '', rinnovoTacito: false, disdettaEntro: '',
+  dataInizio: '', dataFine: '', disdettaEntro: '',
   importoTotale: '', fatturato: false,
   riferimentoOrdineVendita: '', driveUrl: '', driveFolderId: '', note: '',
   applicazioniIds: [],
@@ -249,12 +249,6 @@ function ContrattoModal({
               <input id="ct-disdetta" className="ct-input" type="date" value={form.disdettaEntro} onChange={setEv('disdettaEntro')} />
             </div>
           </div>
-
-          <label className="ct-check">
-            <input type="checkbox" checked={form.rinnovoTacito}
-              onChange={(e) => set('rinnovoTacito', e.target.checked)} />
-            Rinnovo tacito (si rinnova se non disdetto)
-          </label>
 
           <div className="ct-field">
             <label htmlFor="ct-importo" className="ct-label">Importo totale (€)</label>
@@ -547,7 +541,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     setForm({
       clienteId: c.clienteId, titolo: c.titolo, tipo: c.tipo, anno: String(c.anno), stato: c.stato,
       dataInizio: c.dataInizio?.slice(0, 10) ?? '', dataFine: c.dataFine?.slice(0, 10) ?? '',
-      rinnovoTacito: c.rinnovoTacito, disdettaEntro: c.disdettaEntro?.slice(0, 10) ?? '',
+      disdettaEntro: c.disdettaEntro?.slice(0, 10) ?? '',
       importoTotale: c.importoTotale !== null ? String(c.importoTotale) : '',
       fatturato: c.fatturato,
       riferimentoOrdineVendita: c.riferimentoOrdineVendita ?? '', driveUrl: c.driveUrl ?? '',
@@ -581,7 +575,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
           titolo: form.titolo, tipo: form.tipo, anno, stato: form.stato,
           clienteId: form.clienteId,
           dataInizio: form.dataInizio || null, dataFine: form.dataFine || null,
-          rinnovoTacito: form.rinnovoTacito, disdettaEntro: form.disdettaEntro || null,
+          disdettaEntro: form.disdettaEntro || null,
           importoTotale, fatturato: form.fatturato,
           riferimentoOrdineVendita: form.riferimentoOrdineVendita || null,
           driveUrl: form.driveUrl || null, driveFolderId: form.driveFolderId || null,
@@ -847,13 +841,11 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                                   <span className="ct-detail-label">Ordine di vendita</span>
                                   <span className="ct-detail-value">{c.riferimentoOrdineVendita ?? '—'}</span>
                                 </div>
-                                {(c.rinnovoTacito || c.disdettaEntro) && (
+                                {c.disdettaEntro && (
                                   <div>
                                     <span className="ct-detail-label">Rinnovo</span>
                                     <span className="ct-detail-value">
-                                      {c.rinnovoTacito && 'Tacito'}
-                                      {c.rinnovoTacito && c.disdettaEntro && ' · '}
-                                      {c.disdettaEntro && `disdetta entro ${fmtData(c.disdettaEntro)}`}
+                                      disdetta entro {fmtData(c.disdettaEntro)}
                                     </span>
                                   </div>
                                 )}

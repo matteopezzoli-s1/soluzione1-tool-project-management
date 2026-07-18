@@ -417,7 +417,6 @@ model Contratto {
   stato                    String        @default("IN_DEFINIZIONE")
   dataInizio               DateTime?     @map("data_inizio")
   dataFine                 DateTime?     @map("data_fine")
-  rinnovoTacito            Boolean       @default(false) @map("rinnovo_tacito")
   // Data entro cui va comunicata l'eventuale disdetta (es. PEC entro fine
   // ottobre): concorre al banner scadenze insieme a dataFine.
   disdettaEntro            DateTime?     @map("disdetta_entro")
