@@ -2,10 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
 import { DriveLinkField } from '../components/DriveLinkField'
 import { useDriveConfig, type DriveConfig } from '../lib/useDriveConfig'
-import {
-  createDriveDoc, extractDriveFileId, getParentFolderId,
-  isDrivePickerConfigured, isValidHttpUrl,
-} from '../lib/googleDrive'
+import { extractDriveFileId, getParentFolderId, isValidHttpUrl } from '../lib/googleDrive'
 import './PresalePage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -228,7 +225,7 @@ function PmChips({ pms, value, onChange }: {
 
 function PresaleModal({
   mode, form, statiPresale, clienti, progetti, pms, devHubs, suggestedDevHub,
-  loading, apiError, mailGiaInviata, driveCfg, onChange, onSave, onClose,
+  loading, apiError, mailGiaInviata, driveCfg, noLinkConfirm, onNoLinkConfirm, onNoLinkCancel, onChange, onSave, onClose,
 }: {
   mode: 'add' | 'edit'
   form: FormData
@@ -243,14 +240,13 @@ function PresaleModal({
   mailGiaInviata: boolean
   driveCfg: DriveConfig | null
   onChange: (f: FormData) => void
+  // Conferma esplicita quando si salva l'Apertura senza documento di analisi
+  noLinkConfirm: boolean
+  onNoLinkConfirm: () => void
+  onNoLinkCancel: () => void
   onSave: (inviaMail: boolean) => void
   onClose: () => void
 }) {
-  // Bottone "Crea nuovo doc" (fase Stima): crea il Google Doc dell'analisi di
-  // dettaglio nella cartella dell'analisi iniziale e compila il campo link.
-  const [creatingDoc, setCreatingDoc] = useState(false)
-  const [createDocErr, setCreateDocErr] = useState<string | null>(null)
-
   // Cartella dell'analisi iniziale: quella memorizzata dal picker, oppure
   // risolta via Drive API dal link (anche incollato a mano). null = ignota.
   const resolveAnalisiFolder = async (): Promise<string | null> => {
@@ -258,25 +254,6 @@ function PresaleModal({
     const fileId = extractDriveFileId(form.presaleLinkRequisiti)
     if (!fileId) return null
     return getParentFolderId(fileId)
-  }
-
-  const handleCreateStimaDoc = async () => {
-    setCreatingDoc(true); setCreateDocErr(null)
-    try {
-      const folderId = await resolveAnalisiFolder()
-      if (!folderId) {
-        setCreateDocErr('Cartella dell\'analisi iniziale non determinabile: compila prima il link dell\'analisi requisiti.')
-        return
-      }
-      const nome = `${form.attivita.trim() || 'Analisi'} — Analisi di dettaglio`
-      const doc = await createDriveDoc(nome, folderId)
-      onChange({ ...form, presaleLinkStima: doc.url, presaleDriveFolderId: folderId })
-      window.open(doc.url, '_blank', 'noopener')
-    } catch (e) {
-      setCreateDocErr(e instanceof Error ? e.message : 'Errore nella creazione del documento.')
-    } finally {
-      setCreatingDoc(false)
-    }
   }
 
   const progettiFiltrati = useMemo(
@@ -403,22 +380,6 @@ function PresaleModal({
             pickerTitle="Scegli l'analisi di dettaglio (cartella dell'analisi iniziale)"
             onChange={url => onChange({ ...form, presaleLinkStima: url })}
           />
-          {isDrivePickerConfigured() && (
-            <div className="ps-create-doc">
-              <button
-                className="ps-create-doc-btn"
-                type="button"
-                onClick={handleCreateStimaDoc}
-                disabled={creatingDoc}
-              >
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="13" height="13" aria-hidden="true">
-                  <path d="M10 4v12M4 10h12" strokeLinecap="round" />
-                </svg>
-                {creatingDoc ? 'Creazione…' : 'Crea nuovo doc nella cartella dell\'analisi'}
-              </button>
-              {createDocErr && <span className="ps-create-doc-err" role="alert">{createDocErr}</span>}
-            </div>
-          )}
         </div>
       )
       case 'giornateVendute': return (
@@ -578,13 +539,29 @@ function PresaleModal({
           )}
         </div>
 
+        {noLinkConfirm && (
+          <div className="ps-nolink-confirm" role="alertdialog" aria-label="Conferma salvataggio senza documento di analisi">
+            <p className="ps-nolink-confirm-txt">
+              Non hai indicato il <strong>documento di analisi requisiti</strong>. Confermi che non è necessario?
+            </p>
+            <div className="ps-nolink-confirm-actions">
+              <button className="ps-btn ps-btn--ghost" type="button" onClick={onNoLinkCancel} disabled={loading}>
+                Torna al form
+              </button>
+              <button className="ps-btn ps-btn--primary" type="button" onClick={onNoLinkConfirm} disabled={loading}>
+                Sì, salva senza documento
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="ps-modal-footer ps-modal-footer--split">
           <button className="ps-btn ps-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
           <div className="ps-footer-actions">
-            <button className="ps-btn ps-btn--ghost" type="button" onClick={() => onSave(false)} disabled={loading}>
+            <button className="ps-btn ps-btn--ghost" type="button" onClick={() => onSave(false)} disabled={loading || noLinkConfirm}>
               {loading ? 'Salvataggio…' : 'Salva'}
             </button>
-            <button className="ps-btn ps-btn--accent" type="button" onClick={() => onSave(true)} disabled={loading}
+            <button className="ps-btn ps-btn--accent" type="button" onClick={() => onSave(true)} disabled={loading || noLinkConfirm}
               title="Salva e invia subito la mail di questa fase via SAIOT">
               {loading ? 'Salvataggio…' : (mailGiaInviata ? 'Salva e re-invia mail' : 'Salva e invia mail')}
             </button>
@@ -994,12 +971,17 @@ export default function PresalePage({ token }: { token: string }) {
 
   // Chiusura del modal senza salvare: se il modal era stato aperto da un
   // cambio fase, la card torna nella fase di partenza (niente era persistito).
+  // Conferma "salva senza documento di analisi" in sospeso (fase Apertura):
+  // memorizza quale salvataggio riprendere se l'utente conferma.
+  const [noLinkPending, setNoLinkPending] = useState<{ inviaMail: boolean } | null>(null)
+
   const closeModalWithRevert = () => {
     const rev = phaseRevertRef.current
     if (rev) {
       setItems(prev => prev.map(i => i.id === rev.id ? { ...i, stato: rev.stato } : i))
       phaseRevertRef.current = null
     }
+    setNoLinkPending(null)
     setModal(null)
   }
 
@@ -1036,12 +1018,14 @@ export default function PresalePage({ token }: { token: string }) {
     phaseRevertRef.current = null
     setForm({ ...EMPTY_FORM, stato: statiPresale[0]?.chiave ?? '' })
     setFormErr(null)
+    setNoLinkPending(null)
     setEditingId(null)
     setSuggestedDevHub(null)
     setModal('add')
   }
 
   const openEdit = (item: PresaleItem) => {
+    setNoLinkPending(null)
     setEditingId(item.id)
     setSuggestedDevHub(item.devHubId ? { id: item.devHubId, nome: item.devHub } : null)
     setForm({
@@ -1069,7 +1053,7 @@ export default function PresalePage({ token }: { token: string }) {
     setModal('edit')
   }
 
-  const handleSave = async (inviaMail: boolean) => {
+  const handleSave = async (inviaMail: boolean, skipNoLinkCheck = false) => {
     if (!form.clienteId || !form.progettoId || !form.attivita.trim()) {
       setFormErr('Cliente, progetto e attività sono obbligatori.'); return
     }
@@ -1090,6 +1074,13 @@ export default function PresalePage({ token }: { token: string }) {
         setFormErr(`Il link ${label} non è un URL valido (deve iniziare con http:// o https://).`); return
       }
     }
+    // In Apertura il documento di analisi non è obbligatorio, ma il
+    // salvataggio senza link chiede una conferma esplicita (una volta).
+    if (!skipNoLinkCheck && form.stato === 'PRESALE_APERTURA' && !form.presaleLinkRequisiti.trim()) {
+      setNoLinkPending({ inviaMail })
+      return
+    }
+    setNoLinkPending(null)
     setSaving(true); setFormErr(null)
     try {
       const url = modal === 'edit' ? `${API_URL}/api/attivita/${editingId}` : `${API_URL}/api/attivita`
@@ -1287,7 +1278,14 @@ export default function PresalePage({ token }: { token: string }) {
           apiError={formErr}
           mailGiaInviata={modal === 'edit' && !!editingId ? (items.find(i => i.id === editingId)?.presaleEmailFasiInviate.includes(STATO_TO_FASE_MAIL[form.stato] ?? '') ?? false) : false}
           driveCfg={driveCfg}
-          onChange={setForm}
+          noLinkConfirm={!!noLinkPending}
+          onNoLinkConfirm={() => {
+            const pending = noLinkPending
+            setNoLinkPending(null)
+            if (pending) handleSave(pending.inviaMail, true)
+          }}
+          onNoLinkCancel={() => setNoLinkPending(null)}
+          onChange={f => { setForm(f); if (noLinkPending) setNoLinkPending(null) }}
           onSave={handleSave}
           onClose={closeModalWithRevert}
         />
