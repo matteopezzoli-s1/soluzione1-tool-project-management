@@ -1957,7 +1957,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     titolo?: string; tipo?: string; anno?: unknown; stato?: string
     clienteId?: string
     dataInizio?: unknown; dataFine?: unknown
-    rinnovoTacito?: boolean; disdettaEntro?: unknown
+    disdettaEntro?: unknown
     importoTotale?: unknown; fatturato?: boolean
     riferimentoOrdineVendita?: string | null; driveUrl?: string | null; driveFolderId?: string | null
     note?: string | null
@@ -2003,7 +2003,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         stato: b.stato?.trim() || 'IN_DEFINIZIONE',
         clienteId: b.clienteId.trim(),
         dataInizio, dataFine, disdettaEntro,
-        rinnovoTacito: b.rinnovoTacito ?? false,
         importoTotale,
         fatturato: b.fatturato ?? false,
         riferimentoOrdineVendita: b.riferimentoOrdineVendita?.trim() || null,
@@ -2119,7 +2118,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           clienteId: src.clienteId,
           dataInizio: shiftAnno(src.dataInizio),
           dataFine: shiftAnno(src.dataFine),
-          rinnovoTacito: src.rinnovoTacito,
           disdettaEntro: shiftAnno(src.disdettaEntro),
           importoTotale: src.importoTotale,
           fatturato: false,
