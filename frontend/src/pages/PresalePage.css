@@ -413,15 +413,13 @@
   color: #B45309; font-size: 0.78rem; font-weight: 600; cursor: help;
 }
 
-/* ── Crea nuovo doc (fase Stima) ──────────────────────────────── */
-.ps-create-doc { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; flex-wrap: wrap; }
-.ps-create-doc-btn {
-  display: inline-flex; align-items: center; gap: 0.35rem;
-  padding: 0.35rem 0.65rem; border-radius: 8px;
-  border: 1.5px dashed #CBD5E1; background: transparent;
-  font-family: inherit; font-size: 0.75rem; font-weight: 600; color: #475569;
-  cursor: pointer; transition: background 150ms ease, border-color 150ms ease;
+/* ── Conferma "salva senza documento di analisi" (fase Apertura) ── */
+.ps-nolink-confirm {
+  margin: 0 1.5rem 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 10px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap;
 }
-.ps-create-doc-btn:hover:not(:disabled) { background: #F8FAFC; border-color: #94A3B8; }
-.ps-create-doc-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-.ps-create-doc-err { font-size: 0.75rem; color: #B91C1C; }
+.ps-nolink-confirm-txt { margin: 0; font-size: 0.82rem; color: #92400E; }
+.ps-nolink-confirm-actions { display: flex; gap: 0.5rem; }

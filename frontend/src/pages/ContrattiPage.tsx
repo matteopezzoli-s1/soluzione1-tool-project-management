@@ -24,7 +24,6 @@ interface ProgettoRef { id: string; nome: string; pmRiferimento: UserRef | null 
 interface Contratto {
   id: string; titolo: string; tipo: TipoContratto; anno: number; stato: string
   dataInizio: string | null; dataFine: string | null
-  rinnovoTacito: boolean; disdettaEntro: string | null
   importoTotale: number | null; fatturato: boolean
   riferimentoOrdineVendita: string | null
   // Agganciate dall'import Zoho via ordine di vendita (come le attività)
@@ -42,7 +41,6 @@ interface ProgettoOption { id: string; nome: string; clienteId: string | null; p
 type FormData = {
   clienteId: string; titolo: string; tipo: TipoContratto; anno: string; stato: string
   dataInizio: string; dataFine: string
-  rinnovoTacito: boolean; disdettaEntro: string
   importoTotale: string; fatturato: boolean
   riferimentoOrdineVendita: string; driveUrl: string; driveFolderId: string; note: string
   applicazioniIds: string[]
@@ -52,7 +50,7 @@ const ANNO_CORRENTE = new Date().getFullYear()
 
 const EMPTY_FORM: FormData = {
   clienteId: '', titolo: '', tipo: 'MANUTENZIONE', anno: String(ANNO_CORRENTE), stato: '',
-  dataInizio: '', dataFine: '', rinnovoTacito: false, disdettaEntro: '',
+  dataInizio: '', dataFine: '',
   importoTotale: '', fatturato: false,
   riferimentoOrdineVendita: '', driveUrl: '', driveFolderId: '', note: '',
   applicazioniIds: [],
@@ -95,27 +93,22 @@ function giorniA(iso: string): number {
   return Math.ceil((target.getTime() - Date.now()) / MS_DAY)
 }
 
-// Scadenza rilevante di un contratto non chiuso: la più urgente tra data di
-// fine e termine di disdetta, se entro la finestra di preavviso (60 giorni).
+// Scadenza rilevante di un contratto non chiuso: la data di fine, se entro
+// la finestra di preavviso (60 giorni).
 const PREAVVISO_GIORNI = 60
 
-interface ScadenzaInfo { tipo: 'fine' | 'disdetta'; data: string; giorni: number }
+interface ScadenzaInfo { data: string; giorni: number }
 
 function scadenzaInfo(c: Contratto, isChiuso: boolean): ScadenzaInfo | null {
-  if (isChiuso) return null
-  const candidates: ScadenzaInfo[] = []
-  if (c.dataFine) candidates.push({ tipo: 'fine', data: c.dataFine, giorni: giorniA(c.dataFine) })
-  if (c.disdettaEntro) candidates.push({ tipo: 'disdetta', data: c.disdettaEntro, giorni: giorniA(c.disdettaEntro) })
-  const inFinestra = candidates.filter((s) => s.giorni <= PREAVVISO_GIORNI)
-  if (inFinestra.length === 0) return null
-  return inFinestra.sort((a, b) => a.giorni - b.giorni)[0]
+  if (isChiuso || !c.dataFine) return null
+  const giorni = giorniA(c.dataFine)
+  return giorni <= PREAVVISO_GIORNI ? { data: c.dataFine, giorni } : null
 }
 
 function scadenzaLabel(s: ScadenzaInfo): string {
-  const cosa = s.tipo === 'disdetta' ? 'disdetta entro' : 'scade'
-  if (s.giorni < 0) return s.tipo === 'disdetta' ? `termine disdetta superato il ${fmtData(s.data)}` : `scaduto il ${fmtData(s.data)}`
-  if (s.giorni === 0) return `${cosa} oggi`
-  return `${cosa} ${s.tipo === 'disdetta' ? 'il' : 'il'} ${fmtData(s.data)} (${s.giorni} gg)`
+  if (s.giorni < 0) return `scaduto il ${fmtData(s.data)}`
+  if (s.giorni === 0) return 'scade oggi'
+  return `scade il ${fmtData(s.data)} (${s.giorni} gg)`
 }
 
 // ─── Stato chip ───────────────────────────────────────────────────────────────
@@ -244,17 +237,7 @@ function ContrattoModal({
               <input id="ct-fine" className="ct-input" type="date" value={form.dataFine} onChange={setEv('dataFine')} />
               <span className="ct-hint">Vuota = continuativo</span>
             </div>
-            <div className="ct-field">
-              <label htmlFor="ct-disdetta" className="ct-label">Disdetta entro</label>
-              <input id="ct-disdetta" className="ct-input" type="date" value={form.disdettaEntro} onChange={setEv('disdettaEntro')} />
-            </div>
           </div>
-
-          <label className="ct-check">
-            <input type="checkbox" checked={form.rinnovoTacito}
-              onChange={(e) => set('rinnovoTacito', e.target.checked)} />
-            Rinnovo tacito (si rinnova se non disdetto)
-          </label>
 
           <div className="ct-field">
             <label htmlFor="ct-importo" className="ct-label">Importo totale (€)</label>
@@ -370,7 +353,7 @@ function ClonaModal({ contratto, loading, error, onConfirm, onClose }: {
             {annoNum === contratto.anno && <span className="ct-field-error">Scegli un anno diverso da quello del contratto.</span>}
           </div>
           <p className="ct-confirm-sub">
-            Date e disdetta vengono spostate sul nuovo anno; applicazioni e importo copiati.
+            Le date vengono spostate sul nuovo anno; applicazioni e importo copiati.
             Stato, fatturato, consuntivato, ordine di vendita, link Drive e note ripartono da zero.
           </p>
         </div>
@@ -547,7 +530,6 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     setForm({
       clienteId: c.clienteId, titolo: c.titolo, tipo: c.tipo, anno: String(c.anno), stato: c.stato,
       dataInizio: c.dataInizio?.slice(0, 10) ?? '', dataFine: c.dataFine?.slice(0, 10) ?? '',
-      rinnovoTacito: c.rinnovoTacito, disdettaEntro: c.disdettaEntro?.slice(0, 10) ?? '',
       importoTotale: c.importoTotale !== null ? String(c.importoTotale) : '',
       fatturato: c.fatturato,
       riferimentoOrdineVendita: c.riferimentoOrdineVendita ?? '', driveUrl: c.driveUrl ?? '',
@@ -581,7 +563,6 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
           titolo: form.titolo, tipo: form.tipo, anno, stato: form.stato,
           clienteId: form.clienteId,
           dataInizio: form.dataInizio || null, dataFine: form.dataFine || null,
-          rinnovoTacito: form.rinnovoTacito, disdettaEntro: form.disdettaEntro || null,
           importoTotale, fatturato: form.fatturato,
           riferimentoOrdineVendita: form.riferimentoOrdineVendita || null,
           driveUrl: form.driveUrl || null, driveFolderId: form.driveFolderId || null,
@@ -663,7 +644,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
               <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 6a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 6Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
             </svg>
             <strong>{inScadenza.length} contratt{inScadenza.length === 1 ? 'o' : 'i'} da attenzionare</strong>
-            <span className="ct-warning-sub">scadenza o termine di disdetta entro {PREAVVISO_GIORNI} giorni</span>
+            <span className="ct-warning-sub">scadenza entro {PREAVVISO_GIORNI} giorni</span>
           </div>
           <ul className="ct-warning-list">
             {inScadenza.map(({ c, s }) => (
@@ -847,16 +828,6 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                                   <span className="ct-detail-label">Ordine di vendita</span>
                                   <span className="ct-detail-value">{c.riferimentoOrdineVendita ?? '—'}</span>
                                 </div>
-                                {(c.rinnovoTacito || c.disdettaEntro) && (
-                                  <div>
-                                    <span className="ct-detail-label">Rinnovo</span>
-                                    <span className="ct-detail-value">
-                                      {c.rinnovoTacito && 'Tacito'}
-                                      {c.rinnovoTacito && c.disdettaEntro && ' · '}
-                                      {c.disdettaEntro && `disdetta entro ${fmtData(c.disdettaEntro)}`}
-                                    </span>
-                                  </div>
-                                )}
                                 <div>
                                   <span className="ct-detail-label">Applicazioni</span>
                                   <span className="ct-detail-value">
