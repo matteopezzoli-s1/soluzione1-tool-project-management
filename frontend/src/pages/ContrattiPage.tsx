@@ -25,7 +25,7 @@ interface Contratto {
   id: string; titolo: string; tipo: TipoContratto; anno: number; stato: string
   dataInizio: string | null; dataFine: string | null
   rinnovoTacito: boolean; disdettaEntro: string | null
-  importoTotale: number | null; budgetOrdini: number | null; fatturato: boolean
+  importoTotale: number | null; fatturato: boolean
   riferimentoOrdineVendita: string | null
   // Agganciate dall'import Zoho via ordine di vendita (come le attività)
   giornateConsuntivate: number | null
@@ -43,7 +43,7 @@ type FormData = {
   clienteId: string; titolo: string; tipo: TipoContratto; anno: string; stato: string
   dataInizio: string; dataFine: string
   rinnovoTacito: boolean; disdettaEntro: string
-  importoTotale: string; budgetOrdini: string; fatturato: boolean
+  importoTotale: string; fatturato: boolean
   riferimentoOrdineVendita: string; driveUrl: string; driveFolderId: string; note: string
   applicazioniIds: string[]
 }
@@ -53,7 +53,7 @@ const ANNO_CORRENTE = new Date().getFullYear()
 const EMPTY_FORM: FormData = {
   clienteId: '', titolo: '', tipo: 'MANUTENZIONE', anno: String(ANNO_CORRENTE), stato: '',
   dataInizio: '', dataFine: '', rinnovoTacito: false, disdettaEntro: '',
-  importoTotale: '', budgetOrdini: '', fatturato: false,
+  importoTotale: '', fatturato: false,
   riferimentoOrdineVendita: '', driveUrl: '', driveFolderId: '', note: '',
   applicazioniIds: [],
 }
@@ -131,18 +131,18 @@ function StatoChip({ stato, stati }: { stato: string; stati: StatoContratto[] })
   )
 }
 
-// ─── Barra consumato vs budget ordini ────────────────────────────────────────
+// ─── Barra consumato vs importo totale ───────────────────────────────────────
 
-function BudgetBar({ consumato, budget }: { consumato: number; budget: number }) {
-  const pct = budget > 0 ? (consumato / budget) * 100 : 0
+function BudgetBar({ consumato, totale }: { consumato: number; totale: number }) {
+  const pct = totale > 0 ? (consumato / totale) * 100 : 0
   const level = pct > 90 ? 'over' : pct > 70 ? 'warn' : 'ok'
   return (
     <div className="ct-budget">
       <div className="ct-budget-labels">
         <span>{fmtEur(consumato)}</span>
-        <span className="ct-budget-tot">/ {fmtEur(budget)}</span>
+        <span className="ct-budget-tot">/ {fmtEur(totale)}</span>
       </div>
-      <div className="ct-bar" role="img" aria-label={`Consumato ${Math.round(pct)}% del budget ordini`}>
+      <div className="ct-bar" role="img" aria-label={`Consumato ${Math.round(pct)}% dell'importo totale`}>
         <div className={`ct-bar-fill ct-bar-fill--${level}`} style={{ width: `${Math.min(100, pct)}%` }} />
       </div>
     </div>
@@ -256,18 +256,11 @@ function ContrattoModal({
             Rinnovo tacito (si rinnova se non disdetto)
           </label>
 
-          <div className="ct-field-row">
-            <div className="ct-field">
-              <label htmlFor="ct-importo" className="ct-label">Importo totale (€)</label>
-              <input id="ct-importo" className="ct-input" type="number" min={0} step="0.01"
-                value={form.importoTotale} onChange={setEv('importoTotale')} placeholder="es. 12000" />
-            </div>
-            <div className="ct-field">
-              <label htmlFor="ct-budget" className="ct-label">Budget ordini (€)</label>
-              <input id="ct-budget" className="ct-input" type="number" min={0} step="0.01"
-                value={form.budgetOrdini} onChange={setEv('budgetOrdini')} placeholder="es. 17400" />
-              <span className="ct-hint">Riferimento del consumato AMS</span>
-            </div>
+          <div className="ct-field">
+            <label htmlFor="ct-importo" className="ct-label">Importo totale (€)</label>
+            <input id="ct-importo" className="ct-input" type="number" min={0} step="0.01"
+              value={form.importoTotale} onChange={setEv('importoTotale')} placeholder="es. 12000" />
+            <span className="ct-hint">Riferimento del confronto con le consuntivazioni importate.</span>
           </div>
 
           <label className="ct-check">
@@ -342,6 +335,57 @@ function ContrattoModal({
   )
 }
 
+// ─── Clona su altro anno ──────────────────────────────────────────────────────
+// Rinnovo annuale senza riscrivere tutto: crea una copia del contratto
+// sull'anno scelto (date shiftate, stato/fatturato/consuntivato/ordine reset).
+
+function ClonaModal({ contratto, loading, error, onConfirm, onClose }: {
+  contratto: Contratto; loading: boolean; error: string | null
+  onConfirm: (anno: number) => void; onClose: () => void
+}) {
+  const [anno, setAnno] = useState(String(contratto.anno + 1))
+  const annoNum = Number(anno)
+  const annoValido = Number.isInteger(annoNum) && annoNum >= 2000 && annoNum <= 2100 && annoNum !== contratto.anno
+
+  return (
+    <SectionModal onClose={onClose} labelledBy="ct-clona-title">
+      <div className="ct-modal ct-modal--sm">
+        <div className="ct-modal-header">
+          <h2 id="ct-clona-title" className="ct-modal-title">Clona contratto</h2>
+          <button className="ct-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="ct-modal-body">
+          {error && <p className="ct-field-error ct-field-error--banner" role="alert">{error}</p>}
+          <p className="ct-confirm-text">
+            Crea una copia di <strong>{contratto.titolo}</strong> ({contratto.cliente.nome}, {contratto.anno}) su un altro anno di competenza.
+          </p>
+          <div className="ct-field ct-field--half">
+            <label htmlFor="ct-clona-anno" className="ct-label">Anno di competenza</label>
+            <input id="ct-clona-anno" className="ct-input" type="number" min={2000} max={2100}
+              value={anno} onChange={(e) => setAnno(e.target.value)} autoFocus />
+            {annoNum === contratto.anno && <span className="ct-field-error">Scegli un anno diverso da quello del contratto.</span>}
+          </div>
+          <p className="ct-confirm-sub">
+            Date e disdetta vengono spostate sul nuovo anno; applicazioni e importo copiati.
+            Stato, fatturato, consuntivato, ordine di vendita, link Drive e note ripartono da zero.
+          </p>
+        </div>
+        <div className="ct-modal-footer">
+          <button className="ct-btn ct-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
+          <button className="ct-btn ct-btn--primary" type="button" disabled={!annoValido || loading}
+            onClick={() => onConfirm(annoNum)}>
+            {loading ? 'Clonazione…' : `Clona sul ${annoValido ? annoNum : '…'}`}
+          </button>
+        </div>
+      </div>
+    </SectionModal>
+  )
+}
+
 // ─── Confirm delete ───────────────────────────────────────────────────────────
 
 function ConfirmDelete({ contratto, loading, error, onConfirm, onClose }: {
@@ -408,6 +452,9 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
   const [delTarget, setDelTarget] = useState<Contratto | null>(null)
   const [deleting, setDeleting]   = useState(false)
   const [delErr, setDelErr]       = useState<string | null>(null)
+  const [cloneTarget, setCloneTarget] = useState<Contratto | null>(null)
+  const [cloning, setCloning]     = useState(false)
+  const [cloneErr, setCloneErr]   = useState<string | null>(null)
   const [expanded, setExpanded]   = useState<Set<string>>(new Set())
 
   const fetchAll = useCallback(async () => {
@@ -502,7 +549,6 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
       dataInizio: c.dataInizio?.slice(0, 10) ?? '', dataFine: c.dataFine?.slice(0, 10) ?? '',
       rinnovoTacito: c.rinnovoTacito, disdettaEntro: c.disdettaEntro?.slice(0, 10) ?? '',
       importoTotale: c.importoTotale !== null ? String(c.importoTotale) : '',
-      budgetOrdini: c.budgetOrdini !== null ? String(c.budgetOrdini) : '',
       fatturato: c.fatturato,
       riferimentoOrdineVendita: c.riferimentoOrdineVendita ?? '', driveUrl: c.driveUrl ?? '',
       driveFolderId: c.driveFolderId ?? '', note: c.note ?? '',
@@ -522,9 +568,8 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
       return Number.isFinite(n) && n >= 0 ? n : 'err'
     }
     const importoTotale = num(form.importoTotale)
-    const budgetOrdini = num(form.budgetOrdini)
-    if (importoTotale === 'err' || budgetOrdini === 'err') {
-      setFormErr('Gli importi devono essere numeri ≥ 0.'); return
+    if (importoTotale === 'err') {
+      setFormErr('L\'importo deve essere un numero ≥ 0.'); return
     }
     setSaving(true); setFormErr(null)
     try {
@@ -537,7 +582,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
           clienteId: form.clienteId,
           dataInizio: form.dataInizio || null, dataFine: form.dataFine || null,
           rinnovoTacito: form.rinnovoTacito, disdettaEntro: form.disdettaEntro || null,
-          importoTotale, budgetOrdini, fatturato: form.fatturato,
+          importoTotale, fatturato: form.fatturato,
           riferimentoOrdineVendita: form.riferimentoOrdineVendita || null,
           driveUrl: form.driveUrl || null, driveFolderId: form.driveFolderId || null,
           note: form.note || null,
@@ -565,6 +610,24 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
       setDelTarget(null); await fetchAll()
     } catch { setDelErr('Errore di rete. Riprova.') }
     finally { setDeleting(false) }
+  }
+
+  const handleClona = async (anno: number) => {
+    if (!cloneTarget) return
+    setCloning(true); setCloneErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/contratti/${cloneTarget.id}/clona`, {
+        method: 'POST', headers: authHeaders(token), body: JSON.stringify({ anno }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setCloneErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
+      }
+      setCloneTarget(null)
+      setFAnno(anno) // porta il filtro sull'anno del clone, così si vede subito
+      await fetchAll()
+    } catch { setCloneErr('Errore di rete. Riprova.') }
+    finally { setCloning(false) }
   }
 
   const toggleExpand = (id: string) =>
@@ -673,7 +736,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                 <th scope="col">PM</th>
                 <th scope="col" className="ct-th--num">Importo</th>
                 <th scope="col">Fatturato</th>
-                <th scope="col">Budget ordini</th>
+                <th scope="col">Consumato</th>
                 <th scope="col" className="ct-th--actions">Azioni</th>
               </tr>
             </thead>
@@ -734,11 +797,15 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                             : <span className="ct-fatt-badge">Da fatturare</span>}
                         </td>
                         <td className="ct-cell-budget">
-                          {c.budgetOrdini !== null && consumato !== null
-                            ? <BudgetBar consumato={consumato} budget={c.budgetOrdini} />
-                            : c.budgetOrdini !== null
-                              ? <span className="ct-cell-text">{fmtEur(c.budgetOrdini)}<span className="ct-hint-inline" title={costoMedio === null ? 'Imposta il costo medio giornata in Impostazioni per vedere il consumato' : 'Nessun consuntivato agganciato: verifica l’ordine di vendita e lancia l’import Zoho'}> {costoMedio === null ? '(no costo medio)' : '(no consuntivato)'}</span></span>
-                              : <span className="ct-empty-cell">—</span>}
+                          {c.importoTotale !== null && consumato !== null
+                            ? <BudgetBar consumato={consumato} totale={c.importoTotale} />
+                            : <span className="ct-empty-cell" title={
+                                costoMedio === null
+                                  ? 'Imposta il costo medio giornata in Impostazioni per vedere il consumato'
+                                  : c.giornateConsuntivate === null
+                                    ? 'Nessun consuntivato agganciato: verifica l’ordine di vendita e lancia l’import Zoho'
+                                    : 'Compila l’importo totale per il confronto'
+                              }>—</span>}
                         </td>
                         <td className="ct-cell-actions">
                           {c.driveUrl && (
@@ -750,6 +817,14 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                               </svg>
                             </a>
                           )}
+                          <button className="ct-icon-btn" type="button" aria-label={`Clona ${c.titolo} su un altro anno`}
+                            title="Clona su un altro anno"
+                            onClick={() => { setCloneErr(null); setCloneTarget(c) }}>
+                            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+                              <rect x="7" y="7" width="10" height="10" rx="1.5" strokeLinejoin="round" />
+                              <path d="M13 7V4.5A1.5 1.5 0 0 0 11.5 3h-7A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13H7" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
                           <button className="ct-icon-btn" type="button" aria-label={`Modifica ${c.titolo}`} onClick={() => openEdit(c)}>
                             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
                               <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
@@ -772,13 +847,16 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                                   <span className="ct-detail-label">Ordine di vendita</span>
                                   <span className="ct-detail-value">{c.riferimentoOrdineVendita ?? '—'}</span>
                                 </div>
-                                <div>
-                                  <span className="ct-detail-label">Rinnovo</span>
-                                  <span className="ct-detail-value">
-                                    {c.rinnovoTacito ? 'Tacito' : 'Esplicito'}
-                                    {c.disdettaEntro && ` · disdetta entro ${fmtData(c.disdettaEntro)}`}
-                                  </span>
-                                </div>
+                                {(c.rinnovoTacito || c.disdettaEntro) && (
+                                  <div>
+                                    <span className="ct-detail-label">Rinnovo</span>
+                                    <span className="ct-detail-value">
+                                      {c.rinnovoTacito && 'Tacito'}
+                                      {c.rinnovoTacito && c.disdettaEntro && ' · '}
+                                      {c.disdettaEntro && `disdetta entro ${fmtData(c.disdettaEntro)}`}
+                                    </span>
+                                  </div>
+                                )}
                                 <div>
                                   <span className="ct-detail-label">Applicazioni</span>
                                   <span className="ct-detail-value">
@@ -827,6 +905,10 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
           contrattiRootId={driveCfg?.contrattiId || undefined}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)}
         />
+      )}
+      {cloneTarget && (
+        <ClonaModal contratto={cloneTarget} loading={cloning} error={cloneErr}
+          onConfirm={handleClona} onClose={() => setCloneTarget(null)} />
       )}
       {delTarget && (
         <ConfirmDelete contratto={delTarget} loading={deleting} error={delErr}

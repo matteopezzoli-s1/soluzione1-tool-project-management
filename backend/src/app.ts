@@ -1931,12 +1931,11 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // Decimal → number nel payload JSON (i Decimal serializzano come stringhe)
   // e appiattimento della join applicazioni in una lista di progetti.
   const serializeContratto = <T extends {
-    importoTotale: unknown; budgetOrdini: unknown; giornateConsuntivate: unknown
+    importoTotale: unknown; giornateConsuntivate: unknown
     applicazioni: Array<{ progetto: { id: string; nome: string } }>
   }>(row: T) => ({
     ...row,
     importoTotale: row.importoTotale == null ? null : toNumber(row.importoTotale),
-    budgetOrdini: row.budgetOrdini == null ? null : toNumber(row.budgetOrdini),
     giornateConsuntivate: row.giornateConsuntivate == null ? null : toNumber(row.giornateConsuntivate),
     applicazioni: row.applicazioni.map((a) => a.progetto),
   })
@@ -1959,7 +1958,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     clienteId?: string
     dataInizio?: unknown; dataFine?: unknown
     rinnovoTacito?: boolean; disdettaEntro?: unknown
-    importoTotale?: unknown; budgetOrdini?: unknown; fatturato?: boolean
+    importoTotale?: unknown; fatturato?: boolean
     riferimentoOrdineVendita?: string | null; driveUrl?: string | null; driveFolderId?: string | null
     note?: string | null
     applicazioniIds?: unknown
@@ -1988,8 +1987,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return { error: 'La data di fine non può precedere quella di inizio' }
     }
     const importoTotale = parseImportoOrNull(b.importoTotale)
-    const budgetOrdini = parseImportoOrNull(b.budgetOrdini)
-    if (importoTotale === 'invalid' || budgetOrdini === 'invalid') {
+    if (importoTotale === 'invalid') {
       return { error: 'Importo non valido (numero ≥ 0)' }
     }
     const linkError = invalidLinkError({ 'Link contratto': b.driveUrl })
@@ -2006,7 +2004,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         clienteId: b.clienteId.trim(),
         dataInizio, dataFine, disdettaEntro,
         rinnovoTacito: b.rinnovoTacito ?? false,
-        importoTotale, budgetOrdini,
+        importoTotale,
         fatturato: b.fatturato ?? false,
         riferimentoOrdineVendita: b.riferimentoOrdineVendita?.trim() || null,
         driveUrl: b.driveUrl?.trim() || null,
@@ -2083,6 +2081,61 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (code === 'P2003') return c.json({ error: 'Cliente o applicazione inesistente' }, 400)
       console.error('[contratti] PUT error:', err)
       return c.json({ error: 'Errore nell\'aggiornamento del contratto' }, 500)
+    }
+  })
+
+  // Clona un contratto su un altro anno di competenza (rinnovo annuale senza
+  // riscrivere tutto): date shiftate della differenza di anni, stato reset a
+  // IN_DEFINIZIONE, fatturato/consuntivato/ordine di vendita/Drive/note
+  // azzerati (sono dell'anno nuovo), applicazioni e importo copiati.
+  hono.post('/api/contratti/:id/clona', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
+    const id = c.req.param('id')
+    const { anno } = await readJSON<{ anno?: unknown }>(c)
+    const annoNum = typeof anno === 'number' ? anno : Number(anno)
+    if (!Number.isInteger(annoNum) || annoNum < 2000 || annoNum > 2100) {
+      return c.json({ error: 'Anno di competenza non valido' }, 400)
+    }
+    const prisma = c.get('prisma')
+    const src = await prisma.contratto.findUnique({ where: { id }, include: { applicazioni: true } })
+    if (!src) return c.json({ error: 'Contratto non trovato' }, 404)
+    if (annoNum === src.anno) return c.json({ error: 'Scegli un anno diverso da quello del contratto' }, 400)
+
+    const shift = annoNum - src.anno
+    const shiftAnno = (d: Date | null): Date | null => {
+      if (!d) return null
+      const r = new Date(d)
+      r.setFullYear(r.getFullYear() + shift)
+      return r
+    }
+    // Se il titolo contiene l'anno di origine, lo aggiorna al nuovo
+    const titolo = src.titolo.split(String(src.anno)).join(String(annoNum))
+    try {
+      const nuovo = await prisma.contratto.create({
+        data: {
+          titolo,
+          tipo: src.tipo,
+          anno: annoNum,
+          stato: 'IN_DEFINIZIONE',
+          clienteId: src.clienteId,
+          dataInizio: shiftAnno(src.dataInizio),
+          dataFine: shiftAnno(src.dataFine),
+          rinnovoTacito: src.rinnovoTacito,
+          disdettaEntro: shiftAnno(src.disdettaEntro),
+          importoTotale: src.importoTotale,
+          fatturato: false,
+          riferimentoOrdineVendita: null,
+          giornateConsuntivate: null,
+          driveUrl: null,
+          driveFolderId: null,
+          note: null,
+          applicazioni: { create: src.applicazioni.map((a) => ({ progettoId: a.progettoId })) },
+        },
+        include: CONTRATTI_INCLUDE,
+      })
+      return c.json(serializeContratto(nuovo), 201)
+    } catch (err) {
+      console.error('[contratti] clona error:', err)
+      return c.json({ error: 'Errore nella clonazione del contratto' }, 500)
     }
   })
 
