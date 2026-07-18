@@ -421,10 +421,9 @@ model Contratto {
   // Data entro cui va comunicata l'eventuale disdetta (es. PEC entro fine
   // ottobre): concorre al banner scadenze insieme a dataFine.
   disdettaEntro            DateTime?     @map("disdetta_entro")
+  // Riferimento del confronto economico: consumato (giornate consuntivate
+  // × costo medio) vs importo totale del contratto.
   importoTotale            Decimal?      @map("importo_totale") @db.Decimal(12, 2)
-  // Budget ordini AMS extra-canone: è l'unico riferimento del confronto
-  // economico consuntivato × costo medio (nessuna barra se assente).
-  budgetOrdini             Decimal?      @map("budget_ordini") @db.Decimal(12, 2)
   fatturato                Boolean       @default(false)
   // Riferimento dell'ordine di vendita (GO-ORDV) del contratto: l'import
   // consuntivi Zoho lo usa per agganciare le ore, come per le attività.
