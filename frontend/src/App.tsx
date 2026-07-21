@@ -323,8 +323,8 @@ export default function App() {
           {!isDevHub && navBtn('dashboard', 'Dashboard',            <IconGrid />)}
           {canPresale && navBtn('presale', 'Presale',      <IconPresale />)}
           {navBtn('attivita',      'Elenco Attività Progetti', <IconClipboard />)}
-          {canContratti && navBtn('contratti', 'Contratti Assistenza', <IconContract />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
+          {canContratti && navBtn('contratti', 'Contratti Assistenza', <IconContract />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
           {!isDevHub && navBtn('clienti',   'Anagrafica Clienti',   <IconBuilding />)}
           {!isDevHub && navBtn('progetti',  'Progetti & Prodotti',  <IconFolder />)}
