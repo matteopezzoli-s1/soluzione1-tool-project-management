@@ -2507,19 +2507,47 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           prisma.attivita.update({ where: { id }, data: { giornateConsuntivate } })
         )
       )
-      // Breakdown mensile: upsert per (attività, mese) — aggiorna le
-      // consuntivate del mese preservando le fatturate già compilate dal PM.
-      // I mesi presenti a DB ma assenti dall'import restano invariati.
+      // Breakdown mensile: l'import è lo snapshot autoritativo della sola
+      // dimensione "consuntivate" (le fatturate sono del PM e non si toccano
+      // mai). Per ogni attività: upsert dei mesi presenti nell'import e
+      // azzeramento dei mesi spariti (consuntivate → null), così il totale
+      // resta coerente con la somma delle righe. Le righe che così diventano
+      // vuote (consuntivate e fatturate entrambe null) vengono eliminate.
+      const mesiEsistenti = await prisma.attivitaConsuntivoMese.findMany({
+        where: { attivitaId: { in: clean.map((u) => u.id) } },
+      })
+      const mesiByAtt = new Map<string, typeof mesiEsistenti>()
+      for (const m of mesiEsistenti) {
+        const arr = mesiByAtt.get(m.attivitaId)
+        if (arr) arr.push(m)
+        else mesiByAtt.set(m.attivitaId, [m])
+      }
       await Promise.all(
-        clean.flatMap(({ id, mesi }) =>
-          mesi.map((m) =>
+        clean.flatMap(({ id, mesi }) => {
+          const presenti = new Set(mesi.map((m) => m.mese))
+          const upserts = mesi.map((m) =>
             prisma.attivitaConsuntivoMese.upsert({
               where: { attivitaId_mese: { attivitaId: id, mese: m.mese } },
               create: { attivitaId: id, mese: m.mese, giornateConsuntivate: m.giornateConsuntivate },
               update: { giornateConsuntivate: m.giornateConsuntivate },
             })
           )
-        )
+          // Mesi non più nell'import: azzera le consuntivate preservando le
+          // fatturate; se non ci sono fatturate la riga viene rimossa.
+          const spariti = (mesiByAtt.get(id) ?? [])
+            .filter((m) => !presenti.has(m.mese) && m.giornateConsuntivate !== null)
+            .map((m) =>
+              m.giornateFatturate === null
+                ? prisma.attivitaConsuntivoMese.delete({
+                    where: { attivitaId_mese: { attivitaId: id, mese: m.mese } },
+                  })
+                : prisma.attivitaConsuntivoMese.update({
+                    where: { attivitaId_mese: { attivitaId: id, mese: m.mese } },
+                    data: { giornateConsuntivate: null },
+                  })
+            )
+          return [...upserts, ...spariti]
+        })
       )
       await Promise.all(
         cleanContratti.map(({ id, giornateConsuntivate }) =>
