@@ -17,9 +17,13 @@ interface StatoRoadmapConfig {
   id: string; chiave: string; label: string; colore: string; isArchiviato: boolean; isCompletato: boolean; ordine: number
 }
 
-// Stato roadmap legacy "in corso": pensionato dal modello prodotti interni.
-// La colonna resta visibile solo finché contiene item legacy da convertire.
+// Stato roadmap "in corso": auto-gestito — ci entrano gli item presi in carico
+// (attività collegata aperta, con badge dello stato reale dell'attività) e i
+// legacy rimasti a mano (convertibili). Non è un target di drag né di creazione.
 const RETIRED_STATO = 'IN_CORSO'
+
+// Stati attività (per il badge dello stato dell'attività collegata sulle card)
+interface StatoAttivitaRef { chiave: string; label: string; colore: string; isArchiviato: boolean }
 
 interface TagRef { id: string; label: string; colore: string }
 
@@ -419,9 +423,11 @@ interface RoadmapCardProps {
   onDragStart: () => void; onDrop: (e: React.DragEvent) => void; onOpen: () => void; onDelete: () => void
   // Presa in carico (o conversione dei legacy "in corso"): mostrato solo dove ha senso
   presaLabel?: string; onPresaInCarico?: () => void
+  // Stato reale dell'attività collegata (item preso in carico)
+  attivitaBadge?: { label: string; colore: string } | null
 }
 
-function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onDrop, onOpen, onDelete, presaLabel, onPresaInCarico }: RoadmapCardProps) {
+function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onDrop, onOpen, onDelete, presaLabel, onPresaInCarico, attivitaBadge }: RoadmapCardProps) {
   // Item preso in carico (attività collegata): non trascinabile né eliminabile,
   // lo stato è guidato dall'attività.
   const locked = item.attivitaId !== null
@@ -465,6 +471,12 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onD
               </span>
             ) })()
           : (item.quarter && <span className="rm-meta-item"><IconCalendar />{QUARTERS.find(q => q.key === item.quarter)?.label ?? item.quarter}</span>)}
+        {attivitaBadge && (
+          <span className="rm-meta-item rm-attivita-badge" title="Stato dell'attività collegata">
+            <span className="rm-meta-dot" style={{ background: attivitaBadge.colore }} aria-hidden="true" />
+            {attivitaBadge.label}
+          </span>
+        )}
         {item.stimaGg !== null && <span className="rm-meta-item"><IconClock />{item.stimaGg}gg</span>}
         {item.dataDeadline && <span className="rm-meta-item"><IconFlag />{fmtDate(item.dataDeadline)}</span>}
         {(item.devHub || po) && (
@@ -642,8 +654,8 @@ function PresaInCaricoConfirm({ item, po, loading, error, onConfirm, onEdit, onC
           {error && <p className="rm-field-error rm-field-error--banner" role="alert">{error}</p>}
           <p className="rm-confirm-text">
             Verrà creata l'attività <strong>{item.titolo}</strong> in stato <strong>In corso</strong>,
-            visibile nell'elenco sotto <strong>Prodotti interni</strong>. L'item lascia la board
-            e tornerà visibile in Completato alla chiusura dell'attività.
+            visibile nell'elenco sotto <strong>Prodotti interni</strong>. L'item passa nella colonna
+            In corso con lo stato dell'attività e si completerà alla sua chiusura.
           </p>
           <dl className="rm-detail-dl">
             <div className="rm-detail-row"><dt>Prodotto</dt><dd>{item.progetto.nome}</dd></div>
@@ -694,6 +706,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [statiConfig, setStatiConfig] = useState<StatoRoadmapConfig[]>([])
   const [tags,        setTags]        = useState<TagRef[]>([])
   const [clienti,     setClienti]     = useState<ClienteRef[]>([])
+  const [statiAttivita, setStatiAttivita] = useState<StatoAttivitaRef[]>([])
   const [loading,     setLoading]     = useState(true)
   const [apiError,    setApiError]    = useState<string | null>(null)
   // Completati nascosti di default (colonna/righe espandibili col toggle)
@@ -740,7 +753,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const fetchAll = useCallback(async () => {
     setLoading(true); setApiError(null)
     try {
-      const [rI, rP, rPm, rDh, rS, rT, rC] = await Promise.all([
+      const [rI, rP, rPm, rDh, rS, rT, rC, rSA] = await Promise.all([
         fetch(`${API_URL}/api/roadmap-items`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/progetti?tipo=PRODOTTO`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/users?role=PM`,   { headers: authHeaders(token) }),
@@ -748,14 +761,16 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
         fetch(`${API_URL}/api/stati-roadmap`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/roadmap-tags`,    { headers: authHeaders(token) }),
         fetch(`${API_URL}/clienti`,             { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/stati-attivita`,  { headers: authHeaders(token) }),
       ])
       if (!rI.ok || !rP.ok) throw new Error()
-      const [i, p, pm, dh, s, t, cl] = await Promise.all([
+      const [i, p, pm, dh, s, t, cl, sa] = await Promise.all([
         rI.json(), rP.json(), rPm.ok ? rPm.json() : Promise.resolve([]), rDh.ok ? rDh.json() : Promise.resolve([]),
         rS.ok ? rS.json() : Promise.resolve([]), rT.ok ? rT.json() : Promise.resolve([]),
         rC.ok ? rC.json() : Promise.resolve([]),
+        rSA.ok ? rSA.json() : Promise.resolve([]),
       ])
-      setItems(i); setProdotti(p); setPms(pm); setDevHubs(dh); setStatiConfig(s); setTags(t); setClienti(cl)
+      setItems(i); setProdotti(p); setPms(pm); setDevHubs(dh); setStatiConfig(s); setTags(t); setClienti(cl); setStatiAttivita(sa)
     } catch { setApiError('Impossibile caricare i dati della roadmap.') }
     finally { setLoading(false) }
   }, [token])
@@ -893,7 +908,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   }
 
   // La presa in carico è offerta sull'ultimo stato di pianificazione e, come
-  // conversione, sugli item legacy rimasti nello stato "in corso" pensionato.
+  // conversione, sugli item legacy rimasti a mano nello stato "in corso".
   const presaProps = (item: RoadmapItem) => {
     if (readOnly || item.attivitaId) return {}
     if (item.stato === seqStati[seqStati.length - 1]) {
@@ -903,6 +918,18 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       return { presaLabel: 'Converti in attività', onPresaInCarico: () => openPresaInCarico(item) }
     }
     return {}
+  }
+
+  const statiAttivitaMap = useMemo(() => new Map(statiAttivita.map(s => [s.chiave, s])), [statiAttivita])
+
+  // Badge dello stato reale dell'attività collegata: mostrato sulle card degli
+  // item presi in carico finché l'attività è aperta (da chiusa lo dice già la
+  // colonna Completato).
+  const attivitaBadgeFor = (item: RoadmapItem) => {
+    if (!item.attivitaId || !item.attivitaStato) return null
+    const cfg = statiAttivitaMap.get(item.attivitaStato)
+    if (cfg?.isArchiviato) return null
+    return { label: cfg?.label ?? item.attivitaStato, colore: cfg?.colore ?? '#94a3b8' }
   }
 
   // ── CRUD ──────────────────────────────────────────────────
@@ -1135,7 +1162,15 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                   </td>
                   <td className="rm-cell-text">{QUARTERS.find(q => q.key === (item.quarter ?? ''))?.label ?? item.quarter}</td>
                   <td className="rm-cell-text">{fmtDateLong(item.dataDeadline) ?? <span className="rm-empty-cell">—</span>}</td>
-                  <td><StatoBadge stato={item.stato} statiMap={statiMap} /></td>
+                  <td>
+                    <StatoBadge stato={item.stato} statiMap={statiMap} />
+                    {(() => { const b = attivitaBadgeFor(item); return b && (
+                      <span className="rm-meta-item rm-attivita-badge" title="Stato dell'attività collegata">
+                        <span className="rm-meta-dot" style={{ background: b.colore }} aria-hidden="true" />
+                        {b.label}
+                      </span>
+                    ) })()}
+                  </td>
                   <td className="rm-cell-text">{item.stimaGg !== null ? `${item.stimaGg}gg` : '—'}</td>
                   <td className="rm-cell-text">
                     {(() => { const po = pmById.get(prodottoById.get(item.progettoId)?.poId ?? ''); return po
@@ -1209,6 +1244,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { quarter: col.key })}
                       onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
+                      attivitaBadge={attivitaBadgeFor(item)}
                       {...presaProps(item)} />
                   ))}
                 </div>
@@ -1247,6 +1283,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { stato: col.chiave })}
                       onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
+                      attivitaBadge={attivitaBadgeFor(item)}
                       {...presaProps(item)} />
                   ))}
                 </div>

@@ -995,9 +995,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   // ── Roadmap Items CRUD ──────────────────────────────────────
 
-  // Stato roadmap legacy "in corso": pensionato dal modello prodotti interni
-  // (l'esecuzione è rappresentata dall'attività). Non è più un target di drag
-  // né uno stato di creazione; gli item legacy che ci stanno si convertono con
+  // Stato roadmap "in corso": auto-gestito dal modello prodotti interni — ci
+  // entrano gli item presi in carico (con attività collegata) e ci restano
+  // finché l'attività è aperta. Non è un target di drag né uno stato di
+  // creazione; gli item legacy rimasti qui a mano si convertono con
   // "Prendi in carico".
   const RETIRED_ROADMAP_STATO = 'IN_CORSO'
 
@@ -1045,15 +1046,16 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   }
 
   // Sincronizza lo stato del seme roadmap con quello dell'attività collegata:
-  // attività chiusa (stato archiviato) → item nello stato "completato" (mostrato
-  // in board); attività aperta → item a DA_INIZIARE (nascosto, "in esecuzione").
+  // attività chiusa (stato archiviato) → item nello stato "completato";
+  // attività aperta → item nella colonna "in corso" (visibile in board, con
+  // lo stato reale dell'attività esposto come attivitaStato).
   async function syncRoadmapItemFromAttivita(prisma: PrismaClient, roadmapItemId: string, attivitaStato: string) {
     const [statiArch, completato] = await Promise.all([
       prisma.statoAttivitaConfig.findMany({ where: { isArchiviato: true }, select: { chiave: true } }),
       prisma.statoRoadmapConfig.findFirst({ where: { isCompletato: true }, select: { chiave: true } }),
     ])
     const chiusa = statiArch.some((s) => s.chiave === attivitaStato)
-    const nuovoStato = chiusa ? (completato?.chiave ?? 'COMPLETATO') : 'DA_INIZIARE'
+    const nuovoStato = chiusa ? (completato?.chiave ?? 'COMPLETATO') : RETIRED_ROADMAP_STATO
     await prisma.roadmapItem.update({ where: { id: roadmapItemId }, data: { stato: nuovoStato } })
   }
 
@@ -1083,21 +1085,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (devHubId?.trim()) {
         where['progetto'] = { responsabileDevHubId: { in: devHubId.split(',').map(v => v.trim()).filter(Boolean) } }
       }
-      const prisma = c.get('prisma')
-      const [items, statiArch] = await Promise.all([
-        prisma.roadmapItem.findMany({
-          where,
-          orderBy: [{ anno: 'asc' }, { quarter: 'asc' }, { ordine: 'asc' }],
-          include: roadmapItemInclude,
-        }),
-        prisma.statoAttivitaConfig.findMany({ where: { isArchiviato: true }, select: { chiave: true } }),
-      ])
-      const archiviati = new Set(statiArch.map((s) => s.chiave))
-      // Nasconde gli item "in esecuzione": presi in carico con attività ancora
-      // aperta. Restano visibili quelli senza attività e quelli la cui attività
-      // è chiusa (mostrati come completati).
-      const visibili = items.filter((i) => !(i.attivita && !archiviati.has(i.attivita.stato)))
-      return c.json(visibili.map(flattenRoadmapItem))
+      const items = await c.get('prisma').roadmapItem.findMany({
+        where,
+        orderBy: [{ anno: 'asc' }, { quarter: 'asc' }, { ordine: 'asc' }],
+        include: roadmapItemInclude,
+      })
+      // Gli item presi in carico restano visibili (colonna "in corso") con lo
+      // stato reale dell'attività esposto come attivitaStato.
+      return c.json(items.map(flattenRoadmapItem))
     } catch (err) {
       console.error('[roadmap-items] GET error:', err)
       return c.json({ error: 'Errore nel recupero delle attività roadmap' }, 500)
@@ -1351,6 +1346,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           roadmapItemId: item.id,
         },
       })
+      // L'item resta in board nella colonna "in corso" (auto-gestita), con lo
+      // stato reale dell'attività mostrato sulla card.
+      await prisma.roadmapItem.update({ where: { id: item.id }, data: { stato: RETIRED_ROADMAP_STATO } })
       await logStatoChange(prisma, att.id, null, 'IN_CORSO', c.get('currentUserId'))
       return c.json(att, 201)
     } catch (err) {

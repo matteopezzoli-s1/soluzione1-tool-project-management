@@ -373,3 +373,11 @@
 /* Toggle "Mostra completati" nella toolbar */
 .rm-btn--completati { font-size: 0.82rem; white-space: nowrap; }
 .rm-btn--completati-on { border-color: #0D9488; color: #0F766E; background: #F0FDFA; }
+
+/* Badge dello stato dell'attività collegata (item presi in carico) */
+.rm-attivita-badge {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.15rem 0.5rem; margin-left: 0.35rem;
+  border: 1px dashed #CBD5E1; border-radius: 999px;
+  font-size: 0.72rem; color: #475569; white-space: nowrap;
+}
