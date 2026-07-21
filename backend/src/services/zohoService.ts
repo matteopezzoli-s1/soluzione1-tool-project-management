@@ -20,7 +20,9 @@ export interface ZohoConfig {
   apiUrl: string      // es. https://projectsapi.zoho.eu
 }
 
-export const GO_CODE_RE = /GO-ORDV-\d{4}-\d+/
+// Codici ordine GO nel nome milestone: GO-ORDV (ordine di vendita),
+// GO-ORPR (ordine di produzione), ecc. — qualsiasi GO-OR<2 lettere>-YYYY-N.
+export const GO_CODE_RE = /GO-OR[A-Z]{2}-\d{4}-\d+/
 
 // Oltre questa finestra non scansioniamo: protegge da milestone con date
 // d'inizio errate (es. anno sbagliato) che farebbero esplodere le chiamate.
