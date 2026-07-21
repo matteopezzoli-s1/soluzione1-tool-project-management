@@ -529,6 +529,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('kanban-trimestre')
   const [anno, setAnno] = useState(currentYear)
   const [filterProdotto, setFilterProdotto] = useState<string[]>([])
+  const [filterQuarter, setFilterQuarter] = useState<string[]>([])
   const [filterStato, setFilterStato] = useState<string[]>([])
   const [filterTag, setFilterTag] = useState<string[]>([])
   const [filterDevHub, setFilterDevHub] = useState<string[]>([])
@@ -583,11 +584,12 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
     return items
       .filter(i => i.anno === anno)
       .filter(i => filterProdotto.length === 0 || filterProdotto.includes(i.progettoId))
+      .filter(i => filterQuarter.length === 0 || filterQuarter.includes(i.quarter ?? ''))
       .filter(i => filterStato.length === 0 || filterStato.includes(i.stato))
       .filter(i => filterTag.length === 0 || i.tags.some(t => filterTag.includes(t.id)))
       .filter(i => filterDevHub.length === 0 || (i.devHubId !== null && filterDevHub.includes(i.devHubId)))
       .filter(i => !search.trim() || i.titolo.toLowerCase().includes(search.trim().toLowerCase()))
-  }, [items, anno, filterProdotto, filterStato, filterTag, filterDevHub, search])
+  }, [items, anno, filterProdotto, filterQuarter, filterStato, filterTag, filterDevHub, search])
 
   const listaRows = useMemo(() => {
     return [...displayItems].sort((a, b) =>
@@ -777,6 +779,12 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           options={prodotti.map(p => ({ id: p.id, label: p.nome }))}
           value={filterProdotto}
           onChange={setFilterProdotto}
+        />
+        <MultiSelect
+          label="Tutti i trimestri"
+          options={QUARTERS.map(q => ({ id: q.key, label: q.label }))}
+          value={filterQuarter}
+          onChange={setFilterQuarter}
         />
         <MultiSelect
           label="Tutti gli stati"
