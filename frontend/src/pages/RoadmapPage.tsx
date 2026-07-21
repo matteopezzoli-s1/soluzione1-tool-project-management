@@ -725,7 +725,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [presaErr,     setPresaErr]     = useState<string | null>(null)
   const driveCfg = useDriveConfig(token)
 
-  const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('kanban-trimestre')
+  const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('kanban-stati')
   const [anno, setAnno] = useState(currentYear)
   const [filterProdotto, setFilterProdotto] = useState<string[]>([])
   const [filterQuarter, setFilterQuarter] = useState<string[]>([])
@@ -1046,13 +1046,13 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
       <div className="rm-toolbar">
         <div className="rm-view-toggle" role="tablist" aria-label="Vista roadmap">
-          <button role="tab" aria-selected={view === 'kanban-trimestre'} type="button"
-            className={`rm-view-btn${view === 'kanban-trimestre' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-trimestre')}>
-            Kanban per trimestre
-          </button>
           <button role="tab" aria-selected={view === 'kanban-stati'} type="button"
             className={`rm-view-btn${view === 'kanban-stati' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-stati')}>
             Kanban per stati
+          </button>
+          <button role="tab" aria-selected={view === 'kanban-trimestre'} type="button"
+            className={`rm-view-btn${view === 'kanban-trimestre' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-trimestre')}>
+            Kanban per trimestre
           </button>
           <button role="tab" aria-selected={view === 'lista'} type="button"
             className={`rm-view-btn${view === 'lista' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('lista')}>
