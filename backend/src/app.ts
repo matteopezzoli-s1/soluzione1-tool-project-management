@@ -2323,17 +2323,28 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
   })
 
-  // Normalizza un riferimento ordine di vendita per il matching: senza
-  // prefisso GO-ORDV, maiuscolo. Le attività lo salvano già senza prefisso;
-  // sui contratti può essere stato incollato per intero.
-  const normOrdineVendita = (s: string): string =>
-    s.trim().toUpperCase().replace(/^GO-ORDV-/, '')
+  // Prefisso di un ordine GO: GO-ORDV (vendita), GO-ORPR (produzione), ecc.
+  const GO_PREFIX_RE = /^GO-OR[A-Z]{2}-/
+  // Codice ordine normalizzato (trim + maiuscolo), PREFISSO INCLUSO:
+  // GO-ORDV-2026-78 e GO-ORPR-2026-78 sono ordini distinti e non collidono.
+  const normOrdine = (s: string): string => s.trim().toUpperCase()
+  // Parte "nuda" del codice (anno-numero) senza prefisso GO-OR??-, usata per
+  // il match retro-compatibile con i riferimenti storici salvati senza
+  // prefisso (es. "2026-78").
+  const bareOrdine = (s: string): string => normOrdine(s).replace(GO_PREFIX_RE, '')
+  // Per lo storico: mostra il codice completo così com'è; i riferimenti
+  // storici salvati senza prefisso vengono presentati come GO-ORDV-.
+  const displayOrdine = (s: string): string => {
+    const n = normOrdine(s)
+    return GO_PREFIX_RE.test(n) ? n : `GO-ORDV-${n}`
+  }
 
   // Diff tra i codici aggregati (sommati dal frontend su tutti i progetti
-  // selezionati) e attività + contratti: stesso matching dell'import CSV
-  // manuale (riferimentoOrdineVendita = codice senza prefisso "GO-ORDV-").
-  // Un codice può corrispondere sia a un'attività sia a un contratto; finisce
-  // in notFound solo se non corrisponde a nessuno dei due.
+  // selezionati) e attività + contratti. Match sul codice completo
+  // (GO-ORDV-/GO-ORPR-/… incluso), con fallback sulla parte nuda per i
+  // riferimenti storici salvati senza prefisso. Un codice può corrispondere
+  // sia a un'attività sia a un contratto; finisce in notFound solo se non
+  // corrisponde a nessuno dei due.
   hono.post('/api/zoho/import/preview', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
     const { codes } = await readJSON<{
       codes?: Array<{ code?: unknown; ore?: unknown; mesi?: Array<{ mese?: unknown; ore?: unknown }> }>
@@ -2349,8 +2360,22 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         include: { cliente: { select: { nome: true } } },
       }),
     ])
-    const byOrdine = new Map(attivita.map((a) => [a.riferimentoOrdineVendita!.trim(), a]))
-    const contrattiByOrdine = new Map(contrattiConOrdine.map((k) => [normOrdineVendita(k.riferimentoOrdineVendita!), k]))
+    // Doppia mappa per lato: codice completo + parte nuda (solo per i
+    // riferimenti salvati senza prefisso, così GO-ORDV non pesca un GO-ORPR).
+    const attByFull = new Map<string, (typeof attivita)[number]>()
+    const attByBare = new Map<string, (typeof attivita)[number]>()
+    for (const a of attivita) {
+      const ref = normOrdine(a.riferimentoOrdineVendita!)
+      attByFull.set(ref, a)
+      if (!GO_PREFIX_RE.test(ref)) attByBare.set(ref, a)
+    }
+    const ctByFull = new Map<string, (typeof contrattiConOrdine)[number]>()
+    const ctByBare = new Map<string, (typeof contrattiConOrdine)[number]>()
+    for (const k of contrattiConOrdine) {
+      const ref = normOrdine(k.riferimentoOrdineVendita!)
+      ctByFull.set(ref, k)
+      if (!GO_PREFIX_RE.test(ref)) ctByBare.set(ref, k)
+    }
 
     const matched: Array<{
       attivitaId: string; cliente: string; progetto: string; attivita: string
@@ -2367,8 +2392,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       const code = typeof item?.code === 'string' ? item.code.trim() : ''
       const ore = typeof item?.ore === 'number' && isFinite(item.ore) && item.ore >= 0 ? item.ore : null
       if (!GO_CODE_RE.test(code) || ore === null) continue
-      const a = byOrdine.get(code.replace('GO-ORDV-', ''))
-      const ct = contrattiByOrdine.get(normOrdineVendita(code))
+      const a = attByFull.get(normOrdine(code)) ?? attByBare.get(bareOrdine(code))
+      const ct = ctByFull.get(normOrdine(code)) ?? ctByBare.get(bareOrdine(code))
       if (!a && !ct) { notFound.push(code); continue }
       const nuovo = Math.round((ore / 8) * 100) / 100
       if (a) {
@@ -2520,7 +2545,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         cliente: a.cliente,
         progetto: a.progetto,
         attivita: a.attivita,
-        codice: a.riferimentoOrdineVendita ? `GO-ORDV-${a.riferimentoOrdineVendita.trim()}` : null,
+        codice: a.riferimentoOrdineVendita ? displayOrdine(a.riferimentoOrdineVendita) : null,
         prima,
         dopo: giornateConsuntivate,
         delta,
@@ -2536,7 +2561,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         cliente: k.cliente.nome,
         progetto: 'Contratto assistenza/AMS',
         attivita: k.titolo,
-        codice: k.riferimentoOrdineVendita ? `GO-ORDV-${normOrdineVendita(k.riferimentoOrdineVendita)}` : null,
+        codice: k.riferimentoOrdineVendita ? displayOrdine(k.riferimentoOrdineVendita) : null,
         prima,
         dopo: giornateConsuntivate,
         delta,

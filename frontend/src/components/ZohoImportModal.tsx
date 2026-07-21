@@ -350,7 +350,7 @@ export function ZohoImportModal({ token, projects, onClose, onImported }: ZohoIm
               </>
             ) : ctRows.length === 0 ? (
               <p className="zi-empty">
-                Nessuna attività o contratto corrisponde ai codici GO-ORDV trovati nei progetti selezionati.
+                Nessuna attività o contratto corrisponde ai codici ordine GO trovati nei progetti selezionati.
               </p>
             ) : null}
 
