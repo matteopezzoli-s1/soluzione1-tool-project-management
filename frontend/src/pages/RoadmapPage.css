@@ -332,3 +332,52 @@
   color: #B45309; font-size: 0.75rem; font-weight: 600;
   cursor: help;
 }
+
+/* ── Prodotti interni: economia, presa in carico, workflow ────────────── */
+
+/* Sezione Economia nel modal item (compilata in pianificazione) */
+.rm-economia {
+  display: flex; flex-direction: column; gap: 0.875rem;
+  border-top: 1px solid #E2E8F0; padding-top: 1rem; margin-top: 0.25rem;
+}
+.rm-economia-title {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #64748B;
+}
+.rm-copertura-toggle { display: flex; gap: 0.5rem; }
+.rm-copertura-opt {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.45rem 0.8rem; border: 1px solid #E2E8F0; border-radius: 8px;
+  font-size: 0.85rem; color: #475569; cursor: pointer; user-select: none;
+}
+.rm-copertura-opt input { accent-color: #0D9488; }
+.rm-copertura-opt--active { border-color: #0D9488; background: #F0FDFA; color: #0F766E; font-weight: 600; }
+
+/* Bottone "Prendi in carico" / "Converti in attività" sulla card */
+.rm-card-presa {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+  width: 100%; margin-top: 0.5rem; padding: 0.4rem 0.6rem;
+  border: 1px solid #99F6E4; border-radius: 8px; background: #F0FDFA;
+  color: #0F766E; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.rm-card-presa:hover { background: #CCFBF1; border-color: #5EEAD4; }
+
+/* Messaggio-guida sui drop rifiutati dal workflow */
+.rm-drag-hint {
+  margin: 0 0 0.75rem; padding: 0.55rem 0.875rem;
+  background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px;
+  color: #92400E; font-size: 0.85rem;
+}
+
+/* Toggle "Mostra completati" nella toolbar */
+.rm-btn--completati { font-size: 0.82rem; white-space: nowrap; }
+.rm-btn--completati-on { border-color: #0D9488; color: #0F766E; background: #F0FDFA; }
+
+/* Badge dello stato dell'attività collegata (item presi in carico) */
+.rm-attivita-badge {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.15rem 0.5rem; margin-left: 0.35rem;
+  border: 1px dashed #CBD5E1; border-radius: 999px;
+  font-size: 0.72rem; color: #475569; white-space: nowrap;
+}
