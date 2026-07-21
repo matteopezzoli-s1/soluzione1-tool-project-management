@@ -64,9 +64,13 @@ interface AttivitaItem {
   devHub: string;         devHubId: string | null
   attivita: string
   giornateVendute: number | null
+  // Giornate a carico nostro (prodotti interni: assorbita/co-investimento)
+  giornateInvestimento: number | null
   giornateFatturate: number | null
   giornateConsuntivate: number | null
   riferimentoOrdineVendita: string | null
+  // Seme roadmap da cui è nata (≠ null ⇒ sezione "Prodotti interni")
+  roadmapItemId: string | null
   stato: StatoAttivita
   inizio: string | null
   deadline: string | null
@@ -79,7 +83,10 @@ interface GruppoAttivita {
   progetto: string
   account: string
   projectManager: string
+  // Gruppo della sezione "Prodotti interni" (attività nate dalla roadmap)
+  interno: boolean
   totaleVendute: number
+  totaleInvestimento: number
   totaleFatturate: number
   totaleConsuntivate: number
   totaleResiduoDaFatturare: number
@@ -89,6 +96,7 @@ interface GruppoAttivita {
 
 interface GruppoCliente {
   cliente: string
+  interno: boolean
   totaleVendute: number
   totaleFatturate: number
   totaleConsuntivate: number
@@ -127,7 +135,7 @@ type AttivitaFormData = {
   clienteId: string; progettoId: string; pmId: string
   attivita: string
   stato: StatoAttivita
-  giornateVendute: string; giornateFatturate: string; giornateConsuntivate: string
+  giornateVendute: string; giornateInvestimento: string; giornateFatturate: string; giornateConsuntivate: string
   riferimentoOrdineVendita: string
   inizio: string; deadline: string; note: string
 }
@@ -135,7 +143,7 @@ type AttivitaFormData = {
 const EMPTY_FORM: AttivitaFormData = {
   clienteId: '', progettoId: '', pmId: '',
   attivita: '', stato: 'IN_CORSO',
-  giornateVendute: '', giornateFatturate: '', giornateConsuntivate: '',
+  giornateVendute: '', giornateInvestimento: '', giornateFatturate: '', giornateConsuntivate: '',
   riferimentoOrdineVendita: '', inizio: '', deadline: '', note: '',
 }
 
@@ -160,11 +168,18 @@ function fmtDate(iso: string | null): string {
   return `${d}/${m}/${y}`
 }
 
+// Budget di un'attività: vendute (a carico cliente) + investimento (a carico
+// nostro, prodotti interni). Per le attività classiche investimento è null e
+// il comportamento è identico a prima.
+function budgetGg(item: AttivitaItem): number {
+  return (item.giornateVendute ?? 0) + (item.giornateInvestimento ?? 0)
+}
+
 function isSforamento(item: AttivitaItem): boolean {
   const cons = item.giornateConsuntivate ?? 0
   if (cons === 0) return false
-  if (item.giornateVendute === null) return true
-  return cons > item.giornateVendute
+  if (item.giornateVendute === null && item.giornateInvestimento === null) return true
+  return cons > budgetGg(item)
 }
 
 function getMargineColor(vendute: number, consuntivate: number): string {
@@ -495,8 +510,17 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
   onEdit: (item: AttivitaItem) => void
 }) {
   const isBucket = item.tipo === 'BUCKET'
-  const delta = item.giornateVendute !== null && item.giornateConsuntivate !== null
-    ? item.giornateVendute - item.giornateConsuntivate
+  // Prodotti interni: il confronto è sul budget totale (vendute cliente +
+  // investimento nostro); per le attività classiche coincide con le vendute.
+  const hasInvestimento = item.giornateInvestimento !== null
+  const budgetRef = hasInvestimento ? budgetGg(item) : item.giornateVendute
+  const delta = budgetRef !== null && item.giornateConsuntivate !== null
+    ? budgetRef - item.giornateConsuntivate
+    : null
+  // Split a consuntivo per il co-investimento: le ore oltre il venduto sono
+  // assorbite da noi.
+  const assorbiteDaNoi = hasInvestimento && item.giornateConsuntivate !== null
+    ? Math.max(0, Math.round((item.giornateConsuntivate - (item.giornateVendute ?? 0)) * 100) / 100)
     : null
   const residuoDaFatturare = item.giornateVendute !== null && item.giornateFatturate !== null
     ? item.giornateVendute - item.giornateFatturate
@@ -553,6 +577,12 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
                 <span className="ea-drawer-budget-val">{fmt(item.giornateVendute)}</span>
                 <span className="ea-drawer-budget-lbl">Vendute</span>
               </div>
+              {hasInvestimento && (
+                <div className="ea-drawer-budget-item">
+                  <span className="ea-drawer-budget-val">{fmt(item.giornateInvestimento)}</span>
+                  <span className="ea-drawer-budget-lbl">Investimento (noi)</span>
+                </div>
+              )}
               {isBucket && (
                 <div className="ea-drawer-budget-item">
                   <span className="ea-drawer-budget-val">{fmt(item.giornateFatturate)}</span>
@@ -581,10 +611,18 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
                 </div>
               )}
             </div>
-            {!isBucket && item.giornateVendute !== null && item.giornateConsuntivate !== null && (
+            {!isBucket && budgetRef !== null && item.giornateConsuntivate !== null && (
               <div className="ea-drawer-progress-wrap">
-                <MargineDisplay vendute={item.giornateVendute} consuntivate={item.giornateConsuntivate} />
+                <MargineDisplay vendute={budgetRef} consuntivate={item.giornateConsuntivate} />
               </div>
+            )}
+            {assorbiteDaNoi !== null && item.giornateVendute !== null && (
+              <p className="ea-drawer-split">
+                A consuntivo: cliente {fmt(Math.min(item.giornateConsuntivate ?? 0, item.giornateVendute))}gg
+                · noi {fmt(assorbiteDaNoi)}gg
+                {item.giornateInvestimento !== null && assorbiteDaNoi > item.giornateInvestimento &&
+                  ' (oltre l\'investimento pianificato)'}
+              </p>
             )}
           </section>
 
@@ -927,7 +965,9 @@ function GroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditIt
   const statiMap  = useContext(StatiCtx)
   const isBucket  = group.attivita[0]?.tipo === 'BUCKET'
   const statoPrev = getStatoPrevValente(group.attivita, statiMap)
-  const delta = group.totaleVendute - group.totaleConsuntivate
+  // Prodotti interni: il confronto è sul budget totale (vendute + investimento)
+  const budgetTot = group.totaleVendute + (group.totaleInvestimento ?? 0)
+  const delta = budgetTot - group.totaleConsuntivate
 
   return (
     <div className="ea-group">
@@ -1001,7 +1041,7 @@ function GroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditIt
               </div>
 
               <div className="ea-group-progress-wrap">
-                <MargineDisplay vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
+                <MargineDisplay vendute={budgetTot} consuntivate={group.totaleConsuntivate} />
               </div>
 
               <StatoBadge stato={statoPrev} />
@@ -1049,7 +1089,9 @@ interface ClienteGroupCardProps {
 
 function ClienteGroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: ClienteGroupCardProps) {
   const isBucket = group.attivita[0]?.tipo === 'BUCKET'
-  const delta = group.totaleVendute - group.totaleConsuntivate
+  // Prodotti interni: il confronto è sul budget totale (vendute + investimento)
+  const budgetTot = group.totaleVendute + group.attivita.reduce((s, a) => s + (a.giornateInvestimento ?? 0), 0)
+  const delta = budgetTot - group.totaleConsuntivate
 
   return (
     <div className="ea-group ea-group--cliente">
@@ -1098,7 +1140,7 @@ function ClienteGroupCard({ group, expanded, readOnly, onToggle, onSelectItem, o
               </div>
 
               <div className="ea-group-progress-wrap">
-                <MargineDisplay vendute={group.totaleVendute} consuntivate={group.totaleConsuntivate} />
+                <MargineDisplay vendute={budgetTot} consuntivate={group.totaleConsuntivate} />
               </div>
             </>
           )}
@@ -1190,12 +1232,16 @@ interface AttivitaModalProps {
   clienti: ClienteOption[]
   progetti: ProgettoOption[]
   pms: PMOption[]
+  // Attività nata da roadmap (prodotti interni): il progetto è il prodotto,
+  // in sola lettura; compare il campo GG Investimento e il cliente è opzionale.
+  internaProgettoNome?: string
   onChange: (f: AttivitaFormData) => void
   onSave: () => void
   onClose: () => void
 }
 
-function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti, pms, onChange, onSave, onClose }: AttivitaModalProps) {
+function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti, pms, internaProgettoNome, onChange, onSave, onClose }: AttivitaModalProps) {
+  const isInterna = internaProgettoNome !== undefined
   const statiMap   = useContext(StatiCtx)
   const isBucket   = tipo === 'BUCKET'
   const statiList  = isBucket
@@ -1215,7 +1261,8 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
   )
 
   const handleClienteChange = (clienteId: string) => {
-    onChange({ ...form, clienteId, progettoId: '' })
+    // Interna: il prodotto resta agganciato anche cambiando il cliente pagante
+    onChange({ ...form, clienteId, progettoId: isInterna ? form.progettoId : '' })
   }
 
   const selectedAccount = useMemo(() => {
@@ -1240,29 +1287,36 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
 
           <div className="ea-form-row">
             <div className="ea-form-field">
-              <label htmlFor="ea-f-cliente" className="ea-form-label">Cliente <span aria-hidden="true">*</span></label>
+              <label htmlFor="ea-f-cliente" className="ea-form-label">Cliente {!isInterna && <span aria-hidden="true">*</span>}</label>
               <select id="ea-f-cliente" className="ea-form-input ea-form-select"
                 value={form.clienteId} onChange={e => handleClienteChange(e.target.value)}>
-                <option value="">— Seleziona cliente —</option>
+                <option value="">{isInterna ? '— Interno (nessun cliente) —' : '— Seleziona cliente —'}</option>
                 {clienti.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
               </select>
             </div>
             <div className="ea-form-field">
-              <label htmlFor="ea-f-progetto" className="ea-form-label">Progetto <span aria-hidden="true">*</span></label>
-              <select id="ea-f-progetto" className="ea-form-input ea-form-select"
-                value={form.progettoId} onChange={e => {
-                  // Pre-compila il PM col riferimento del progetto (se non già scelto).
-                  const pmRif = progettiCliente.find(p => p.id === e.target.value)?.pmRiferimentoId
-                  onChange({ ...form, progettoId: e.target.value, pmId: !form.pmId && pmRif ? pmRif : form.pmId })
-                }}
-                disabled={!form.clienteId}>
-                <option value="">
-                  {form.clienteId
-                    ? progettiCliente.length === 0 ? '— Nessun progetto —' : '— Seleziona progetto —'
-                    : '— Seleziona prima il cliente —'}
-                </option>
-                {progettiCliente.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-              </select>
+              <label htmlFor="ea-f-progetto" className="ea-form-label">
+                {isInterna ? 'Prodotto' : <>Progetto <span aria-hidden="true">*</span></>}
+              </label>
+              {isInterna ? (
+                // Nata da roadmap: il prodotto non si cambia
+                <input id="ea-f-progetto" className="ea-form-input" type="text" value={internaProgettoNome} disabled readOnly />
+              ) : (
+                <select id="ea-f-progetto" className="ea-form-input ea-form-select"
+                  value={form.progettoId} onChange={e => {
+                    // Pre-compila il PM col riferimento del progetto (se non già scelto).
+                    const pmRif = progettiCliente.find(p => p.id === e.target.value)?.pmRiferimentoId
+                    onChange({ ...form, progettoId: e.target.value, pmId: !form.pmId && pmRif ? pmRif : form.pmId })
+                  }}
+                  disabled={!form.clienteId}>
+                  <option value="">
+                    {form.clienteId
+                      ? progettiCliente.length === 0 ? '— Nessun progetto —' : '— Seleziona progetto —'
+                      : '— Seleziona prima il cliente —'}
+                  </option>
+                  {progettiCliente.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+              )}
             </div>
           </div>
 
@@ -1304,6 +1358,17 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
               </select>
             </div>
           </div>
+
+          {isInterna && (
+            <div className="ea-form-row">
+              <div className="ea-form-field">
+                <label htmlFor="ea-f-investimento" className="ea-form-label">GG Investimento (noi)</label>
+                <input id="ea-f-investimento" className="ea-form-input" type="number" min="0" step="0.5"
+                  value={form.giornateInvestimento} onChange={set('giornateInvestimento')} placeholder="0" />
+                <span className="ea-form-hint">Giornate a carico nostro; le GG Vendute sono la quota cliente (co-investimento).</span>
+              </div>
+            </div>
+          )}
 
           <div className="ea-form-row">
             <div className="ea-form-field">
@@ -1932,6 +1997,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       attivita:                 item.attivita,
       stato:                    item.stato,
       giornateVendute:          item.giornateVendute  != null ? String(item.giornateVendute)  : '',
+      giornateInvestimento:     item.giornateInvestimento != null ? String(item.giornateInvestimento) : '',
       giornateFatturate:        item.giornateFatturate != null ? String(item.giornateFatturate) : '',
       giornateConsuntivate:     item.giornateConsuntivate != null ? String(item.giornateConsuntivate) : '',
       riferimentoOrdineVendita: item.riferimentoOrdineVendita ?? '',
@@ -1944,7 +2010,9 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
   }
 
   const handleSave = async () => {
-    if (!form.clienteId || !form.progettoId || !form.attivita.trim()) {
+    // Interna (nata da roadmap): il cliente può mancare, il progetto è fisso
+    const isInterna = modal === 'edit' && editing?.roadmapItemId != null
+    if ((!isInterna && (!form.clienteId || !form.progettoId)) || !form.attivita.trim()) {
       setFormErr('Cliente, progetto e attività sono obbligatori.')
       return
     }
@@ -1953,13 +2021,14 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       const url    = modal === 'edit' ? `${API_URL}/api/attivita/${editing!.id}` : `${API_URL}/api/attivita`
       const method = modal === 'edit' ? 'PUT' : 'POST'
       const body = {
-        clienteId:                form.clienteId,
+        clienteId:                form.clienteId || null,
         progettoId:               form.progettoId,
         pmId:                     form.pmId || null,
         attivita:                 form.attivita.trim(),
         tipo:                     modal === 'edit' ? editing!.tipo : vista,
         stato:                    form.stato,
         giornateVendute:          form.giornateVendute          !== '' ? parseFloat(form.giornateVendute)          : null,
+        giornateInvestimento:     form.giornateInvestimento     !== '' ? parseFloat(form.giornateInvestimento)     : null,
         giornateFatturate:        form.giornateFatturate        !== '' ? parseFloat(form.giornateFatturate)        : null,
         giornateConsuntivate:     form.giornateConsuntivate     !== '' ? parseFloat(form.giornateConsuntivate)     : null,
         riferimentoOrdineVendita: form.riferimentoOrdineVendita.trim() || null,
@@ -1994,6 +2063,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         tipo:                     item.tipo,
         stato:                    newStato,
         giornateVendute:          item.giornateVendute,
+        giornateInvestimento:     item.giornateInvestimento,
         giornateFatturate:        item.giornateFatturate,
         giornateConsuntivate:     item.giornateConsuntivate,
         riferimentoOrdineVendita: item.riferimentoOrdineVendita,
@@ -2117,14 +2187,15 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       .filter(g => g.attivita.length > 0)
   }, [data, filtroAcc, filtroPM, filtroDevHub, filtroStato, soloAttivi, statiMap, isBucketVista])
 
-  // Derived: group by cliente from filtered data
+  // Derived: group by cliente from filtered data ("Prodotti interni" resta
+  // un cappello a sé, reso per primo)
   const filteredGruppiCliente = useMemo((): GruppoCliente[] => {
     const map = new Map<string, GruppoCliente>()
     for (const g of filteredGruppi) {
       const key = g.cliente
       if (!map.has(key)) {
         map.set(key, {
-          cliente: g.cliente, totaleVendute: 0, totaleFatturate: 0, totaleConsuntivate: 0,
+          cliente: g.cliente, interno: g.interno, totaleVendute: 0, totaleFatturate: 0, totaleConsuntivate: 0,
           totaleResiduoDaFatturare: 0, inSforamento: false, attivita: [],
         })
       }
@@ -2142,15 +2213,18 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
     for (const entry of map.values()) {
       entry.totaleResiduoDaFatturare = Math.round((entry.totaleVendute - entry.totaleFatturate) * 100) / 100
     }
-    return [...map.values()].sort((a, b) => a.cliente.localeCompare(b.cliente, 'it'))
+    return [...map.values()].sort((a, b) =>
+      (a.interno === b.interno ? 0 : a.interno ? -1 : 1) || a.cliente.localeCompare(b.cliente, 'it'))
   }, [filteredGruppi, isEscluso])
 
-  // Recompute riepilogo from filtered data
+  // Recompute riepilogo from filtered data. I prodotti interni sono esclusi
+  // dai KPI (come dal riepilogo server): hanno totali propri nella sezione.
   const filteredRiepilogo = useMemo((): Riepilogo => {
-    const all = filteredGruppi.flatMap(g => g.attivita)
+    const gruppiConteggiati = filteredGruppi.filter(g => !g.interno)
+    const all = gruppiConteggiati.flatMap(g => g.attivita)
     const contabili = all.filter(a => !isEscluso(a))
     return {
-      totaleProgetti:             filteredGruppi.length,
+      totaleProgetti:             gruppiConteggiati.length,
       totaleAttivita:             all.length,
       attivitaInSforamento:       contabili.filter(isSforamento).length,
       attivitaInApprovazione:     all.filter(isEscluso).length,
@@ -2190,7 +2264,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       {/* ── Top bar ── */}
       <div className="ea-topbar">
         <div className="ea-topbar-left">
-          <h1 className="ea-title">Elenco Attività Progetti</h1>
+          <h1 className="ea-title">Attività Progetti / Prodotti</h1>
           <div className="ea-vista-tabs" role="tablist" aria-label="Tipo attività">
             <button type="button" role="tab" aria-selected={vista === 'STANDARD'}
               className={`ea-vista-tab${vista === 'STANDARD' ? ' ea-vista-tab--active' : ''}`}
@@ -2211,7 +2285,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
                 width="15" height="15" aria-hidden="true">
                 <path d="M10 4v12M4 10h12" strokeLinecap="round" />
               </svg>
-              {isBucketVista ? 'Aggiungi ordine bucket' : 'Aggiungi attività'}
+              {isBucketVista ? 'Aggiungi ordine bucket' : 'Aggiungi attività progetto'}
             </button>
           )}
           <div className="ea-expand-btns">
@@ -2454,7 +2528,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         <AttivitaModal
           title={
             modal === 'add'
-              ? (isBucketVista ? 'Aggiungi ordine bucket' : 'Aggiungi attività')
+              ? (isBucketVista ? 'Aggiungi ordine bucket' : 'Aggiungi attività progetto')
               : (editing!.tipo === 'BUCKET' ? 'Modifica ordine bucket' : 'Modifica attività')
           }
           tipo={modal === 'edit' ? editing!.tipo : vista}
@@ -2464,6 +2538,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
           clienti={clientiOpts}
           progetti={progettiOpts}
           pms={pmsOpts}
+          internaProgettoNome={modal === 'edit' && editing?.roadmapItemId != null ? editing.progetto : undefined}
           onChange={setForm}
           onSave={handleSave}
           onClose={() => setModal(null)}

@@ -284,6 +284,7 @@ model Cliente {
   progetti  Progetto[]
   attivita  Attivita[]
   contratti Contratto[]
+  roadmapItemsPaganti RoadmapItem[] @relation("RoadmapClientePagante")
 
   @@index([accountId])
   @@map("clienti")
@@ -343,6 +344,10 @@ model Attivita {
   // righe `stato` usa due valori fissi (APERTA/CHIUSA), non StatoAttivitaConfig.
   tipo                     TipoAttivita @default(STANDARD)
   giornateVendute          Decimal?     @map("giornate_vendute") @db.Decimal(10, 2)
+  // Giornate a carico nostro (investimento). Per i prodotti interni: nel caso
+  // "assorbita" = tutto il budget nostro; nel co-investimento = quota nostra
+  // accanto a giornateVendute (a carico cliente). Null = non tracciato.
+  giornateInvestimento     Decimal?     @map("giornate_investimento") @db.Decimal(10, 2)
   giornateFatturate        Decimal?     @map("giornate_fatturate") @db.Decimal(10, 2)
   giornateConsuntivate     Decimal?     @map("giornate_consuntivate") @db.Decimal(10, 2)
   riferimentoOrdineVendita String?      @map("riferimento_ordine_vendita")
@@ -358,6 +363,13 @@ model Attivita {
 
   progettoId               String?         @map("progetto_id")
   progettoRel              Progetto?       @relation(fields: [progettoId], references: [id], onDelete: SetNull)
+
+  // Seme roadmap da cui questa attività è nata (prodotti interni). 1:1:
+  // l'item roadmap resta come memoria della pianificazione; alla cancellazione
+  // dell'attività l'item "rigermoglia" in DA_INIZIARE (gestito a livello app,
+  // per questo SetNull e non Cascade).
+  roadmapItemId            String?         @unique @map("roadmap_item_id")
+  roadmapItem              RoadmapItem?    @relation("RoadmapItemAttivita", fields: [roadmapItemId], references: [id], onDelete: SetNull)
 
   accountId                String?         @map("account_id")
   accountRel               User?           @relation("AttivitaAccount", fields: [accountId], references: [id], onDelete: SetNull)
@@ -557,6 +569,9 @@ model StatoRoadmapConfig {
   label        String
   colore       String   @default("#94a3b8")
   isArchiviato Boolean  @default(false) @map("is_archiviato")
+  // Stato terminale "completato": alimentato automaticamente dalla chiusura
+  // dell'attività collegata, non trascinabile a mano. Al più uno.
+  isCompletato Boolean  @default(false) @map("is_completato")
   ordine       Int      @default(0)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -584,10 +599,28 @@ model RoadmapItem {
   stimaGg      Decimal?  @map("stima_gg") @db.Decimal(10, 2)
   ordine       Int       @default(0)
 
+  // ── Economia (compilata in pianificazione, trasferita all'attività alla
+  //    presa in carico) ──
+  // ASSORBITA (tutto a carico nostro) | COINVESTIMENTO (quota cliente + nostra)
+  copertura                String   @default("ASSORBITA")
+  // Cliente pagante, solo per co-investimento (chi mette l'ordine di vendita)
+  clientePaganteId         String?  @map("cliente_pagante_id")
+  clientePagante           Cliente? @relation("RoadmapClientePagante", fields: [clientePaganteId], references: [id], onDelete: SetNull)
+  // Giornate a carico cliente (co-investimento). La quota nostra si deriva da
+  // stimaGg - giornateVendute alla presa in carico.
+  giornateVendute          Decimal? @map("giornate_vendute") @db.Decimal(10, 2)
+  // Ordine di vendita GO-ORDV/GO-ORPR: inerte finché l'item è in roadmap
+  // (l'import Zoho aggancia solo attività e contratti); si attiva sull'attività.
+  riferimentoOrdineVendita String?  @map("riferimento_ordine_vendita")
+
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   tags         RoadmapItemTag[]
+  // Attività nata da questo item (prodotti interni). Presente = item "preso in
+  // carico": nascosto dalla board finché l'attività è aperta, mostrato in
+  // COMPLETATO quando l'attività è chiusa.
+  attivita     Attivita? @relation("RoadmapItemAttivita")
 
   @@index([progettoId])
   @@index([anno, quarter])
