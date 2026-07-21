@@ -1670,3 +1670,6 @@
   display: block; margin-top: 0.3rem;
   font-size: 0.72rem; color: #94A3B8;
 }
+
+/* ── Prodotti interni: split noi/cliente nel dettaglio ── */
+.ea-drawer-split { margin: 0.5rem 0 0; font-size: 0.82rem; color: #64748B; }

@@ -149,7 +149,7 @@ const PAGE_LABELS: Record<NavPage, string> = {
   clienti:      'Anagrafica Clienti',
   progetti:     'Progetti & Prodotti',
   timeline:     'Gantt Attività',
-  attivita:     'Elenco Attività Progetti',
+  attivita:     'Attività Progetti / Prodotti',
   presale:      'Presale',
   consuntivi:   'Consuntivi Zoho',
   contratti:    'Contratti Assistenza',
@@ -322,7 +322,7 @@ export default function App() {
         <div className="db-sidebar-nav">
           {!isDevHub && navBtn('dashboard', 'Dashboard',            <IconGrid />)}
           {canPresale && navBtn('presale', 'Presale',      <IconPresale />)}
-          {navBtn('attivita',      'Elenco Attività Progetti', <IconClipboard />)}
+          {navBtn('attivita',      'Attività Progetti / Prodotti', <IconClipboard />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {canContratti && navBtn('contratti', 'Contratti Assistenza', <IconContract />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}

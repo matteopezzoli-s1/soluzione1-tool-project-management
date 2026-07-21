@@ -995,6 +995,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   // ── Roadmap Items CRUD ──────────────────────────────────────
 
+  // Stato roadmap legacy "in corso": pensionato dal modello prodotti interni
+  // (l'esecuzione è rappresentata dall'attività). Non è più un target di drag
+  // né uno stato di creazione; gli item legacy che ci stanno si convertono con
+  // "Prendi in carico".
+  const RETIRED_ROADMAP_STATO = 'IN_CORSO'
+
   const roadmapItemInclude = {
     progetto: {
       select: {
@@ -1004,21 +1010,51 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       },
     },
     tags: { include: { tag: true } },
+    clientePagante: { select: { id: true, nome: true } },
+    // Attività nata da questo item: presente = item preso in carico.
+    attivita: { select: { id: true, stato: true } },
   } as const
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function flattenRoadmapItem(item: any) {
-    const { tags, progetto, ...rest } = item
+    const { tags, progetto, clientePagante, attivita, stimaGg, giornateVendute, ...rest } = item
     const { responsabileDevHubId, responsabileDevHub, ...progettoRest } = progetto ?? {}
     return {
       ...rest,
+      stimaGg: stimaGg !== null && stimaGg !== undefined ? toNumber(stimaGg) : null,
+      giornateVendute: giornateVendute !== null && giornateVendute !== undefined ? toNumber(giornateVendute) : null,
       progetto: progettoRest,
       // Il DevHub è un attributo del prodotto/progetto, non della singola
       // attività roadmap: viene ereditato dal Progetto associato.
       devHub: responsabileDevHub ?? null,
       devHubId: responsabileDevHubId ?? null,
+      clientePagante: clientePagante ?? null,
+      // Link al seme → attività (prodotti interni). attivitaStato serve alla UI
+      // per capire se l'item è in esecuzione o completato.
+      attivitaId: attivita?.id ?? null,
+      attivitaStato: attivita?.stato ?? null,
       tags: (tags ?? []).map((t: { tag: unknown }) => t.tag),
     }
+  }
+
+  // Fine trimestre (usata come deadline dell'attività alla presa in carico).
+  function quarterEndDate(anno: number, quarter: string | null): Date | null {
+    const map: Record<string, [number, number]> = { Q1: [2, 31], Q2: [5, 30], Q3: [8, 30], Q4: [11, 31] }
+    const q = quarter ? map[quarter] : undefined
+    return q ? new Date(Date.UTC(anno, q[0], q[1])) : null
+  }
+
+  // Sincronizza lo stato del seme roadmap con quello dell'attività collegata:
+  // attività chiusa (stato archiviato) → item nello stato "completato" (mostrato
+  // in board); attività aperta → item a DA_INIZIARE (nascosto, "in esecuzione").
+  async function syncRoadmapItemFromAttivita(prisma: PrismaClient, roadmapItemId: string, attivitaStato: string) {
+    const [statiArch, completato] = await Promise.all([
+      prisma.statoAttivitaConfig.findMany({ where: { isArchiviato: true }, select: { chiave: true } }),
+      prisma.statoRoadmapConfig.findFirst({ where: { isCompletato: true }, select: { chiave: true } }),
+    ])
+    const chiusa = statiArch.some((s) => s.chiave === attivitaStato)
+    const nuovoStato = chiusa ? (completato?.chiave ?? 'COMPLETATO') : 'DA_INIZIARE'
+    await prisma.roadmapItem.update({ where: { id: roadmapItemId }, data: { stato: nuovoStato } })
   }
 
   async function syncRoadmapItemTags(prisma: PrismaClient, roadmapItemId: string, tagIds: string[]) {
@@ -1047,12 +1083,21 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (devHubId?.trim()) {
         where['progetto'] = { responsabileDevHubId: { in: devHubId.split(',').map(v => v.trim()).filter(Boolean) } }
       }
-      const items = await c.get('prisma').roadmapItem.findMany({
-        where,
-        orderBy: [{ anno: 'asc' }, { quarter: 'asc' }, { ordine: 'asc' }],
-        include: roadmapItemInclude,
-      })
-      return c.json(items.map(flattenRoadmapItem))
+      const prisma = c.get('prisma')
+      const [items, statiArch] = await Promise.all([
+        prisma.roadmapItem.findMany({
+          where,
+          orderBy: [{ anno: 'asc' }, { quarter: 'asc' }, { ordine: 'asc' }],
+          include: roadmapItemInclude,
+        }),
+        prisma.statoAttivitaConfig.findMany({ where: { isArchiviato: true }, select: { chiave: true } }),
+      ])
+      const archiviati = new Set(statiArch.map((s) => s.chiave))
+      // Nasconde gli item "in esecuzione": presi in carico con attività ancora
+      // aperta. Restano visibili quelli senza attività e quelli la cui attività
+      // è chiusa (mostrati come completati).
+      const visibili = items.filter((i) => !(i.attivita && !archiviati.has(i.attivita.stato)))
+      return c.json(visibili.map(flattenRoadmapItem))
     } catch (err) {
       console.error('[roadmap-items] GET error:', err)
       return c.json({ error: 'Errore nel recupero delle attività roadmap' }, 500)
@@ -1060,10 +1105,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.post('/api/roadmap-items', requireAuth(), async (c) => {
-    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds } = await readJSON<{
+    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds,
+      copertura, clientePaganteId, giornateVendute, riferimentoOrdineVendita } = await readJSON<{
       progettoId?: string; anno?: number; quarter?: string | null; dataDeadline?: string | null
       titolo?: string; descrizione?: string; stato?: string; analisiUrl?: string
       stimaGg?: number | null; ordine?: number; tagIds?: string[]
+      copertura?: string; clientePaganteId?: string | null; giornateVendute?: number | null; riferimentoOrdineVendita?: string | null
     }>(c)
     if (!progettoId?.trim()) return c.json({ error: 'progettoId è obbligatorio' }, 400)
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
@@ -1072,10 +1119,17 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (analisiErr) return c.json({ error: analisiErr }, 400)
     const prisma = c.get('prisma')
     const statoVal = stato?.trim() ?? 'DA_FARE'
-    const statiValidi = await prisma.statoRoadmapConfig.findMany({ select: { chiave: true } })
-    if (statiValidi.length > 0 && !statiValidi.some(s => s.chiave === statoVal)) {
-      return c.json({ error: 'Stato non valido' }, 400)
+    const statiValidi = await prisma.statoRoadmapConfig.findMany()
+    if (statiValidi.length > 0) {
+      const target = statiValidi.find(s => s.chiave === statoVal)
+      if (!target) return c.json({ error: 'Stato non valido' }, 400)
+      // In creazione sono ammessi solo gli stati di pianificazione: non un
+      // item già completato (auto) né lo stato legacy "in corso" (pensionato).
+      if (target.isCompletato || target.chiave === RETIRED_ROADMAP_STATO) {
+        return c.json({ error: 'Stato non ammesso in creazione (usa uno stato di pianificazione)' }, 400)
+      }
     }
+    const coperturaVal = copertura?.trim().toUpperCase() === 'COINVESTIMENTO' ? 'COINVESTIMENTO' : 'ASSORBITA'
     try {
       const item = await prisma.roadmapItem.create({
         data: {
@@ -1089,6 +1143,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           analisiUrl: analisiUrl?.trim() || null,
           stimaGg: stimaGg ?? null,
           ordine: ordine ?? 0,
+          copertura: coperturaVal,
+          clientePaganteId: coperturaVal === 'COINVESTIMENTO' ? (clientePaganteId?.trim() || null) : null,
+          giornateVendute: coperturaVal === 'COINVESTIMENTO' ? (giornateVendute ?? null) : null,
+          riferimentoOrdineVendita: coperturaVal === 'COINVESTIMENTO' ? (riferimentoOrdineVendita?.trim() || null) : null,
           tags: Array.isArray(tagIds) && tagIds.length > 0
             ? { create: tagIds.map(tagId => ({ tagId })) }
             : undefined,
@@ -1105,17 +1163,19 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/api/roadmap-items/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds } = await readJSON<{
+    const { progettoId, anno, quarter, dataDeadline, titolo, descrizione, stato, analisiUrl, stimaGg, ordine, tagIds,
+      copertura, clientePaganteId, giornateVendute, riferimentoOrdineVendita } = await readJSON<{
       progettoId?: string; anno?: number; quarter?: string | null; dataDeadline?: string | null
       titolo?: string; descrizione?: string; stato?: string; analisiUrl?: string
       stimaGg?: number | null; ordine?: number; tagIds?: string[]
+      copertura?: string; clientePaganteId?: string | null; giornateVendute?: number | null; riferimentoOrdineVendita?: string | null
     }>(c)
     if (!titolo?.trim()) return c.json({ error: 'Il titolo è obbligatorio' }, 400)
     if (!anno) return c.json({ error: 'L\'anno è obbligatorio' }, 400)
     const prisma = c.get('prisma')
     // Solo i link nuovi/modificati vengono validati (grandfathering dei
     // valori storici non conformi — vedi PUT /api/attivita/:id)
-    const existingItem = await prisma.roadmapItem.findUnique({ where: { id }, select: { analisiUrl: true } })
+    const existingItem = await prisma.roadmapItem.findUnique({ where: { id }, select: { analisiUrl: true, stato: true, attivita: { select: { id: true } } } })
     if (!existingItem) return c.json({ error: 'Attività roadmap non trovata' }, 404)
     if ((analisiUrl?.trim() || null) !== existingItem.analisiUrl) {
       const analisiErrPut = invalidLinkError({ 'Link analisi': analisiUrl })
@@ -1126,6 +1186,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (statiValidi.length > 0 && !statiValidi.some(s => s.chiave === statoVal)) {
       return c.json({ error: 'Stato non valido' }, 400)
     }
+    // Item preso in carico: lo stato è guidato dall'attività, non modificabile a
+    // mano da qui — si mantiene quello esistente ignorando il valore in arrivo.
+    const statoDaScrivere = existingItem.attivita ? existingItem.stato : statoVal
+    const coperturaVal = copertura?.trim().toUpperCase() === 'COINVESTIMENTO' ? 'COINVESTIMENTO' : 'ASSORBITA'
     try {
       if (Array.isArray(tagIds)) await syncRoadmapItemTags(prisma, id, tagIds)
       const item = await prisma.roadmapItem.update({
@@ -1137,10 +1201,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           dataDeadline: dataDeadline ? new Date(dataDeadline) : null,
           titolo: titolo.trim(),
           descrizione: descrizione?.trim() || null,
-          stato: statoVal,
+          stato: statoDaScrivere,
           analisiUrl: analisiUrl?.trim() || null,
           stimaGg: stimaGg ?? null,
           ordine: ordine ?? 0,
+          copertura: coperturaVal,
+          clientePaganteId: coperturaVal === 'COINVESTIMENTO' ? (clientePaganteId?.trim() || null) : null,
+          giornateVendute: coperturaVal === 'COINVESTIMENTO' ? (giornateVendute ?? null) : null,
+          riferimentoOrdineVendita: coperturaVal === 'COINVESTIMENTO' ? (riferimentoOrdineVendita?.trim() || null) : null,
         },
         include: roadmapItemInclude,
       })
@@ -1159,14 +1227,46 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const { ordine, anno, quarter, stato } = await readJSON<{
       ordine?: number; anno?: number; quarter?: string | null; stato?: string
     }>(c)
+    const prisma = c.get('prisma')
+    const nuovoStato = stato?.trim()
+    // Enforcement del workflow lato server (oltre alla UI): il drag può muovere
+    // solo di uno stato di pianificazione per volta, non può creare completati
+    // né toccare item già presi in carico.
+    if (nuovoStato) {
+      const existing = await prisma.roadmapItem.findUnique({
+        where: { id }, select: { stato: true, attivita: { select: { id: true } } },
+      })
+      if (!existing) return c.json({ error: 'Attività roadmap non trovata' }, 404)
+      if (nuovoStato !== existing.stato) {
+        if (existing.attivita) {
+          return c.json({ error: 'Item collegato a un\'attività: lo stato segue l\'attività' }, 409)
+        }
+        const stati = await prisma.statoRoadmapConfig.findMany({ orderBy: { ordine: 'asc' } })
+        const target = stati.find((s) => s.chiave === nuovoStato)
+        if (!target) return c.json({ error: 'Stato non valido' }, 400)
+        if (target.isCompletato) {
+          return c.json({ error: 'Il completamento è automatico (chiusura dell\'attività)' }, 409)
+        }
+        if (target.chiave === RETIRED_ROADMAP_STATO) {
+          return c.json({ error: 'Stato non più disponibile: usa "Prendi in carico"' }, 409)
+        }
+        // Adiacenza sulla sequenza di pianificazione (esclusi completato e legacy)
+        const seq = stati.filter((s) => !s.isCompletato && s.chiave !== RETIRED_ROADMAP_STATO).map((s) => s.chiave)
+        const from = seq.indexOf(existing.stato)
+        const to = seq.indexOf(nuovoStato)
+        if (from !== -1 && to !== -1 && Math.abs(from - to) > 1) {
+          return c.json({ error: 'Puoi spostare solo di uno stato per volta' }, 400)
+        }
+      }
+    }
     try {
-      const item = await c.get('prisma').roadmapItem.update({
+      const item = await prisma.roadmapItem.update({
         where: { id },
         data: {
           ordine: ordine ?? undefined,
           anno: anno ?? undefined,
           quarter: quarter !== undefined ? (quarter?.trim() || null) : undefined,
-          stato: stato?.trim() || undefined,
+          stato: nuovoStato || undefined,
         },
       })
       return c.json(item)
@@ -1178,13 +1278,84 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.delete('/api/roadmap-items/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
+    const prisma = c.get('prisma')
     try {
-      await c.get('prisma').roadmapItem.delete({ where: { id } })
+      // Un item preso in carico non è cancellabile: prima va gestita/cancellata
+      // l'attività (che, cancellata, fa "rigermogliare" l'item).
+      const linked = await prisma.attivita.findUnique({ where: { roadmapItemId: id }, select: { id: true } })
+      if (linked) {
+        return c.json({ error: 'Item collegato a un\'attività: gestisci prima l\'attività' }, 409)
+      }
+      await prisma.roadmapItem.delete({ where: { id } })
       return c.body(null, 204)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività roadmap non trovata' }, 404)
       console.error('[roadmap-items] DELETE error:', err)
       return c.json({ error: 'Errore nella cancellazione dell\'attività roadmap' }, 500)
+    }
+  })
+
+  // POST /api/roadmap-items/:id/prendi-in-carico — converte un item di
+  // pianificazione in un'attività IN_CORSO (prodotti interni). L'item resta come
+  // seme collegato 1:1 e lascia la board finché l'attività è aperta. Riservato a
+  // Board/PM/Account (DevHub è in sola lettura).
+  hono.post('/api/roadmap-items/:id/prendi-in-carico', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
+    const id = c.req.param('id')
+    const prisma = c.get('prisma')
+    const item = await prisma.roadmapItem.findUnique({
+      where: { id },
+      include: {
+        progetto: { select: { id: true, nome: true, poId: true, clienteId: true, cliente: { select: { nome: true, accountId: true } } } },
+        clientePagante: { select: { id: true, nome: true, accountId: true } },
+        attivita: { select: { id: true } },
+      },
+    })
+    if (!item) return c.json({ error: 'Attività roadmap non trovata' }, 404)
+    if (item.attivita) return c.json({ error: 'Questo item è già stato preso in carico' }, 409)
+
+    const coinvest = item.copertura === 'COINVESTIMENTO'
+    if (coinvest && (!item.clientePaganteId || item.giornateVendute === null)) {
+      return c.json({ error: 'Per il co-investimento servono cliente pagante e giornate vendute (compilali nella scheda)' }, 400)
+    }
+
+    const stima = item.stimaGg !== null ? toNumber(item.stimaGg) : null
+    const vendute = item.giornateVendute !== null ? toNumber(item.giornateVendute) : null
+    // Giornate a carico nostro: assorbita → tutta la stima; co-investimento →
+    // stima meno la quota cliente (mai sotto zero).
+    const investimento = coinvest
+      ? (stima !== null ? Math.max(0, Math.round((stima - (vendute ?? 0)) * 100) / 100) : null)
+      : stima
+
+    const clienteNome = coinvest ? item.clientePagante!.nome : (item.progetto.cliente?.nome ?? 'Soluzione1')
+    const clienteId   = coinvest ? item.clientePaganteId! : (item.progetto.clienteId ?? null)
+    const accountId   = coinvest ? (item.clientePagante!.accountId ?? null) : (item.progetto.cliente?.accountId ?? null)
+
+    try {
+      const att = await prisma.attivita.create({
+        data: {
+          cliente: clienteNome,
+          clienteId,
+          progetto: item.progetto.nome,
+          progettoId: item.progetto.id,
+          accountId,
+          attivita: item.titolo,
+          tipo: 'STANDARD',
+          stato: 'IN_CORSO',
+          giornateVendute: coinvest ? vendute : null,
+          giornateInvestimento: investimento,
+          riferimentoOrdineVendita: coinvest ? (item.riferimentoOrdineVendita?.trim() || null) : null,
+          inizio: new Date(),
+          deadline: item.dataDeadline ?? quarterEndDate(item.anno, item.quarter),
+          note: item.descrizione,
+          pmId: item.progetto.poId ?? null,
+          roadmapItemId: item.id,
+        },
+      })
+      await logStatoChange(prisma, att.id, null, 'IN_CORSO', c.get('currentUserId'))
+      return c.json(att, 201)
+    } catch (err) {
+      console.error('[roadmap-items] prendi-in-carico error:', err)
+      return c.json({ error: 'Errore nella presa in carico dell\'item roadmap' }, 500)
     }
   })
 
@@ -1293,21 +1464,28 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
       const resolvedName = (first: string | null, last: string) => [first, last].filter(Boolean).join(' ')
 
+      // Prodotti interni: attività nate dalla roadmap (roadmapItemId != null).
+      // Raggruppate sotto un unico cappello (per prodotto), rese per prime ed
+      // escluse dai conteggi globali. Nel co-investimento il cliente del record
+      // resta quello vero (chi paga): cambia solo la collocazione nell'elenco.
+      const SEZIONE_INTERNI = 'Prodotti interni'
+
       const groupMap = new Map<string, {
         cliente: string; progetto: string; account: string
-        projectManager: string; attivita: typeof rows
+        projectManager: string; interno: boolean; attivita: typeof rows
       }>()
 
       for (const row of rows) {
-        const clienteNome = row.clienteRel?.nome ?? row.cliente
+        const interno = row.roadmapItemId != null
         const progettoNome = row.progettoRel?.nome ?? row.progetto
-        const key = `${clienteNome}|||${progettoNome}`
+        const groupCliente = interno ? SEZIONE_INTERNI : (row.clienteRel?.nome ?? row.cliente)
+        const key = `${groupCliente}|||${progettoNome}`
         if (!groupMap.has(key)) {
           const accountName = row.clienteRel?.account
             ? resolvedName(row.clienteRel.account.firstName, row.clienteRel.account.lastName)
             : ''
           const pmName = row.pm ? resolvedName(row.pm.firstName, row.pm.lastName) : ''
-          groupMap.set(key, { cliente: clienteNome, progetto: progettoNome, account: accountName, projectManager: pmName, attivita: [] })
+          groupMap.set(key, { cliente: groupCliente, progetto: progettoNome, account: accountName, projectManager: pmName, interno, attivita: [] })
         }
         groupMap.get(key)!.attivita.push(row)
       }
@@ -1340,9 +1518,11 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             devHubId: a.progettoRel?.responsabileDevHubId ?? null,
             attivita: a.attivita,
             giornateVendute: a.giornateVendute !== null ? toNumber(a.giornateVendute) : null,
+            giornateInvestimento: a.giornateInvestimento !== null ? toNumber(a.giornateInvestimento) : null,
             giornateFatturate: a.giornateFatturate !== null ? toNumber(a.giornateFatturate) : null,
             giornateConsuntivate: a.giornateConsuntivate !== null ? toNumber(a.giornateConsuntivate) : null,
             riferimentoOrdineVendita: a.riferimentoOrdineVendita,
+            roadmapItemId: a.roadmapItemId ?? null,
             stato: a.stato,
             inizio: a.inizio?.toISOString().split('T')[0] ?? null,
             deadline: a.deadline?.toISOString().split('T')[0] ?? null,
@@ -1364,24 +1544,27 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
         const attivitaContabili = attivitaMapped.filter(isContabile)
         const totaleVendute = attivitaContabili.reduce((s, a) => s + (a.giornateVendute ?? 0), 0)
+        const totaleInvestimento = attivitaContabili.reduce((s, a) => s + (a.giornateInvestimento ?? 0), 0)
         const totaleFatturate = attivitaContabili.reduce((s, a) => s + (a.giornateFatturate ?? 0), 0)
         const totaleConsuntivate = attivitaContabili.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0)
 
-        // Segnale di sforamento (risorse consuntivate oltre il venduto): mantenuto
-        // anche per le BUCKET come avviso secondario, ma per loro la metrica
-        // primaria è il residuo da fatturare (vendute - fatturate), non questo delta.
-        const inSforamento = totaleConsuntivate > totaleVendute ||
-          attivitaContabili.some(a =>
-            (a.giornateConsuntivate ?? 0) > 0 &&
-            (a.giornateVendute === null || (a.giornateConsuntivate ?? 0) > (a.giornateVendute ?? 0))
-          )
+        // Sforamento: consuntivato oltre il budget = vendute (a carico cliente) +
+        // investimento (a carico nostro). Per le attività senza né vendute né
+        // investimento vale la vecchia regola (qualsiasi consuntivo è sforamento).
+        const budgetGg = (a: typeof attivitaMapped[number]) => (a.giornateVendute ?? 0) + (a.giornateInvestimento ?? 0)
+        const hasBudget = (a: typeof attivitaMapped[number]) => a.giornateVendute !== null || a.giornateInvestimento !== null
+        const inSforamento = attivitaContabili.some(a =>
+          (a.giornateConsuntivate ?? 0) > 0 && (!hasBudget(a) || (a.giornateConsuntivate ?? 0) > budgetGg(a))
+        )
 
         return {
           cliente: g.cliente,
           progetto: g.progetto,
           account: g.account,
           projectManager: g.projectManager,
+          interno: g.interno,
           totaleVendute: Math.round(totaleVendute * 100) / 100,
+          totaleInvestimento: Math.round(totaleInvestimento * 100) / 100,
           totaleFatturate: Math.round(totaleFatturate * 100) / 100,
           totaleConsuntivate: Math.round(totaleConsuntivate * 100) / 100,
           totaleResiduoDaFatturare: Math.round((totaleVendute - totaleFatturate) * 100) / 100,
@@ -1390,14 +1573,20 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         }
       })
 
-      gruppi.sort((a, b) => a.cliente.localeCompare(b.cliente, 'it') || a.progetto.localeCompare(b.progetto, 'it'))
+      // Prodotti interni per primi, poi ordine alfabetico cliente/progetto.
+      gruppi.sort((a, b) =>
+        (a.interno === b.interno ? 0 : a.interno ? -1 : 1) ||
+        a.cliente.localeCompare(b.cliente, 'it') || a.progetto.localeCompare(b.progetto, 'it'))
 
-      const allAttivita = gruppi.flatMap(g => g.attivita)
+      // Il riepilogo globale (KPI) esclude i prodotti interni: sono lavoro
+      // interno/investimento, con totali propri renderizzati nella loro sezione.
+      const gruppiConteggiati = gruppi.filter(g => !g.interno)
+      const allAttivita = gruppiConteggiati.flatMap(g => g.attivita)
       const isContabileGlobale = (a: typeof allAttivita[number]) =>
         tipoParam === 'BUCKET' ? a.stato !== 'CHIUSA' : !escludiChiavi.has(a.stato)
       const allContabili = allAttivita.filter(isContabileGlobale)
       const riepilogo = {
-        totaleProgetti: gruppi.length,
+        totaleProgetti: gruppiConteggiati.length,
         totaleAttivita: allAttivita.length,
         attivitaInSforamento: allContabili.filter(a =>
           (a.giornateConsuntivate ?? 0) > 0 &&
@@ -1491,14 +1680,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const prisma = c.get('prisma')
     const {
       clienteId, progettoId, pmId, attivita, tipo,
-      giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
+      giornateVendute, giornateInvestimento, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
       presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmId?: string | null
       attivita?: string; tipo?: string
-      giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
+      giornateVendute?: number | null; giornateInvestimento?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
@@ -1546,6 +1735,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           attivita: attivita.trim(),
           tipo: tipoVal,
           giornateVendute: giornateVendute != null ? giornateVendute : null,
+          giornateInvestimento: giornateInvestimento != null ? giornateInvestimento : null,
           giornateFatturate: giornateFatturate != null ? giornateFatturate : null,
           giornateConsuntivate: giornateConsuntivate != null ? giornateConsuntivate : null,
           riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
@@ -1585,14 +1775,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const prisma = c.get('prisma')
     const {
       clienteId, progettoId, pmId, attivita,
-      giornateVendute, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
+      giornateVendute, giornateInvestimento, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note,
       presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
       clienteId?: string; progettoId?: string; pmId?: string | null
       attivita?: string
-      giornateVendute?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
+      giornateVendute?: number | null; giornateInvestimento?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
@@ -1602,18 +1792,27 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       inviaMail?: boolean
     }>(c)
 
-    if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
+    if (!attivita?.trim()) {
       return c.json({ error: 'cliente, progetto e attivita sono obbligatori' }, 400)
     }
 
     const existing = await prisma.attivita.findUnique({
       where: { id },
       select: {
-        tipo: true, stato: true,
+        tipo: true, stato: true, roadmapItemId: true,
+        cliente: true, clienteId: true, accountId: true, progettoId: true,
         presaleLinkRequisiti: true, presaleLinkStima: true, presaleLinkOfferta: true,
       },
     })
     if (!existing) return c.json({ error: 'Attività non trovata' }, 404)
+
+    // Prodotti interni (nate da roadmap): il progetto è il prodotto e non si
+    // cambia; il cliente può mancare (assorbita → "Soluzione1" senza anagrafica).
+    const isInterna = existing.roadmapItemId !== null
+    const progettoIdEff = isInterna ? existing.progettoId : (progettoId?.trim() || null)
+    if (!progettoIdEff || (!isInterna && !clienteId?.trim())) {
+      return c.json({ error: 'cliente, progetto e attivita sono obbligatori' }, 400)
+    }
 
     // Valida solo i link nuovi o modificati: i valori storici non conformi
     // (testo libero pre-validazione) non devono bloccare salvataggi che non
@@ -1628,14 +1827,16 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (linkErrPut) return c.json({ error: linkErrPut }, 400)
 
     const [linkedCliente, linkedProgetto] = await Promise.all([
-      prisma.cliente.findUnique({
-        where: { id: clienteId.trim() },
-        select: { nome: true, accountId: true, account: { select: { firstName: true, lastName: true } } },
-      }),
-      prisma.progetto.findUnique({ where: { id: progettoId.trim() }, select: { nome: true } }),
+      clienteId?.trim()
+        ? prisma.cliente.findUnique({
+            where: { id: clienteId.trim() },
+            select: { nome: true, accountId: true, account: { select: { firstName: true, lastName: true } } },
+          })
+        : Promise.resolve(null),
+      prisma.progetto.findUnique({ where: { id: progettoIdEff }, select: { nome: true } }),
     ])
 
-    if (!linkedCliente || !linkedProgetto) {
+    if ((clienteId?.trim() && !linkedCliente) || !linkedProgetto) {
       return c.json({ error: 'cliente o progetto non trovato' }, 400)
     }
 
@@ -1647,13 +1848,15 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       const row = await prisma.attivita.update({
         where: { id },
         data: {
-          cliente: linkedCliente.nome,
-          clienteId: clienteId.trim(),
+          // Interna senza cliente in anagrafica: mantiene i valori esistenti
+          cliente: linkedCliente ? linkedCliente.nome : existing.cliente,
+          clienteId: linkedCliente ? clienteId!.trim() : (isInterna ? existing.clienteId : null),
           progetto: linkedProgetto.nome,
-          progettoId: progettoId.trim(),
-          accountId: linkedCliente.accountId ?? null,
+          progettoId: progettoIdEff,
+          accountId: linkedCliente ? (linkedCliente.accountId ?? null) : existing.accountId,
           attivita: attivita.trim(),
           giornateVendute: giornateVendute != null ? giornateVendute : null,
+          giornateInvestimento: giornateInvestimento != null ? giornateInvestimento : null,
           giornateFatturate: giornateFatturate != null ? giornateFatturate : null,
           giornateConsuntivate: giornateConsuntivate != null ? giornateConsuntivate : null,
           riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
@@ -1675,6 +1878,11 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       })
       if (existing.stato !== statoVal) {
         await logStatoChange(prisma, id, existing.stato, statoVal, c.get('currentUserId'))
+        // Prodotti interni: la chiusura/riapertura dell'attività guida lo stato
+        // del seme roadmap (COMPLETATO ↔ DA_INIZIARE).
+        if (existing.roadmapItemId) {
+          await syncRoadmapItemFromAttivita(prisma, existing.roadmapItemId, statoVal)
+        }
       }
       // Invio mail SOLO su richiesta esplicita ("Salva e invia mail"), e solo
       // se i dati della fase sono compilati (difesa contro invii a metà).
@@ -1693,8 +1901,15 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // DELETE /api/attivita/:id
   hono.delete('/api/attivita/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
+    const prisma = c.get('prisma')
     try {
-      await c.get('prisma').attivita.delete({ where: { id } })
+      // Se l'attività è nata da un item roadmap, il seme "rigermoglia" tornando
+      // a DA_INIZIARE (la pianificazione riprende possesso).
+      const existing = await prisma.attivita.findUnique({ where: { id }, select: { roadmapItemId: true } })
+      await prisma.attivita.delete({ where: { id } })
+      if (existing?.roadmapItemId) {
+        await prisma.roadmapItem.update({ where: { id: existing.roadmapItemId }, data: { stato: 'DA_INIZIARE' } })
+      }
       return c.body(null, 204)
     } catch (err: unknown) {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Attività non trovata' }, 404)
