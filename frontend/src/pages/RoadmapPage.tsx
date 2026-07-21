@@ -14,8 +14,16 @@ interface Prodotto { id: string; nome: string; colore: string | null; poId: stri
 interface PoRef { id: string; firstName: string | null; lastName: string }
 
 interface StatoRoadmapConfig {
-  id: string; chiave: string; label: string; colore: string; isArchiviato: boolean; ordine: number
+  id: string; chiave: string; label: string; colore: string; isArchiviato: boolean; isCompletato: boolean; ordine: number
 }
+
+// Stato roadmap "in corso": auto-gestito — ci entrano gli item presi in carico
+// (attività collegata aperta, con badge dello stato reale dell'attività) e i
+// legacy rimasti a mano (convertibili). Non è un target di drag né di creazione.
+const RETIRED_STATO = 'IN_CORSO'
+
+// Stati attività (per il badge dello stato dell'attività collegata sulle card)
+interface StatoAttivitaRef { chiave: string; label: string; colore: string; isArchiviato: boolean }
 
 interface TagRef { id: string; label: string; colore: string }
 
@@ -26,12 +34,24 @@ interface RoadmapItem {
   analisiUrl: string | null; stimaGg: number | null; ordine: number
   tags: TagRef[]
   devHubId: string | null; devHub: PoRef | null
+  // Economia (pianificazione → trasferita all'attività alla presa in carico)
+  copertura: string
+  clientePagante: { id: string; nome: string } | null
+  giornateVendute: number | null
+  riferimentoOrdineVendita: string | null
+  // Attività collegata (item preso in carico): qui arrivano solo item con
+  // attività CHIUSA (quelli con attività aperta sono nascosti dal backend)
+  attivitaId: string | null
+  attivitaStato: string | null
 }
+
+interface ClienteRef { id: string; nome: string }
 
 type FormData = {
   progettoId: string; titolo: string; descrizione: string
   anno: string; quarter: string; dataDeadline: string
   stato: string; stimaGg: string; analisiUrl: string; tagIds: string[]
+  copertura: string; clientePaganteId: string; giornateVendute: string; riferimentoOrdineVendita: string
 }
 
 const QUARTERS: { key: string; label: string }[] = [
@@ -43,7 +63,7 @@ const QUARTERS: { key: string; label: string }[] = [
 ]
 
 function emptyForm(anno: number): FormData {
-  return { progettoId: '', titolo: '', descrizione: '', anno: String(anno), quarter: '', dataDeadline: '', stato: 'DA_FARE', stimaGg: '', analisiUrl: '', tagIds: [] }
+  return { progettoId: '', titolo: '', descrizione: '', anno: String(anno), quarter: '', dataDeadline: '', stato: 'DA_FARE', stimaGg: '', analisiUrl: '', tagIds: [], copertura: 'ASSORBITA', clientePaganteId: '', giornateVendute: '', riferimentoOrdineVendita: '' }
 }
 
 function authHeaders(token: string) {
@@ -235,13 +255,21 @@ function MultiSelect({ label, options, value, onChange }: {
 
 interface ModalProps {
   title: string; form: FormData; loading: boolean; apiError: string | null
-  prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]; tags: TagRef[]
+  prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]; tags: TagRef[]; clienti: ClienteRef[]
+  // Stato guidato dall'attività collegata (item preso in carico): select disabilitata
+  statoLocked?: boolean
   // Radice del picker Drive (Drive Sviluppo configurato in Impostazioni)
   devDriveId?: string
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
-function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, devDriveId, onChange, onSave, onClose }: ModalProps) {
+function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, clienti, statoLocked, devDriveId, onChange, onSave, onClose }: ModalProps) {
+  // In pianificazione si scelgono solo gli stati manuali: né il completato
+  // (auto, dalla chiusura dell'attività) né il legacy "in corso" (pensionato).
+  // Se l'item è già in uno di quegli stati, la voce corrente resta visibile.
+  const statiSelezionabili = statiList.filter(s =>
+    (!s.isCompletato && s.chiave !== RETIRED_STATO) || s.chiave === form.stato)
+  const coinvest = form.copertura === 'COINVESTIMENTO'
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
@@ -272,9 +300,10 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
             </div>
             <div className="rm-field">
               <label htmlFor="rm-stato" className="rm-label">Stato</label>
-              <select id="rm-stato" className="rm-input rm-select" value={form.stato} onChange={set('stato')}>
-                {statiList.map(s => <option key={s.chiave} value={s.chiave}>{s.label}</option>)}
+              <select id="rm-stato" className="rm-input rm-select" value={form.stato} onChange={set('stato')} disabled={statoLocked}>
+                {statiSelezionabili.map(s => <option key={s.chiave} value={s.chiave}>{s.label}</option>)}
               </select>
+              {statoLocked && <span className="rm-field-hint">Stato guidato dall'attività collegata</span>}
             </div>
           </div>
 
@@ -330,6 +359,52 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
             <span className="rm-label">Tag</span>
             <TagPicker tags={tags} selectedIds={form.tagIds} onToggle={toggleTag} />
           </div>
+
+          {/* ── Economia: compilata in pianificazione, trasferita all'attività
+                 alla presa in carico (pattern presale: obblighi validati solo
+                 al momento della conferma) ── */}
+          <div className="rm-economia">
+            <span className="rm-economia-title">Economia (alla presa in carico)</span>
+            <div className="rm-field">
+              <span className="rm-label">Copertura</span>
+              <div className="rm-copertura-toggle" role="radiogroup" aria-label="Copertura economica">
+                <label className={`rm-copertura-opt${!coinvest ? ' rm-copertura-opt--active' : ''}`}>
+                  <input type="radio" name="rm-copertura" checked={!coinvest}
+                    onChange={() => onChange({ ...form, copertura: 'ASSORBITA' })} />
+                  Assorbita da noi
+                </label>
+                <label className={`rm-copertura-opt${coinvest ? ' rm-copertura-opt--active' : ''}`}>
+                  <input type="radio" name="rm-copertura" checked={coinvest}
+                    onChange={() => onChange({ ...form, copertura: 'COINVESTIMENTO' })} />
+                  Co-investimento
+                </label>
+              </div>
+            </div>
+            {coinvest && (
+              <>
+                <div className="rm-field-row">
+                  <div className="rm-field">
+                    <label htmlFor="rm-cliente-pagante" className="rm-label">Cliente (chi paga)</label>
+                    <select id="rm-cliente-pagante" className="rm-input rm-select" value={form.clientePaganteId} onChange={set('clientePaganteId')}>
+                      <option value="">— Seleziona —</option>
+                      {clienti.map(cl => <option key={cl.id} value={cl.id}>{cl.nome}</option>)}
+                    </select>
+                  </div>
+                  <div className="rm-field">
+                    <label htmlFor="rm-gg-vendute" className="rm-label">GG vendute (cliente)</label>
+                    <input id="rm-gg-vendute" className="rm-input" type="number" min="0" step="0.5"
+                      value={form.giornateVendute} onChange={set('giornateVendute')} />
+                  </div>
+                </div>
+                <div className="rm-field">
+                  <label htmlFor="rm-ordine-vendita" className="rm-label">Riferimento ordine vendita</label>
+                  <input id="rm-ordine-vendita" className="rm-input" type="text" placeholder="es. GO-ORDV-2026-78"
+                    value={form.riferimentoOrdineVendita} onChange={set('riferimentoOrdineVendita')} />
+                  <span className="rm-field-hint">Senza ordine i consuntivi Zoho non si agganciano automaticamente</span>
+                </div>
+              </>
+            )}
+          </div>
         </div>
         <div className="rm-modal-footer">
           <button className="rm-btn rm-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
@@ -346,12 +421,20 @@ interface RoadmapCardProps {
   item: RoadmapItem; secondary: 'stato' | 'quarter'; statiMap: Map<string, StatoRoadmapConfig>
   po: PoRef | undefined; readOnly?: boolean
   onDragStart: () => void; onDrop: (e: React.DragEvent) => void; onOpen: () => void; onDelete: () => void
+  // Presa in carico (o conversione dei legacy "in corso"): mostrato solo dove ha senso
+  presaLabel?: string; onPresaInCarico?: () => void
+  // Stato reale dell'attività collegata (item preso in carico)
+  attivitaBadge?: { label: string; colore: string } | null
 }
 
-function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onDrop, onOpen, onDelete }: RoadmapCardProps) {
+function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onDrop, onOpen, onDelete, presaLabel, onPresaInCarico, attivitaBadge }: RoadmapCardProps) {
+  // Item preso in carico (attività collegata): non trascinabile né eliminabile,
+  // lo stato è guidato dall'attività.
+  const locked = item.attivitaId !== null
+  const canDrag = !readOnly && !locked
   return (
-    <div className="rm-card" draggable={!readOnly}
-      onDragStart={readOnly ? undefined : onDragStart}
+    <div className="rm-card" draggable={canDrag}
+      onDragStart={canDrag ? onDragStart : undefined}
       onDragOver={readOnly ? undefined : e => { e.preventDefault(); e.stopPropagation() }}
       onDrop={readOnly ? undefined : e => { e.stopPropagation(); onDrop(e) }}>
       <div className="rm-card-head">
@@ -369,7 +452,7 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onD
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14" aria-hidden="true"><path d="M10 3l8 14H2L10 3z" strokeLinejoin="round" /><path d="M10 8.5v3.5M10 14.5v.5" strokeLinecap="round" /></svg>
                 </span>
             )}
-            {!readOnly && (
+            {!readOnly && !locked && (
               <button className="rm-card-del" type="button" aria-label={`Elimina ${item.titolo}`}
                 onClick={e => { e.stopPropagation(); onDelete() }}>
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14" aria-hidden="true"><path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -388,6 +471,12 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onD
               </span>
             ) })()
           : (item.quarter && <span className="rm-meta-item"><IconCalendar />{QUARTERS.find(q => q.key === item.quarter)?.label ?? item.quarter}</span>)}
+        {attivitaBadge && (
+          <span className="rm-meta-item rm-attivita-badge" title="Stato dell'attività collegata">
+            <span className="rm-meta-dot" style={{ background: attivitaBadge.colore }} aria-hidden="true" />
+            {attivitaBadge.label}
+          </span>
+        )}
         {item.stimaGg !== null && <span className="rm-meta-item"><IconClock />{item.stimaGg}gg</span>}
         {item.dataDeadline && <span className="rm-meta-item"><IconFlag />{fmtDate(item.dataDeadline)}</span>}
         {(item.devHub || po) && (
@@ -402,6 +491,15 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onD
           <IconTag />
           <TagList tags={item.tags} />
         </div>
+      )}
+      {!readOnly && onPresaInCarico && (
+        <button className="rm-card-presa" type="button"
+          onClick={e => { e.stopPropagation(); onPresaInCarico() }}>
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14" aria-hidden="true">
+            <path d="M4 10h10M11 6l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {presaLabel ?? 'Prendi in carico'}
+        </button>
       )}
     </div>
   )
@@ -451,6 +549,22 @@ function ItemDetailModal({ item, statiMap, po, onClose }: {
             <div className="rm-detail-row">
               <dt>DevHub</dt><dd>{item.devHub ? poFullName(item.devHub) : '—'}</dd>
             </div>
+            <div className="rm-detail-row">
+              <dt>Copertura</dt><dd>{item.copertura === 'COINVESTIMENTO' ? 'Co-investimento' : 'Assorbita da noi'}</dd>
+            </div>
+            {item.copertura === 'COINVESTIMENTO' && (
+              <>
+                <div className="rm-detail-row">
+                  <dt>Cliente</dt><dd>{item.clientePagante?.nome ?? '—'}</dd>
+                </div>
+                <div className="rm-detail-row">
+                  <dt>GG vendute</dt><dd>{item.giornateVendute !== null ? `${item.giornateVendute}gg` : '—'}</dd>
+                </div>
+                <div className="rm-detail-row">
+                  <dt>Ordine vendita</dt><dd>{item.riferimentoOrdineVendita ?? '—'}</dd>
+                </div>
+              </>
+            )}
             {item.analisiUrl && (
               <div className="rm-detail-row">
                 <dt>Analisi</dt>
@@ -509,6 +623,75 @@ function ConfirmDelete({ item, loading, onConfirm, onClose }: {
   )
 }
 
+// ─── Conferma presa in carico ─────────────────────────────────────────────────
+// Conferma "secca": i campi sono già nella scheda dell'item; qui solo il
+// riepilogo di cosa verrà creato. La validazione co-investimento blocca la
+// conferma e rimanda alla scheda (pattern presale: obblighi per fase).
+
+function PresaInCaricoConfirm({ item, po, loading, error, onConfirm, onEdit, onClose }: {
+  item: RoadmapItem; po: PoRef | undefined; loading: boolean; error: string | null
+  onConfirm: () => void; onEdit: () => void; onClose: () => void
+}) {
+  const coinvest = item.copertura === 'COINVESTIMENTO'
+  const mancanti: string[] = []
+  if (coinvest && !item.clientePagante) mancanti.push('cliente pagante')
+  if (coinvest && item.giornateVendute === null) mancanti.push('giornate vendute')
+  const investimento = item.stimaGg !== null
+    ? Math.max(0, Math.round((item.stimaGg - (coinvest ? (item.giornateVendute ?? 0) : 0)) * 100) / 100)
+    : null
+  return (
+    <SectionModal onClose={onClose} labelledBy="rm-presa-title">
+      <div className="rm-modal rm-modal--sm">
+        <div className="rm-modal-header">
+          <h2 id="rm-presa-title" className="rm-modal-title">Prendi in carico</h2>
+          <button className="rm-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="rm-modal-body">
+          {error && <p className="rm-field-error rm-field-error--banner" role="alert">{error}</p>}
+          <p className="rm-confirm-text">
+            Verrà creata l'attività <strong>{item.titolo}</strong> in stato <strong>In corso</strong>,
+            visibile nell'elenco sotto <strong>Prodotti interni</strong>. L'item passa nella colonna
+            In corso con lo stato dell'attività e si completerà alla sua chiusura.
+          </p>
+          <dl className="rm-detail-dl">
+            <div className="rm-detail-row"><dt>Prodotto</dt><dd>{item.progetto.nome}</dd></div>
+            <div className="rm-detail-row"><dt>Copertura</dt><dd>{coinvest ? 'Co-investimento' : 'Assorbita da noi'}</dd></div>
+            {coinvest && (
+              <>
+                <div className="rm-detail-row"><dt>Cliente</dt><dd>{item.clientePagante?.nome ?? '—'}</dd></div>
+                <div className="rm-detail-row"><dt>GG vendute</dt><dd>{item.giornateVendute !== null ? `${item.giornateVendute}gg` : '—'}</dd></div>
+                <div className="rm-detail-row"><dt>Ordine vendita</dt><dd>{item.riferimentoOrdineVendita ?? '—'}</dd></div>
+              </>
+            )}
+            <div className="rm-detail-row"><dt>GG investimento</dt><dd>{investimento !== null ? `${investimento}gg` : '—'}</dd></div>
+            <div className="rm-detail-row"><dt>PM</dt><dd>{po ? poFullName(po) : '—'}</dd></div>
+          </dl>
+          {mancanti.length > 0 && (
+            <p className="rm-field-error" role="alert">
+              Per il co-investimento manca: {mancanti.join(', ')}. Compilali nella scheda prima di confermare.
+            </p>
+          )}
+          {coinvest && mancanti.length === 0 && !item.riferimentoOrdineVendita && (
+            <p className="rm-field-hint">Senza ordine di vendita i consuntivi Zoho non si aggancieranno automaticamente.</p>
+          )}
+        </div>
+        <div className="rm-modal-footer">
+          <button className="rm-btn rm-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
+          {mancanti.length > 0
+            ? <button className="rm-btn rm-btn--primary" type="button" onClick={onEdit}>Apri scheda</button>
+            : <button className="rm-btn rm-btn--primary" type="button" onClick={onConfirm} disabled={loading}>
+                {loading ? 'Creazione…' : 'Conferma e crea attività'}
+              </button>}
+        </div>
+      </div>
+    </SectionModal>
+  )
+}
+
 // ─── RoadmapPage ──────────────────────────────────────────────────────────────
 
 interface RoadmapPageProps { token: string; readOnly?: boolean }
@@ -522,11 +705,27 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [devHubs,     setDevHubs]     = useState<PoRef[]>([])
   const [statiConfig, setStatiConfig] = useState<StatoRoadmapConfig[]>([])
   const [tags,        setTags]        = useState<TagRef[]>([])
+  const [clienti,     setClienti]     = useState<ClienteRef[]>([])
+  const [statiAttivita, setStatiAttivita] = useState<StatoAttivitaRef[]>([])
   const [loading,     setLoading]     = useState(true)
   const [apiError,    setApiError]    = useState<string | null>(null)
+  // Completati nascosti di default (colonna/righe espandibili col toggle)
+  const [showCompletati, setShowCompletati] = useState(false)
+  // Messaggio temporaneo sui drop rifiutati dal workflow (adiacenza, ecc.)
+  const [dragHint, setDragHint] = useState<string | null>(null)
+  const dragHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showDragHint = (msg: string) => {
+    setDragHint(msg)
+    if (dragHintTimer.current) clearTimeout(dragHintTimer.current)
+    dragHintTimer.current = setTimeout(() => setDragHint(null), 4000)
+  }
+  // Presa in carico
+  const [presaTarget,  setPresaTarget]  = useState<RoadmapItem | null>(null)
+  const [presaLoading, setPresaLoading] = useState(false)
+  const [presaErr,     setPresaErr]     = useState<string | null>(null)
   const driveCfg = useDriveConfig(token)
 
-  const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('kanban-trimestre')
+  const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('kanban-stati')
   const [anno, setAnno] = useState(currentYear)
   const [filterProdotto, setFilterProdotto] = useState<string[]>([])
   const [filterQuarter, setFilterQuarter] = useState<string[]>([])
@@ -554,20 +753,24 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const fetchAll = useCallback(async () => {
     setLoading(true); setApiError(null)
     try {
-      const [rI, rP, rPm, rDh, rS, rT] = await Promise.all([
+      const [rI, rP, rPm, rDh, rS, rT, rC, rSA] = await Promise.all([
         fetch(`${API_URL}/api/roadmap-items`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/progetti?tipo=PRODOTTO`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/users?role=PM`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/users?role=DEVHUB`, { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/stati-roadmap`,   { headers: authHeaders(token) }),
         fetch(`${API_URL}/api/roadmap-tags`,    { headers: authHeaders(token) }),
+        fetch(`${API_URL}/clienti`,             { headers: authHeaders(token) }),
+        fetch(`${API_URL}/api/stati-attivita`,  { headers: authHeaders(token) }),
       ])
       if (!rI.ok || !rP.ok) throw new Error()
-      const [i, p, pm, dh, s, t] = await Promise.all([
+      const [i, p, pm, dh, s, t, cl, sa] = await Promise.all([
         rI.json(), rP.json(), rPm.ok ? rPm.json() : Promise.resolve([]), rDh.ok ? rDh.json() : Promise.resolve([]),
         rS.ok ? rS.json() : Promise.resolve([]), rT.ok ? rT.json() : Promise.resolve([]),
+        rC.ok ? rC.json() : Promise.resolve([]),
+        rSA.ok ? rSA.json() : Promise.resolve([]),
       ])
-      setItems(i); setProdotti(p); setPms(pm); setDevHubs(dh); setStatiConfig(s); setTags(t)
+      setItems(i); setProdotti(p); setPms(pm); setDevHubs(dh); setStatiConfig(s); setTags(t); setClienti(cl); setStatiAttivita(sa)
     } catch { setApiError('Impossibile caricare i dati della roadmap.') }
     finally { setLoading(false) }
   }, [token])
@@ -580,16 +783,33 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
     return [...set].sort((a, b) => a - b)
   }, [items, currentYear])
 
+  const completatoChiavi = useMemo(
+    () => new Set(statiConfig.filter(s => s.isCompletato).map(s => s.chiave)),
+    [statiConfig])
+
+  // Sequenza degli stati di pianificazione (per l'adiacenza del drag): esclusi
+  // il completato (auto) e il legacy "in corso" (pensionato).
+  const seqStati = useMemo(
+    () => statiList.filter(s => !s.isCompletato && s.chiave !== RETIRED_STATO).map(s => s.chiave),
+    [statiList])
+
   const displayItems = useMemo(() => {
     return items
       .filter(i => i.anno === anno)
+      // Completati nascosti di default; visibili col toggle o filtrando
+      // esplicitamente per quello stato
+      .filter(i => showCompletati || filterStato.some(f => completatoChiavi.has(f)) || !completatoChiavi.has(i.stato))
       .filter(i => filterProdotto.length === 0 || filterProdotto.includes(i.progettoId))
       .filter(i => filterQuarter.length === 0 || filterQuarter.includes(i.quarter ?? ''))
       .filter(i => filterStato.length === 0 || filterStato.includes(i.stato))
       .filter(i => filterTag.length === 0 || i.tags.some(t => filterTag.includes(t.id)))
       .filter(i => filterDevHub.length === 0 || (i.devHubId !== null && filterDevHub.includes(i.devHubId)))
       .filter(i => !search.trim() || i.titolo.toLowerCase().includes(search.trim().toLowerCase()))
-  }, [items, anno, filterProdotto, filterQuarter, filterStato, filterTag, filterDevHub, search])
+  }, [items, anno, filterProdotto, filterQuarter, filterStato, filterTag, filterDevHub, search, showCompletati, completatoChiavi])
+
+  const completatiNascosti = useMemo(
+    () => items.filter(i => i.anno === anno && completatoChiavi.has(i.stato)).length,
+    [items, anno, completatoChiavi])
 
   const listaRows = useMemo(() => {
     return [...displayItems].sort((a, b) =>
@@ -648,7 +868,68 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
     const draggedId = dragIdRef.current
     dragIdRef.current = null
     if (!draggedId) return
+    // Workflow sul kanban stati: un passo per volta, niente completato a mano,
+    // niente "in corso" (l'esecuzione parte da "Prendi in carico"). Il server
+    // applica le stesse regole; qui il messaggio-guida.
+    if (overrides.stato !== undefined) {
+      const dragged = items.find(i => i.id === draggedId)
+      if (dragged && overrides.stato !== dragged.stato) {
+        if (dragged.attivitaId) { showDragHint('Item collegato a un\'attività: lo stato segue l\'attività.'); return }
+        if (completatoChiavi.has(overrides.stato)) { showDragHint('Il completamento è automatico: si chiude dall\'attività collegata.'); return }
+        if (overrides.stato === RETIRED_STATO) { showDragHint('Per avviare l\'esecuzione usa "Prendi in carico" sulla card.'); return }
+        const from = seqStati.indexOf(dragged.stato)
+        const to = seqStati.indexOf(overrides.stato)
+        if (from !== -1 && to !== -1 && Math.abs(from - to) > 1) {
+          showDragHint('Puoi spostare solo di uno stato per volta.'); return
+        }
+      }
+    }
     reorderAndPersist(columnItems.map(i => i.id), draggedId, targetId, overrides)
+  }
+
+  // ── Presa in carico (item → attività, sezione Prodotti interni) ────────────
+
+  const openPresaInCarico = (item: RoadmapItem) => { setPresaErr(null); setPresaTarget(item) }
+
+  const handlePresaInCarico = async () => {
+    if (!presaTarget) return
+    setPresaLoading(true); setPresaErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/roadmap-items/${presaTarget.id}/prendi-in-carico`, {
+        method: 'POST', headers: authHeaders(token),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setPresaErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
+      }
+      setPresaTarget(null); await fetchAll()
+    } catch { setPresaErr('Errore di rete. Riprova.') }
+    finally { setPresaLoading(false) }
+  }
+
+  // La presa in carico è offerta sull'ultimo stato di pianificazione e, come
+  // conversione, sugli item legacy rimasti a mano nello stato "in corso".
+  const presaProps = (item: RoadmapItem) => {
+    if (readOnly || item.attivitaId) return {}
+    if (item.stato === seqStati[seqStati.length - 1]) {
+      return { presaLabel: 'Prendi in carico', onPresaInCarico: () => openPresaInCarico(item) }
+    }
+    if (item.stato === RETIRED_STATO) {
+      return { presaLabel: 'Converti in attività', onPresaInCarico: () => openPresaInCarico(item) }
+    }
+    return {}
+  }
+
+  const statiAttivitaMap = useMemo(() => new Map(statiAttivita.map(s => [s.chiave, s])), [statiAttivita])
+
+  // Badge dello stato reale dell'attività collegata: mostrato sulle card degli
+  // item presi in carico finché l'attività è aperta (da chiusa lo dice già la
+  // colonna Completato).
+  const attivitaBadgeFor = (item: RoadmapItem) => {
+    if (!item.attivitaId || !item.attivitaStato) return null
+    const cfg = statiAttivitaMap.get(item.attivitaStato)
+    if (cfg?.isArchiviato) return null
+    return { label: cfg?.label ?? item.attivitaStato, colore: cfg?.colore ?? '#94a3b8' }
   }
 
   // ── CRUD ──────────────────────────────────────────────────
@@ -673,6 +954,10 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       anno: String(item.anno), quarter: item.quarter ?? '', dataDeadline: toInputDate(item.dataDeadline),
       stato: item.stato, stimaGg: item.stimaGg !== null ? String(item.stimaGg) : '', analisiUrl: item.analisiUrl ?? '',
       tagIds: item.tags.map(t => t.id),
+      copertura: item.copertura ?? 'ASSORBITA',
+      clientePaganteId: item.clientePagante?.id ?? '',
+      giornateVendute: item.giornateVendute !== null ? String(item.giornateVendute) : '',
+      riferimentoOrdineVendita: item.riferimentoOrdineVendita ?? '',
     })
     setFormErr(null); setModal('edit')
   }
@@ -701,6 +986,10 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
         stimaGg: form.stimaGg ? parseFloat(form.stimaGg) : null,
         analisiUrl: form.analisiUrl,
         tagIds: form.tagIds,
+        copertura: form.copertura,
+        clientePaganteId: form.clientePaganteId || null,
+        giornateVendute: form.giornateVendute ? parseFloat(form.giornateVendute) : null,
+        riferimentoOrdineVendita: form.riferimentoOrdineVendita || null,
       }
       const res = await fetch(url, { method, headers: authHeaders(token), body: JSON.stringify(body) })
       if (!res.ok) {
@@ -757,13 +1046,13 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
       <div className="rm-toolbar">
         <div className="rm-view-toggle" role="tablist" aria-label="Vista roadmap">
-          <button role="tab" aria-selected={view === 'kanban-trimestre'} type="button"
-            className={`rm-view-btn${view === 'kanban-trimestre' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-trimestre')}>
-            Kanban per trimestre
-          </button>
           <button role="tab" aria-selected={view === 'kanban-stati'} type="button"
             className={`rm-view-btn${view === 'kanban-stati' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-stati')}>
             Kanban per stati
+          </button>
+          <button role="tab" aria-selected={view === 'kanban-trimestre'} type="button"
+            className={`rm-view-btn${view === 'kanban-trimestre' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-trimestre')}>
+            Kanban per trimestre
           </button>
           <button role="tab" aria-selected={view === 'lista'} type="button"
             className={`rm-view-btn${view === 'lista' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('lista')}>
@@ -806,8 +1095,15 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
         />
         <input className="rm-input rm-filter rm-filter--search" type="text" placeholder="Cerca titolo…"
           value={search} onChange={e => setSearch(e.target.value)} />
+        {completatiNascosti > 0 && (
+          <button type="button" className={`rm-btn rm-btn--ghost rm-btn--completati${showCompletati ? ' rm-btn--completati-on' : ''}`}
+            onClick={() => setShowCompletati(v => !v)} aria-pressed={showCompletati}>
+            {showCompletati ? 'Nascondi completati' : `Mostra completati (${completatiNascosti})`}
+          </button>
+        )}
       </div>
 
+      {dragHint && <p className="rm-drag-hint" role="status">{dragHint}</p>}
       {apiError && !loading && <p className="rm-page-error" role="alert">{apiError}</p>}
 
       {loading ? (
@@ -843,8 +1139,8 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
             </thead>
             <tbody>
               {listaRows.map(item => (
-                <tr key={item.id} className={`rm-row${readOnly ? ' rm-row--clickable' : ''}`} draggable={!readOnly}
-                  onDragStart={readOnly ? undefined : () => onRowDragStart(item.id)}
+                <tr key={item.id} className={`rm-row${readOnly ? ' rm-row--clickable' : ''}`} draggable={!readOnly && !item.attivitaId}
+                  onDragStart={readOnly || item.attivitaId ? undefined : () => onRowDragStart(item.id)}
                   onDragOver={readOnly ? undefined : e => e.preventDefault()}
                   onDrop={readOnly ? undefined : () => onRowDrop(item.id)}
                   onClick={readOnly ? () => setSelected(item) : undefined}
@@ -866,7 +1162,15 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                   </td>
                   <td className="rm-cell-text">{QUARTERS.find(q => q.key === (item.quarter ?? ''))?.label ?? item.quarter}</td>
                   <td className="rm-cell-text">{fmtDateLong(item.dataDeadline) ?? <span className="rm-empty-cell">—</span>}</td>
-                  <td><StatoBadge stato={item.stato} statiMap={statiMap} /></td>
+                  <td>
+                    <StatoBadge stato={item.stato} statiMap={statiMap} />
+                    {(() => { const b = attivitaBadgeFor(item); return b && (
+                      <span className="rm-meta-item rm-attivita-badge" title="Stato dell'attività collegata">
+                        <span className="rm-meta-dot" style={{ background: b.colore }} aria-hidden="true" />
+                        {b.label}
+                      </span>
+                    ) })()}
+                  </td>
                   <td className="rm-cell-text">{item.stimaGg !== null ? `${item.stimaGg}gg` : '—'}</td>
                   <td className="rm-cell-text">
                     {(() => { const po = pmById.get(prodottoById.get(item.progettoId)?.poId ?? ''); return po
@@ -891,16 +1195,26 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                   </td>
                   {!readOnly && (
                     <td className="rm-cell-actions">
+                      {(() => { const pp = presaProps(item); return pp.onPresaInCarico && (
+                        <button className="rm-icon-btn" type="button" title={pp.presaLabel}
+                          aria-label={`${pp.presaLabel}: ${item.titolo}`} onClick={pp.onPresaInCarico}>
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+                            <path d="M4 10h10M11 6l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      ) })()}
                       <button className="rm-icon-btn" type="button" aria-label={`Modifica ${item.titolo}`} onClick={() => openEdit(item)}>
                         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
                           <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       </button>
-                      <button className="rm-icon-btn rm-icon-btn--danger" type="button" aria-label={`Elimina ${item.titolo}`} onClick={() => setDelTarget(item)}>
-                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
-                          <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </button>
+                      {!item.attivitaId && (
+                        <button className="rm-icon-btn rm-icon-btn--danger" type="button" aria-label={`Elimina ${item.titolo}`} onClick={() => setDelTarget(item)}>
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+                            <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -929,7 +1243,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       readOnly={readOnly}
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { quarter: col.key })}
-                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)} />
+                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
+                      attivitaBadge={attivitaBadgeFor(item)}
+                      {...presaProps(item)} />
                   ))}
                 </div>
               </div>
@@ -942,7 +1258,12 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
         </div>
       ) : (
         <div className="rm-board">
-          {statiList.map(col => {
+          {statiList
+            // Completato: colonna visibile solo col toggle. Legacy "in corso":
+            // solo finché contiene item da convertire (poi sparisce).
+            .filter(col => !col.isCompletato || showCompletati)
+            .filter(col => col.chiave !== RETIRED_STATO || displayItems.some(i => i.stato === col.chiave))
+            .map(col => {
             const colItems = [...displayItems]
               .filter(i => i.stato === col.chiave)
               .sort(byDeadlineAsc)
@@ -961,7 +1282,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       readOnly={readOnly}
                       onDragStart={() => onRowDragStart(item.id)}
                       onDrop={() => onCardDrop(colItems, item.id, { stato: col.chiave })}
-                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)} />
+                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
+                      attivitaBadge={attivitaBadgeFor(item)}
+                      {...presaProps(item)} />
                   ))}
                 </div>
               </div>
@@ -974,8 +1297,19 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
         <ItemModal
           title={modal === 'add' ? 'Nuova attività roadmap' : 'Modifica attività roadmap'}
           form={form} loading={saving} apiError={formErr} prodotti={prodotti} statiList={statiList} tags={tags}
+          clienti={clienti}
+          statoLocked={modal === 'edit' && editing?.attivitaId !== null && editing?.attivitaId !== undefined}
           devDriveId={driveCfg?.devId || undefined}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
+      )}
+      {!readOnly && presaTarget && (
+        <PresaInCaricoConfirm
+          item={presaTarget}
+          po={pmById.get(prodottoById.get(presaTarget.progettoId)?.poId ?? '')}
+          loading={presaLoading} error={presaErr}
+          onConfirm={handlePresaInCarico}
+          onEdit={() => { const it = presaTarget; setPresaTarget(null); if (it) openEdit(it) }}
+          onClose={() => setPresaTarget(null)} />
       )}
       {selected && (
         <ItemDetailModal

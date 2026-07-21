@@ -33,6 +33,9 @@ interface GruppoAttivita {
   progetto: string
   account: string
   projectManager: string
+  // Sezione "Prodotti interni" (attività nate da roadmap): esclusa dai KPI
+  // e dalle liste scadenze della dashboard
+  interno?: boolean
   attivita: AttivitaItem[]
 }
 
@@ -284,7 +287,7 @@ export default function DashboardPage({ token, onNavigate }: DashboardPageProps)
   }, [stati])
 
   const allAttivita = useMemo(
-    () => gruppi.flatMap(g => g.attivita),
+    () => gruppi.filter(g => !g.interno).flatMap(g => g.attivita),
     [gruppi]
   )
 
@@ -445,7 +448,7 @@ export default function DashboardPage({ token, onNavigate }: DashboardPageProps)
       </div>
       <div className="dash-shortcuts-grid">
         <ShortcutCard
-          label="Elenco Attività Progetti"
+          label="Attività Progetti / Prodotti"
           icon={<IconList />}
           onClick={() => onNavigate('attivita')}
         />
