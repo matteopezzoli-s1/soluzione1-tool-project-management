@@ -1373,7 +1373,7 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
             <label htmlFor="ea-f-ordine" className="ea-form-label">Riferimento ordine vendita</label>
             <input id="ea-f-ordine" className="ea-form-input" type="text"
               value={form.riferimentoOrdineVendita} onChange={set('riferimentoOrdineVendita')}
-              placeholder="es. OV-2024-001" />
+              placeholder="es. GO-ORDV-2026-78" />
           </div>
 
           <div className="ea-form-field">
@@ -1471,39 +1471,43 @@ function parseTimesheet(csv: string, allAttivita: AttivitaItem[]): {
   const hoursIdx     = header.findIndex(h => h.trim() === 'Hours(For Calculation)')
   if (milestoneIdx === -1 || hoursIdx === -1) return { matched: [], notFound: [] }
 
-  const orePerKey     = new Map<string, number>()
-  const fullCodePerKey = new Map<string, string>()
+  // Codici ordine GO nel nome milestone: GO-ORDV/GO-ORPR/… , match sul codice
+  // completo (prefisso incluso) — GO-ORDV-2026-78 e GO-ORPR-2026-78 distinti.
+  const GO_PREFIX = /^GO-OR[A-Z]{2}-/
+  const orePerCode = new Map<string, number>()  // chiave = codice completo maiuscolo
 
   for (let i = 1; i < lines.length; i++) {
     const fields    = parseCSVLine(lines[i])
     const milestone = fields[milestoneIdx]?.trim() ?? ''
     const hoursStr  = fields[hoursIdx]?.trim() ?? ''
-    const match     = milestone.match(/GO-ORDV-\d{4}-\d+/)
+    const match     = milestone.match(/GO-OR[A-Z]{2}-\d{4}-\d+/i)
     if (!match) continue
-    const fullCode = match[0]
-    const key      = fullCode.replace('GO-ORDV-', '')
+    const fullCode = match[0].toUpperCase()
     const hours    = parseFloat(hoursStr.replace(',', '.'))
     if (isNaN(hours)) continue
-    orePerKey.set(key, (orePerKey.get(key) ?? 0) + hours)
-    fullCodePerKey.set(key, fullCode)
+    orePerCode.set(fullCode, (orePerCode.get(fullCode) ?? 0) + hours)
   }
 
-  const attivitaByOrdine = new Map<string, AttivitaItem>()
+  // Doppia mappa: codice completo + parte nuda (solo per i riferimenti salvati
+  // senza prefisso, così un GO-ORDV non pesca un GO-ORPR con stesso numero).
+  const attByFull = new Map<string, AttivitaItem>()
+  const attByBare = new Map<string, AttivitaItem>()
   for (const a of allAttivita) {
-    if (a.riferimentoOrdineVendita) {
-      attivitaByOrdine.set(a.riferimentoOrdineVendita.trim(), a)
-    }
+    if (!a.riferimentoOrdineVendita) continue
+    const ref = a.riferimentoOrdineVendita.trim().toUpperCase()
+    attByFull.set(ref, a)
+    if (!GO_PREFIX.test(ref)) attByBare.set(ref, a)
   }
 
   const matched: TimesheetRow[] = []
   const notFound: string[] = []
 
-  for (const [key, totalOre] of orePerKey) {
-    const attivita = attivitaByOrdine.get(key)
-    const fullCode = fullCodePerKey.get(key)!
+  for (const [fullCode, totalOre] of orePerCode) {
+    const bare     = fullCode.replace(GO_PREFIX, '')
+    const attivita = attByFull.get(fullCode) ?? attByBare.get(bare)
     if (attivita) {
       const ore = Math.round(totalOre * 100) / 100
-      matched.push({ key, fullCode, totalOre: ore, totalGiornate: Math.round(ore / 8 * 100) / 100, attivita })
+      matched.push({ key: bare, fullCode, totalOre: ore, totalGiornate: Math.round(ore / 8 * 100) / 100, attivita })
     } else {
       notFound.push(fullCode)
     }
@@ -1559,7 +1563,7 @@ function ImportTimesheetModal({ token, allAttivita, onClose, onImported }: Impor
       const text = (e.target?.result as string) ?? ''
       const { matched: m, notFound: nf } = parseTimesheet(text, allAttivita)
       if (m.length === 0 && nf.length === 0) {
-        setParseErr('Nessun codice GO-ORDV trovato. Verifica che sia l\'export timesheet di Zoho Projects.')
+        setParseErr('Nessun codice ordine GO (GO-ORDV, GO-ORPR, …) trovato. Verifica che sia l\'export timesheet di Zoho Projects.')
         return
       }
       setMatched(m)
