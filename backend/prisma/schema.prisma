@@ -308,8 +308,10 @@ model Progetto {
   tipo        String    @default("CLIENTE") @map("tipo")
   stato       String    @default("ATTIVO")
   colore      String?
-  dataInizio  DateTime? @map("data_inizio")
-  dataFine    DateTime? @map("data_fine")
+  // Archiviazione: progetto dismesso/chiuso. La cartella Drive viene spostata
+  // sotto "Progetti chiusi" (vedi ProgettiPage / doc Reparto Sviluppo).
+  archiviato  Boolean   @default(false)
+  archiviatoAt DateTime? @map("archiviato_at")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
