@@ -107,13 +107,18 @@ FROM clienti c, (VALUES
 WHERE p.cliente_id = c.id AND c.nome = v.cliente AND p.nome = v.progetto;
 
 -- ── Prodotti (tipo PRODOTTO, senza cliente) ─────────────────────────────────
+-- ASDPay ed Edupay sono verticali di Servicepay: la loro cartella è la sotto-
+-- cartella dedicata, ma l'"Analisi dei Requisiti" (radice del picker roadmap)
+-- è quella di Servicepay (1Pta5pGsWVLI8Hy1SqP6qsnOQQrbfqVw9).
 UPDATE progetti p SET drive_folder_id = v.fid,
   drive_folder_url = 'https://drive.google.com/drive/folders/' || v.fid,
   drive_analisi_folder_id = NULLIF(v.aid, ''), updated_at = now()
 FROM (VALUES
   ('Smartilio','1VBnM5wcqKK23Ydexlhl_i-dh2Zo_9Qss',''),
   ('Praticko','161FPAbNcRFH9b4T5_Rdln_3fM9ZqgDUO',''),
-  ('Servicepay','1jCu_YIlDqWzymPaiEwm2OJjlz5mRwPYA','1Pta5pGsWVLI8Hy1SqP6qsnOQQrbfqVw9')
+  ('Servicepay','1jCu_YIlDqWzymPaiEwm2OJjlz5mRwPYA','1Pta5pGsWVLI8Hy1SqP6qsnOQQrbfqVw9'),
+  ('ASDPay','1CGvbQQ_SFN4xzVef4cFVyaM0P1A2hqq8','1Pta5pGsWVLI8Hy1SqP6qsnOQQrbfqVw9'),
+  ('Edupay','11KzK9yF0FayyVdOueEBdHT_GPdhvrj3V','1Pta5pGsWVLI8Hy1SqP6qsnOQQrbfqVw9')
 ) AS v(nome, fid, aid)
 WHERE p.tipo = 'PRODOTTO' AND p.nome = v.nome;
 
