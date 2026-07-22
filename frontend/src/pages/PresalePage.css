@@ -304,6 +304,7 @@
   margin: 0.1rem 0 0; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
   font-size: 0.78rem; color: var(--c-slate-600);
 }
+.ps-drive-warn { margin: 0.35rem 0 0; font-size: 0.78rem; color: #B45309; }
 .ps-suggest strong { color: var(--ps-accent, var(--c-teal-700)); font-weight: 700; }
 .ps-suggest-btn {
   border: 1px solid color-mix(in srgb, var(--ps-accent, #0D9488) 30%, transparent);

@@ -14,6 +14,11 @@ export interface DriveConfig {
   commId: string
   contrattiUrl: string
   contrattiId: string
+  // Ancore per la creazione automatica delle cartelle
+  gestioneUrl: string
+  gestioneId: string   // "Sviluppo - Progetti in gestione" (cartelle cliente)
+  prodottiUrl: string
+  prodottiId: string   // "Prodotti" (cartelle dei progetti tipo PRODOTTO)
 }
 
 export function useDriveConfig(token: string): DriveConfig | null {

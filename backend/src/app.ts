@@ -54,6 +54,8 @@ const MESE_RE  = /^\d{4}-(0[1-9]|1[0-2])$/ // chiave mese "YYYY-MM" (consuntivi 
 // Link http(s) per i campi documento (analisi roadmap, link presale): i valori
 // storici non conformi restano leggibili, ma al salvataggio si accettano solo URL.
 const HTTP_URL_RE = /^https?:\/\/\S+$/i
+// ID di file/cartelle Google Drive (quelli reali sono ≥ 19 char, teniamo margine)
+const DRIVE_FOLDER_ID_RE = /^[\w-]{10,}$/
 
 // Valida i campi link di un payload: ritorna il messaggio d'errore della prima
 // violazione, null se tutto ok. Campi vuoti/assenti sono sempre validi.
@@ -93,15 +95,6 @@ async function logStatoChange(
   } catch (err) {
     console.error('[attivita] logStatoChange error:', err)
   }
-}
-
-// La config SAIOT (codici, endpoint, interruttore invii) è leggibile/scrivibile
-// solo da questo allowlist — coerente con la Presale, per ora ristretta.
-const PRESALE_EMAIL_ADMINS = ['matteo.pezzoli@soluzione1.it']
-async function isPresaleEmailAdmin(prisma: PrismaClient, userId: string | null): Promise<boolean> {
-  if (!userId) return false
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
-  return !!u?.email && PRESALE_EMAIL_ADMINS.includes(u.email.toLowerCase())
 }
 
 // La mail di una fase parte solo quando il campo "chiave" di quella fase è
@@ -546,6 +539,31 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     }
   })
 
+  // Collegamento della cartella Drive del cliente (binding per ID: la
+  // rinomina o lo spostamento della cartella su Drive non rompe il link).
+  // Endpoint dedicato per non far transitare i campi Drive dai form
+  // anagrafici: null/'' = scollega. Il tool non tocca MAI i contenuti Drive.
+  hono.patch('/clienti/:id/drive', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { driveFolderId, driveFolderUrl } = await readJSON<{ driveFolderId?: unknown; driveFolderUrl?: unknown }>(c)
+    const folderId = typeof driveFolderId === 'string' && driveFolderId.trim() !== '' ? driveFolderId.trim() : null
+    if (folderId !== null && !DRIVE_FOLDER_ID_RE.test(folderId)) return c.json({ error: 'ID cartella Drive non valido' }, 400)
+    const folderUrl = typeof driveFolderUrl === 'string' && driveFolderUrl.trim() !== '' ? driveFolderUrl.trim() : null
+    if (folderUrl !== null && !HTTP_URL_RE.test(folderUrl)) return c.json({ error: 'URL cartella Drive non valido' }, 400)
+    try {
+      const cliente = await c.get('prisma').cliente.update({
+        where: { id },
+        data: { driveFolderId: folderId, driveFolderUrl: folderUrl },
+        include: CLIENTI_INCLUDE,
+      })
+      return c.json(cliente)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Cliente non trovato' }, 404)
+      console.error('[clienti] PATCH drive error:', err)
+      return c.json({ error: 'Errore nel collegamento della cartella Drive' }, 500)
+    }
+  })
+
   // ── Progetti CRUD ───────────────────────────────────────────
 
   hono.get('/progetti', requireAuth(), async (c) => {
@@ -667,6 +685,39 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Progetto non trovato' }, 404)
       console.error('[progetti] DELETE error:', err)
       return c.json({ error: 'Errore nella cancellazione del progetto' }, 500)
+    }
+  })
+
+  // Collegamento della cartella Drive del progetto + sottocartella "Analisi
+  // dei Requisiti" (radice del picker presale/roadmap). Stessa semantica del
+  // PATCH clienti: binding per ID, null/'' = scollega, contenuti mai toccati.
+  hono.patch('/progetti/:id/drive', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { driveFolderId, driveFolderUrl, driveAnalisiFolderId } = await readJSON<{
+      driveFolderId?: unknown; driveFolderUrl?: unknown; driveAnalisiFolderId?: unknown
+    }>(c)
+    const folderId = typeof driveFolderId === 'string' && driveFolderId.trim() !== '' ? driveFolderId.trim() : null
+    if (folderId !== null && !DRIVE_FOLDER_ID_RE.test(folderId)) return c.json({ error: 'ID cartella Drive non valido' }, 400)
+    const folderUrl = typeof driveFolderUrl === 'string' && driveFolderUrl.trim() !== '' ? driveFolderUrl.trim() : null
+    if (folderUrl !== null && !HTTP_URL_RE.test(folderUrl)) return c.json({ error: 'URL cartella Drive non valido' }, 400)
+    const analisiId = typeof driveAnalisiFolderId === 'string' && driveAnalisiFolderId.trim() !== '' ? driveAnalisiFolderId.trim() : null
+    if (analisiId !== null && !DRIVE_FOLDER_ID_RE.test(analisiId)) return c.json({ error: 'ID cartella Analisi dei Requisiti non valido' }, 400)
+    try {
+      const progetto = await c.get('prisma').progetto.update({
+        where: { id },
+        data: { driveFolderId: folderId, driveFolderUrl: folderUrl, driveAnalisiFolderId: analisiId },
+        include: {
+          cliente: { select: { id: true, nome: true } },
+          po: { select: { id: true, firstName: true, lastName: true } },
+          pmRiferimento: { select: { id: true, firstName: true, lastName: true } },
+          responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
+        },
+      })
+      return c.json(progetto)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Progetto non trovato' }, 404)
+      console.error('[progetti] PATCH drive error:', err)
+      return c.json({ error: 'Errore nel collegamento della cartella Drive' }, 500)
     }
   })
 
@@ -2021,20 +2072,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   // ── Config notifiche Presale (SAIOT) ────────────────────────────────
-  // GET/PUT ristretti all'allowlist Presale (contengono i codici SAIOT).
-  hono.get('/api/config/presale-email', requireAuth(), async (c) => {
+  // GET/PUT riservati al ruolo Board (contengono i codici SAIOT).
+  hono.get('/api/config/presale-email', requireAuth(), requireRole('BOARD'), async (c) => {
     const prisma = c.get('prisma')
-    if (!(await isPresaleEmailAdmin(prisma, c.get('currentUserId')))) {
-      return c.json({ error: 'Non autorizzato' }, 403)
-    }
     return c.json(await getPresaleEmailConfig(prisma))
   })
 
-  hono.put('/api/config/presale-email', requireAuth(), async (c) => {
+  hono.put('/api/config/presale-email', requireAuth(), requireRole('BOARD'), async (c) => {
     const prisma = c.get('prisma')
-    if (!(await isPresaleEmailAdmin(prisma, c.get('currentUserId')))) {
-      return c.json({ error: 'Non autorizzato' }, 403)
-    }
     const body = await readJSON<Partial<PresaleEmailConfig>>(c)
     const cfg: PresaleEmailConfig = {
       url: (body.url ?? '').toString(),
@@ -2064,6 +2109,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     devUrl: 'gdrive_dev_url', devId: 'gdrive_dev_id',
     commUrl: 'gdrive_comm_url', commId: 'gdrive_comm_id',
     contrattiUrl: 'gdrive_contratti_url', contrattiId: 'gdrive_contratti_id',
+    // Ancore per la creazione cartelle: "Progetti in gestione" (cartelle
+    // cliente) e "Prodotti" (cartelle dei progetti tipo PRODOTTO)
+    gestioneUrl: 'gdrive_gestione_url', gestioneId: 'gdrive_gestione_id',
+    prodottiUrl: 'gdrive_prodotti_url', prodottiId: 'gdrive_prodotti_id',
   } as const
 
   // Estrae l'ID di un drive condiviso / cartella da un URL Drive, oppure
@@ -2089,6 +2138,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       commId: map.get(GDRIVE_KEYS.commId) ?? '',
       contrattiUrl: map.get(GDRIVE_KEYS.contrattiUrl) ?? '',
       contrattiId: map.get(GDRIVE_KEYS.contrattiId) ?? '',
+      gestioneUrl: map.get(GDRIVE_KEYS.gestioneUrl) ?? '',
+      gestioneId: map.get(GDRIVE_KEYS.gestioneId) ?? '',
+      prodottiUrl: map.get(GDRIVE_KEYS.prodottiUrl) ?? '',
+      prodottiId: map.get(GDRIVE_KEYS.prodottiId) ?? '',
     }
   }
 
@@ -2097,7 +2150,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.put('/api/config/google-drive', requireAuth(), requireRole('BOARD'), async (c) => {
-    const { devUrl, commUrl, contrattiUrl } = await readJSON<{ devUrl?: unknown; commUrl?: unknown; contrattiUrl?: unknown }>(c)
+    const { devUrl, commUrl, contrattiUrl, gestioneUrl, prodottiUrl } = await readJSON<{
+      devUrl?: unknown; commUrl?: unknown; contrattiUrl?: unknown; gestioneUrl?: unknown; prodottiUrl?: unknown
+    }>(c)
     if (typeof devUrl !== 'string' || typeof commUrl !== 'string' || typeof contrattiUrl !== 'string') {
       return c.json({ error: 'devUrl, commUrl e contrattiUrl devono essere stringhe (vuote per disattivare)' }, 400)
     }
@@ -2113,16 +2168,88 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (contrattiUrl.trim() !== '' && contrattiId === null) {
       return c.json({ error: 'Link Drive Contratti non riconosciuto: incolla il link di uno shared drive o di una cartella' }, 400)
     }
+    // Le due ancore di creazione cartelle sono opzionali nel payload:
+    // se assenti restano invariate (retrocompatibilità col form esistente).
+    const extra: Array<[string, string]> = []
+    for (const [raw, urlKey, idKey, label] of [
+      [gestioneUrl, GDRIVE_KEYS.gestioneUrl, GDRIVE_KEYS.gestioneId, 'Progetti in gestione'],
+      [prodottiUrl, GDRIVE_KEYS.prodottiUrl, GDRIVE_KEYS.prodottiId, 'Prodotti'],
+    ] as const) {
+      if (raw === undefined) continue
+      if (typeof raw !== 'string') return c.json({ error: `Link cartella ${label} deve essere una stringa (vuota per disattivare)` }, 400)
+      const id = extractDriveId(raw)
+      if (raw.trim() !== '' && id === null) {
+        return c.json({ error: `Link cartella "${label}" non riconosciuto: incolla il link di una cartella Drive` }, 400)
+      }
+      extra.push([urlKey, raw.trim()], [idKey, id ?? ''])
+    }
     const prisma = c.get('prisma')
     const entries: Array<[string, string]> = [
       [GDRIVE_KEYS.devUrl, devUrl.trim()], [GDRIVE_KEYS.devId, devId ?? ''],
       [GDRIVE_KEYS.commUrl, commUrl.trim()], [GDRIVE_KEYS.commId, commId ?? ''],
       [GDRIVE_KEYS.contrattiUrl, contrattiUrl.trim()], [GDRIVE_KEYS.contrattiId, contrattiId ?? ''],
+      ...extra,
     ]
     await prisma.$transaction(entries.map(([chiave, valore]) =>
       prisma.appConfig.upsert({ where: { chiave }, create: { chiave, valore }, update: { valore } })
     ))
     return c.json(await readGDriveConfig(prisma))
+  })
+
+  // Template dell'alberatura cartelle che il frontend crea su Drive per i
+  // nuovi progetti (default = doc "Reparto Sviluppo ver. 1.3"). JSON-in-string
+  // in AppConfig come zoho_selected_projects. Il nodo con `analisi: true` è
+  // la cartella salvata come Progetto.driveAnalisiFolderId (radice del picker
+  // presale/roadmap). GET a tutti gli autenticati (serve alla creazione
+  // progetti), PUT solo Board; tree vuoto/null nel PUT = reset al default.
+  const GDRIVE_TREE_KEY = 'gdrive_project_tree'
+  type DriveTreeNode = { name: string; analisi?: boolean; children?: DriveTreeNode[] }
+  const DEFAULT_DRIVE_TREE: DriveTreeNode[] = [
+    { name: 'Analisi dei Requisiti', analisi: true },
+    { name: 'Progettazione & Sviluppo', children: [{ name: 'Architettura' }, { name: 'Database' }, { name: 'Documentazione Tecnica' }, { name: 'Risorse' }] },
+    { name: 'Test' },
+    { name: 'Project Management', children: [{ name: 'Minute' }, { name: 'Avanzamenti' }, { name: 'Risorse' }] },
+    { name: 'Rilascio e Manutenzione', children: [{ name: 'Manuali' }, { name: 'Release notes' }, { name: 'Rilasci' }, { name: 'FAQ & Troubleshooting' }] },
+    { name: 'Presentazioni' },
+  ]
+  const validateDriveTree = (nodes: unknown, depth = 1): string | null => {
+    if (!Array.isArray(nodes)) return 'Il template deve essere una lista di cartelle'
+    if (depth === 1 && nodes.length === 0) return 'Il template non può essere vuoto'
+    if (depth > 3) return 'Massimo 3 livelli di cartelle'
+    for (const n of nodes) {
+      if (typeof n !== 'object' || n === null || Array.isArray(n)) return 'Ogni nodo deve essere un oggetto { name, analisi?, children? }'
+      const node = n as Record<string, unknown>
+      if (typeof node.name !== 'string' || node.name.trim() === '') return 'Ogni cartella deve avere un nome non vuoto'
+      if (/[/\\]/.test(node.name)) return 'I nomi cartella non possono contenere / o \\'
+      if (node.children !== undefined) {
+        const err = validateDriveTree(node.children, depth + 1)
+        if (err) return err
+      }
+    }
+    return null
+  }
+
+  hono.get('/api/config/drive-tree', requireAuth(), async (c) => {
+    const row = await c.get('prisma').appConfig.findUnique({ where: { chiave: GDRIVE_TREE_KEY } })
+    let tree: DriveTreeNode[] = DEFAULT_DRIVE_TREE
+    if (row?.valore) {
+      try { tree = JSON.parse(row.valore) } catch { /* valore corrotto → si torna al default */ }
+    }
+    return c.json({ tree, isDefault: !row?.valore })
+  })
+
+  hono.put('/api/config/drive-tree', requireAuth(), requireRole('BOARD'), async (c) => {
+    const { tree } = await readJSON<{ tree?: unknown }>(c)
+    const prisma = c.get('prisma')
+    if (tree === null || tree === undefined || (Array.isArray(tree) && tree.length === 0)) {
+      await prisma.appConfig.deleteMany({ where: { chiave: GDRIVE_TREE_KEY } })
+      return c.json({ tree: DEFAULT_DRIVE_TREE, isDefault: true })
+    }
+    const err = validateDriveTree(tree)
+    if (err) return c.json({ error: err }, 400)
+    const valore = JSON.stringify(tree)
+    await prisma.appConfig.upsert({ where: { chiave: GDRIVE_TREE_KEY }, create: { chiave: GDRIVE_TREE_KEY, valore }, update: { valore } })
+    return c.json({ tree, isDefault: false })
   })
 
   // ── Contratti di assistenza / AMS ────────────────────────────
