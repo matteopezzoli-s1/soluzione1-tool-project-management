@@ -280,22 +280,33 @@ export default function App() {
   }
   const roles = fetchedRoles?.token === token ? fetchedRoles.roles : (user?.roles ?? [])
   const isBoard = roles.includes('BOARD')
+  const isAccount = roles.includes('ACCOUNT')
+  const isPM = roles.includes('PM')
   const isDevHub = roles.includes('DEVHUB')
-  // Consuntivi Zoho: import consuntivazioni, riservato a Board/PM/Account
-  // (stesso gating delle route /api/zoho/* lato backend)
-  const canConsuntivi = isBoard || roles.includes('PM') || roles.includes('ACCOUNT')
-  // Contratti assistenza/AMS: stesso gating (route /api/contratti lato backend)
-  const canContratti = canConsuntivi
-  // Presale: visibile a Board/PM/Account, stesso gating di Consuntivi e Contratti
-  const canPresale = canConsuntivi
 
-  // Dashboard, Anagrafica Clienti e Progetti & Prodotti sono nascoste per il
-  // ruolo DevHub. `page` può comunque puntare a una di queste (stato iniziale
-  // di default, o residuo da prima che i ruoli fossero noti): si calcola una
-  // pagina "effettiva" per contenuto/header/nav-attiva, senza bisogno di un
-  // effect (che violerebbe le regole degli hook dopo i return sopra).
-  const devHubHiddenPages: NavPage[] = ['dashboard', 'clienti', 'progetti']
-  const effectivePage: NavPage = isDevHub && devHubHiddenPages.includes(page) ? 'attivita' : page
+  // ── Modello permessi per ruolo (union sui ruoli multipli) ──
+  //  • Board: tutto
+  //  • Account / PM: tutto TRANNE Impostazioni e Anagrafica Utenti (Board-only)
+  //  • DevHub: solo Presale, Roadmap Prodotti, Attività Progetti/Prodotti
+  const canAdmin  = isBoard                              // Impostazioni + Anagrafica Utenti
+  const canManage = isBoard || isAccount || isPM         // dashboard/clienti/progetti/contratti/consuntivi
+  const canPresale = canManage || isDevHub               // Presale (DevHub in modalità limitata)
+  const canFullPresale = canManage                       // Board/Account/PM: presale completo
+  const canConsuntivi = canManage
+  const canContratti = canManage
+
+  // Visibilità/accessibilità di una pagina per l'utente corrente.
+  const canSee = (p: NavPage): boolean => {
+    switch (p) {
+      case 'roadmap': case 'attivita': return true
+      case 'presale': return canPresale
+      case 'utenti': case 'impostazioni': return canAdmin
+      default: return canManage // dashboard, clienti, progetti, contratti, consuntivi, timeline
+    }
+  }
+  // `page` può puntare a una pagina non consentita (default iniziale o residuo):
+  // si calcola una pagina "effettiva" senza usare effect (regole degli hook).
+  const effectivePage: NavPage = canSee(page) ? page : (canManage ? 'dashboard' : 'attivita')
 
   const navBtn = (id: NavPage, label: string, icon: ReactNode) => (
     <button
@@ -318,20 +329,20 @@ export default function App() {
         </div>
 
         <div className="db-sidebar-nav">
-          {!isDevHub && navBtn('dashboard', 'Dashboard',            <IconGrid />)}
+          {canManage && navBtn('dashboard', 'Dashboard',            <IconGrid />)}
           {canPresale && navBtn('presale', 'Presale',      <IconPresale />)}
           {navBtn('roadmap',       'Roadmap Prodotti',     <IconRoadmap />)}
           {navBtn('attivita',      'Attività Progetti / Prodotti', <IconClipboard />)}
           {canContratti && navBtn('contratti', 'Contratti Assistenza', <IconContract />)}
           {/* Gantt nascosto dalla nav — pagina e routing rimangono attivi, vedi riga con GanttPage più sotto */}
-          {!isDevHub && navBtn('clienti',   'Anagrafica Clienti',   <IconBuilding />)}
-          {!isDevHub && navBtn('progetti',  'Progetti & Prodotti',  <IconFolder />)}
+          {canManage && navBtn('clienti',   'Anagrafica Clienti',   <IconBuilding />)}
+          {canManage && navBtn('progetti',  'Progetti & Prodotti',  <IconFolder />)}
         </div>
 
         <div className="db-sidebar-foot">
           {canConsuntivi && navBtn('consuntivi', 'Consuntivi Zoho',   <IconTimeLog />)}
-          {isBoard && navBtn('utenti',        'Anagrafica Utenti',    <IconUsers />)}
-          {isBoard && navBtn('impostazioni', 'Impostazioni',   <IconSettings />)}
+          {canAdmin && navBtn('utenti',        'Anagrafica Utenti',    <IconUsers />)}
+          {canAdmin && navBtn('impostazioni', 'Impostazioni',   <IconSettings />)}
           <button className="db-nav-btn db-nav-btn--logout" type="button"
             title="Esci" aria-label="Esci dall'applicazione" onClick={handleLogout}>
             <IconLogout />
@@ -383,17 +394,17 @@ export default function App() {
         </header>
 
         {/* Content */}
-        {effectivePage === 'dashboard'     && <DashboardPage         token={token} onNavigate={(p) => setPage(p as NavPage)} />}
-        {effectivePage === 'clienti'       && <ClientiPage           token={token} />}
-        {effectivePage === 'progetti'      && <ProgettiPage          token={token} />}
-        {effectivePage === 'utenti'        && <UtentiPage            token={token} />}
-        {effectivePage === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={isDevHub} />}
-        {effectivePage === 'presale'       && canPresale && <PresalePage token={token} />}
+        {effectivePage === 'dashboard'     && canManage && <DashboardPage token={token} onNavigate={(p) => setPage(p as NavPage)} />}
+        {effectivePage === 'clienti'       && canManage && <ClientiPage           token={token} />}
+        {effectivePage === 'progetti'      && canManage && <ProgettiPage          token={token} />}
+        {effectivePage === 'utenti'        && canAdmin && <UtentiPage             token={token} />}
+        {effectivePage === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={false} />}
+        {effectivePage === 'presale'       && canPresale && <PresalePage token={token} fullAccess={canFullPresale} />}
         {effectivePage === 'consuntivi'    && canConsuntivi && <ConsuntiviZohoPage token={token} />}
         {effectivePage === 'contratti'     && canContratti && <ContrattiPage token={token} />}
-        {effectivePage === 'roadmap'       && <RoadmapPage           token={token} readOnly={isDevHub} />}
-        {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} showPresaleEmail={isBoard} />}
-        {effectivePage === 'timeline'      && <GanttPage             token={token} />}
+        {effectivePage === 'roadmap'       && <RoadmapPage           token={token} readOnly={false} />}
+        {effectivePage === 'impostazioni'  && canAdmin && <ImpostazioniPage token={token} showPresaleEmail={isBoard} />}
+        {effectivePage === 'timeline'      && canManage && <GanttPage token={token} />}
         {effectivePage !== 'dashboard' && effectivePage !== 'clienti' && effectivePage !== 'progetti' && effectivePage !== 'utenti' && effectivePage !== 'attivita' && effectivePage !== 'presale' && effectivePage !== 'consuntivi' && effectivePage !== 'contratti' && effectivePage !== 'roadmap' && effectivePage !== 'impostazioni' && effectivePage !== 'timeline' && (
           <PlaceholderPage page={effectivePage} />
         )}
