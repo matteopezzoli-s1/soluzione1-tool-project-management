@@ -313,8 +313,11 @@ model Progetto {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  // Cartella del progetto su Drive (<Cliente> - <Progetto>, o Sviluppo - <Prodotto> per i PRODOTTO)
-  // + la sottocartella "Analisi dei Requisiti" usata come radice del picker presale/roadmap
+  // Cartella (root) del progetto su Drive (<Cliente> - <Progetto>, o
+  // Sviluppo - <Prodotto> per i PRODOTTO). La sottocartella "Analisi dei
+  // Requisiti" (radice del picker presale/roadmap) si ricava per nome dalla
+  // root; driveAnalisiFolderId è un OVERRIDE opzionale (normalmente null),
+  // usato solo quando l'analisi sta altrove — es. verticali di prodotto.
   driveFolderId        String? @map("drive_folder_id")
   driveFolderUrl       String? @map("drive_folder_url")
   driveAnalisiFolderId String? @map("drive_analisi_folder_id")

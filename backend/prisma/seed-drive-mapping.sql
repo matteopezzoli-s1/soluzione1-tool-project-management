@@ -76,50 +76,49 @@ FROM clienti c, (VALUES
 ) AS v(cliente, progetto, fid)
 WHERE p.cliente_id = c.id AND c.nome = v.cliente AND p.nome = v.progetto;
 
--- ── Cartelle progetto: create con alberatura (cartella + Analisi Requisiti) ──
+-- ── Cartelle progetto: create con alberatura ────────────────────────────────
+-- Si salva solo la root: la "Analisi dei Requisiti" si ricava per nome al volo.
 UPDATE progetti p SET drive_folder_id = v.fid,
-  drive_folder_url = 'https://drive.google.com/drive/folders/' || v.fid,
-  drive_analisi_folder_id = v.aid, updated_at = now()
+  drive_folder_url = 'https://drive.google.com/drive/folders/' || v.fid, updated_at = now()
 FROM clienti c, (VALUES
-  ('Alltub','MPS','1ea4fr579sM26QBcIigBYju9UEpSZyPUr','1wwEVCTgngrVKT1cqkJ3Gt2BqGlzVHmDV'),
-  ('Cisalfa','A4R','1EzdKCGdQ4cDTQul9WmTOiS3q_v-VUgP2','13_9V5-8XU8wW31OiE9A_arcyi5uUAXZi'),
-  ('Conai','2FA','1J8USFVyDbfC7qGKYeA9hXRUETEz0q3RJ','1O0eZA9_x5-vdwHXdcig5piYXe5ZBeghz'),
-  ('Conai','Vulnerabilità','1J06HIGvGpeYa7R0nqLNaaFTA8cYdpWwe','1q881iYVC8BXzWb92yEfIiJxLAlyKd9Wn'),
-  ('Sacbo','MP','1t4x6P6YRg2pJqpE1RZhLACXK6HMfi24Y','1OHqlD0IR_uKXzIBMbjuXgFQ2-1iN-5xg'),
-  ('ITS Move','ITS Move','1rEbagxfHP2iGXFRIjF2ACU7L3D-zfGfm','1JVxs_eAta7aJ38EoNSPRxZRO3PdXSRXl'),
-  ('Invidia Uomo','IWR - Invidia web retail','1G6ulgCR0BFB4K6WWP7gznD2b4yCPgeCs','1q5n6A0PiTLWNShH2dukSvCi2kYUiNBdN'),
-  ('Italtrans','Doc Flow Manager','1kf2zp99q6ue0z-NHsfgNdCuZiZPw3KR9','1gifFZG7czoSi-c6TEiJQBUBtJOBaG523'),
-  ('Transmec','Progetto listini','1g3IUX2BHJK39qNWvAkS2BR3icGP5oqeG','1tn0wvd9sQgyb1KUisolo57mHk1R2mbrt'),
-  ('Tobabo Salestrainer','Palestre','1Tn95ncrMKWT06tPxe72LBFh5dviYHEe_','16DpY5M55bJtdYIa6IUk9sB4N-qZCS3Zb'),
-  ('Vimar','Body Rental - Mondo MES','170fgtwZbCw1LpYzJbseV6iWJZMYdzbI9','1IXZxxOSngnSE9orY5QSNSL52HHOI43W-'),
-  ('BMOVE','BMOVE','19Uhj6a_MBy3i_YAtGEX4usi8tgARTgZw','1veBMVxnK_WsA0bwLEuXKtwbvKaQmlHQ4'),
-  ('Autoservizi Locatelli','Bonus Trasporti','1jhDEAn6-q484vFWUw_9VaulC6YtSGBZI','1wWgzRaQBdDSiTvlpOZo7Kfy1IL7Q3XzI'),
-  ('Autoservizi Locatelli','Conta passeggeri','1k83sQnSOKQoIpOnDQGuRAZTiRhtMHaOY','16CTBtBkxorTw9r9dJ2Flr_HSqjbZBCK2'),
-  ('Autoservizi Locatelli','E-Commerce rinnovo abbonamenti','1EgMFnKtldRw58DCpdiRqD8tCRLqiAVjN','1nTK4-yGfKClTz5rwx6ejhC12M_JBylwE'),
-  ('Autoservizi Locatelli','Turnazione autisti','1ddPNeXhpbBr0ZD55VkbN1wGrg4p7cOQs','1adJdUEsilVDoyuBdI9JAVQX5Kx7bjCei'),
-  ('Beltrame GROUP','Gestionale Corsi','1MFcZzd4x8mti-asFV8Gn0ouLeou-GZCD','1QZKADwvPNaVyMsjqBX8pfduD81AScLiP'),
-  ('Beltrame','Migrazione STG','1u9LTyexPLXySPMKnnIntDW4e273xaYQM','1cV2W0GrXsccO0VaS_YEUZFh2UzPGrqfp'),
-  ('Beltrame','Modifiche portale Booking','1plyv7zyYT3r4T4uSNAYbAL_KPMB2axgI','1jPuQOF3fwa9ffMPHXrhYo3ymlmAqzc_y'),
-  ('Beltrame','Secondo step di evolutive','1odzUOM5k5SRusWSmGzkglqDDEf-AfkXu','1GvQp1_f6phLAZtTZpDTBjfQ6ZzbYyliM'),
-  ('Beltrame','Trasporeon','1_n5P4wq0tsVI9TNlYROzKtCpg2PPc0Ye','1voWv1-0S55Jft6bu3shik1iW657kcD3L'),
-  ('Bloom&Bee','Portale gestione Manutenzione giardini','1tvZZr_XG3aejL9Fi-aMECVA_5Ft7zF1i','1ty5fdMUiHP6XgVG9FetUh_exTJV6sRPN')
-) AS v(cliente, progetto, fid, aid)
+  ('Alltub','MPS','1ea4fr579sM26QBcIigBYju9UEpSZyPUr'),
+  ('Cisalfa','A4R','1EzdKCGdQ4cDTQul9WmTOiS3q_v-VUgP2'),
+  ('Conai','2FA','1J8USFVyDbfC7qGKYeA9hXRUETEz0q3RJ'),
+  ('Conai','Vulnerabilità','1J06HIGvGpeYa7R0nqLNaaFTA8cYdpWwe'),
+  ('Sacbo','MP','1t4x6P6YRg2pJqpE1RZhLACXK6HMfi24Y'),
+  ('ITS Move','ITS Move','1rEbagxfHP2iGXFRIjF2ACU7L3D-zfGfm'),
+  ('Invidia Uomo','IWR - Invidia web retail','1G6ulgCR0BFB4K6WWP7gznD2b4yCPgeCs'),
+  ('Italtrans','Doc Flow Manager','1kf2zp99q6ue0z-NHsfgNdCuZiZPw3KR9'),
+  ('Transmec','Progetto listini','1g3IUX2BHJK39qNWvAkS2BR3icGP5oqeG'),
+  ('Tobabo Salestrainer','Palestre','1Tn95ncrMKWT06tPxe72LBFh5dviYHEe_'),
+  ('Vimar','Body Rental - Mondo MES','170fgtwZbCw1LpYzJbseV6iWJZMYdzbI9'),
+  ('BMOVE','BMOVE','19Uhj6a_MBy3i_YAtGEX4usi8tgARTgZw'),
+  ('Autoservizi Locatelli','Bonus Trasporti','1jhDEAn6-q484vFWUw_9VaulC6YtSGBZI'),
+  ('Autoservizi Locatelli','Conta passeggeri','1k83sQnSOKQoIpOnDQGuRAZTiRhtMHaOY'),
+  ('Autoservizi Locatelli','E-Commerce rinnovo abbonamenti','1EgMFnKtldRw58DCpdiRqD8tCRLqiAVjN'),
+  ('Autoservizi Locatelli','Turnazione autisti','1ddPNeXhpbBr0ZD55VkbN1wGrg4p7cOQs'),
+  ('Beltrame GROUP','Gestionale Corsi','1MFcZzd4x8mti-asFV8Gn0ouLeou-GZCD'),
+  ('Beltrame','Migrazione STG','1u9LTyexPLXySPMKnnIntDW4e273xaYQM'),
+  ('Beltrame','Modifiche portale Booking','1plyv7zyYT3r4T4uSNAYbAL_KPMB2axgI'),
+  ('Beltrame','Secondo step di evolutive','1odzUOM5k5SRusWSmGzkglqDDEf-AfkXu'),
+  ('Beltrame','Trasporeon','1_n5P4wq0tsVI9TNlYROzKtCpg2PPc0Ye'),
+  ('Bloom&Bee','Portale gestione Manutenzione giardini','1tvZZr_XG3aejL9Fi-aMECVA_5Ft7zF1i')
+) AS v(cliente, progetto, fid)
 WHERE p.cliente_id = c.id AND c.nome = v.cliente AND p.nome = v.progetto;
 
 -- ── Prodotti (tipo PRODOTTO, senza cliente) ─────────────────────────────────
--- ASDPay ed Edupay sono verticali di Servicepay: la loro cartella è la sotto-
--- cartella dedicata, ma l'"Analisi dei Requisiti" (radice del picker roadmap)
--- è quella di Servicepay (1Pta5pGsWVLI8Hy1SqP6qsnOQQrbfqVw9).
+-- Solo la root; l'"Analisi dei Requisiti" si ricava per nome. ASDPay ed Edupay
+-- sono verticali di Servicepay e puntano alla STESSA cartella di Servicepay
+-- (nessun override, struttura uniforme).
 UPDATE progetti p SET drive_folder_id = v.fid,
-  drive_folder_url = 'https://drive.google.com/drive/folders/' || v.fid,
-  drive_analisi_folder_id = NULLIF(v.aid, ''), updated_at = now()
+  drive_folder_url = 'https://drive.google.com/drive/folders/' || v.fid, updated_at = now()
 FROM (VALUES
-  ('Smartilio','1VBnM5wcqKK23Ydexlhl_i-dh2Zo_9Qss',''),
-  ('Praticko','161FPAbNcRFH9b4T5_Rdln_3fM9ZqgDUO',''),
-  ('Servicepay','1jCu_YIlDqWzymPaiEwm2OJjlz5mRwPYA','1Pta5pGsWVLI8Hy1SqP6qsnOQQrbfqVw9'),
-  ('ASDPay','1CGvbQQ_SFN4xzVef4cFVyaM0P1A2hqq8','1Pta5pGsWVLI8Hy1SqP6qsnOQQrbfqVw9'),
-  ('Edupay','11KzK9yF0FayyVdOueEBdHT_GPdhvrj3V','1Pta5pGsWVLI8Hy1SqP6qsnOQQrbfqVw9')
-) AS v(nome, fid, aid)
+  ('Smartilio','1VBnM5wcqKK23Ydexlhl_i-dh2Zo_9Qss'),
+  ('Praticko','161FPAbNcRFH9b4T5_Rdln_3fM9ZqgDUO'),
+  ('Servicepay','1jCu_YIlDqWzymPaiEwm2OJjlz5mRwPYA'),
+  ('ASDPay','1jCu_YIlDqWzymPaiEwm2OJjlz5mRwPYA'),
+  ('Edupay','1jCu_YIlDqWzymPaiEwm2OJjlz5mRwPYA')
+) AS v(nome, fid)
 WHERE p.tipo = 'PRODOTTO' AND p.nome = v.nome;
 
 COMMIT;

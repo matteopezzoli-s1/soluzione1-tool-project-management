@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
 import { DriveLinkField } from '../components/DriveLinkField'
-import { isValidHttpUrl } from '../lib/googleDrive'
+import { isValidHttpUrl, findChildFolderByName } from '../lib/googleDrive'
+
+const ANALISI_FOLDER_NAME = 'Analisi dei Requisiti'
 import './RoadmapPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -271,6 +273,16 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
   // picker); se il prodotto non ha cartella collegata → warning.
   const prodottoSel = prodotti.find(p => p.id === form.progettoId) ?? null
   const analisiRoot = prodottoSel?.driveAnalisiFolderId || prodottoSel?.driveFolderId || null
+  // Al click risolve la "Analisi dei Requisiti" del prodotto (cercandola per
+  // nome se il suo ID non è salvato); fallback alla radice del prodotto.
+  const resolveAnalisiRoot = async (): Promise<{ rootId?: string; locked?: boolean } | null> => {
+    if (prodottoSel?.driveAnalisiFolderId) return { rootId: prodottoSel.driveAnalisiFolderId, locked: true }
+    if (prodottoSel?.driveFolderId) {
+      const analisi = await findChildFolderByName(prodottoSel.driveFolderId, ANALISI_FOLDER_NAME).catch(() => null)
+      return { rootId: analisi ?? prodottoSel.driveFolderId, locked: true }
+    }
+    return null
+  }
   const driveWarn = form.progettoId && !analisiRoot
     ? 'Il prodotto selezionato non ha una cartella Drive collegata: collegala da Prodotti. Per ora scegli il file dalla radice.'
     : null
@@ -358,6 +370,7 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
               // senza → solo input manuale (niente radice generica).
               rootId={analisiRoot || undefined}
               locked={!!analisiRoot}
+              resolveRoot={analisiRoot ? resolveAnalisiRoot : undefined}
               pickerMode="fileOrFolder"
               allowUpload
               pickerTitle="Scegli un file o una cartella (Analisi dei Requisiti del prodotto)"

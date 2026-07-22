@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
 import { DriveLinkField } from '../components/DriveLinkField'
 import { useDriveConfig, type DriveConfig } from '../lib/useDriveConfig'
-import { extractDriveFileId, getParentFolderId, isValidHttpUrl } from '../lib/googleDrive'
+import { extractDriveFileId, getParentFolderId, isValidHttpUrl, findChildFolderByName } from '../lib/googleDrive'
+
+const ANALISI_FOLDER_NAME = 'Analisi dei Requisiti'
 import './PresalePage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -270,6 +272,18 @@ function PresaleModal({
     [progetti, form.progettoId],
   )
   const analisiRoot = progettoSel?.driveAnalisiFolderId || progettoSel?.driveFolderId || null
+  // Radice del picker Requisiti: la cartella "Analisi dei Requisiti" del
+  // progetto. Se il progetto è mappato su una cartella esistente senza l'ID
+  // dell'analisi salvato, la si cerca per nome dentro la cartella progetto
+  // (fallback alla radice del progetto se non c'è).
+  const resolveRequisitiRoot = async (): Promise<{ rootId?: string; locked?: boolean } | null> => {
+    if (progettoSel?.driveAnalisiFolderId) return { rootId: progettoSel.driveAnalisiFolderId, locked: true }
+    if (progettoSel?.driveFolderId) {
+      const analisi = await findChildFolderByName(progettoSel.driveFolderId, ANALISI_FOLDER_NAME).catch(() => null)
+      return { rootId: analisi ?? progettoSel.driveFolderId, locked: true }
+    }
+    return null
+  }
   // Radice-contesto della fase Stima: la cartella scelta in Requisiti, oppure
   // la cartella "Analisi dei Requisiti" del progetto.
   const stimaRoot = form.presaleDriveFolderId || analisiRoot || null
@@ -336,6 +350,9 @@ function PresaleModal({
             // (rootId assente → DriveLinkField mostra il solo input manuale).
             rootId={analisiRoot || undefined}
             locked={!!analisiRoot}
+            // Al click risolve la cartella "Analisi dei Requisiti" del progetto
+            // (anche quando non è salvato il suo ID: la cerca per nome).
+            resolveRoot={analisiRoot ? resolveRequisitiRoot : undefined}
             // Il picker parte dalla cartella "Analisi dei Requisiti" del
             // progetto: si può scegliere un FILE oppure una SOTTO-CARTELLA
             // (in cui poi caricare più file), o caricare file al volo.
