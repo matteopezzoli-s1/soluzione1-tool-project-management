@@ -471,6 +471,7 @@
 
 .ea-summary-val--red   { color: #DC2626; }
 .ea-summary-val--amber { color: #D97706; }
+.ea-summary-val--presale { color: #7C3AED; }
 .ea-summary-val--mono  { font-variant-numeric: tabular-nums; }
 
 .ea-summary-lbl {

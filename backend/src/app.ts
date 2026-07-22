@@ -1420,11 +1420,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       const where: Record<string, any> = { tipo: tipoParam }
 
       let escludiChiavi = new Set<string>()
+      let presaleChiavi = new Set<string>()
       if (tipoParam === 'STANDARD') {
         const tuttiStati = await prisma.statoAttivitaConfig.findMany({
-          select: { chiave: true, isArchiviato: true, escludiDaConteggio: true },
+          select: { chiave: true, isArchiviato: true, escludiDaConteggio: true, isPresale: true },
         })
         escludiChiavi = new Set(tuttiStati.filter(s => s.escludiDaConteggio).map(s => s.chiave))
+        presaleChiavi = new Set(tuttiStati.filter(s => s.isPresale).map(s => s.chiave))
 
         let statoAttiviChiavi: string[] | undefined = undefined
         if (soloAttivi === 'true') {
@@ -1591,6 +1593,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           (a.giornateVendute === null || (a.giornateConsuntivate ?? 0) > (a.giornateVendute ?? 0))
         ).length,
         attivitaInApprovazione: allAttivita.filter(a => !isContabileGlobale(a)).length,
+        attivitaInPresale: allAttivita.filter(a => presaleChiavi.has(a.stato)).length,
         totaleGiornateVendute: Math.round(allContabili.reduce((s, a) => s + (a.giornateVendute ?? 0), 0) * 100) / 100,
         totaleGiornateFatturate: Math.round(allContabili.reduce((s, a) => s + (a.giornateFatturate ?? 0), 0) * 100) / 100,
         totaleGiornateConsuntivate: Math.round(allContabili.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0) * 100) / 100,
