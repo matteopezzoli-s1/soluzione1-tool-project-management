@@ -160,3 +160,89 @@ SELECT COUNT(*) FROM attivita WHERE roadmap_item_id IS NOT NULL;
 - **Disastro**: ripristino dal branch Neon `pre-release-2026-07` (0.1) +
   redeploy del codice vecchio. Da usare solo se le migration hanno prodotto
   dati inconsistenti (non atteso: sono additive/idempotenti).
+
+---
+---
+
+# Checklist di rilascio — Integrazione Google Drive (clienti/progetti/presale/roadmap)
+
+Feature branch `feat/drive-integration-clienti-progetti`, mergiata in `develop`.
+Binding delle cartelle Drive per ID (mai per nome), cartelle create dal software,
+picker presale/roadmap ancorato alla cartella "Analisi dei Requisiti" del progetto.
+Il grosso è automatico; **l'unico passo manuale è il seed di collegamento** (§3).
+
+## 0 · Pre-deploy
+
+- **0.1 Env di build frontend** (GitHub Secrets, per il Picker Drive):
+  `VITE_GOOGLE_CLIENT_ID` (stesso OAuth client del login) e `VITE_GOOGLE_API_KEY`
+  (API key con Picker API abilitata). Senza, i bottoni/picker Drive non
+  compaiono e tutto degrada a input manuale (nessun crash).
+- **0.2 Config Drive già presente in prod**: verifica che `gdrive_dev_id` sia
+  valorizzato (Impostazioni → Google Drive). Le ancore "Progetti in gestione" e
+  "Prodotti" si ricavano da sole per nome dentro il Drive Sviluppo.
+  ```sql
+  SELECT chiave, valore FROM app_config WHERE chiave LIKE 'gdrive_%';
+  ```
+- **0.3 Backup Neon**: branch del DB di produzione (paracadute).
+- **0.4 Permessi Drive**: chi crea cartelle da TPM agisce col proprio account
+  Google (client-side) → deve avere ruolo **Contributor** sullo shared drive
+  "Reparto Sviluppo". Senza permesso la cartella non viene creata (avviso in UI,
+  collegabile a mano) — non bloccante.
+
+## 1 · Deploy
+
+- Merge `develop` → `main`, push. Parte GitHub Actions.
+- La migration **`20260722150000_drive_folders_clienti_progetti`** viene applicata
+  da `prisma migrate deploy`. È **additiva** (solo colonne nullable su `clienti` e
+  `progetti`): nessun rischio sui dati.
+
+## 2 · Post-deploy — verifica migration
+
+```sql
+-- Colonne nuove presenti (attese: clienti.drive_folder_id/url,
+-- progetti.drive_folder_id/url/drive_analisi_folder_id)
+SELECT table_name, column_name FROM information_schema.columns
+WHERE column_name LIKE 'drive_%folder%' ORDER BY 1,2;
+```
+
+## 3 · Seed di collegamento — passo MANUALE (una volta)
+
+Da eseguire **dopo** la migration (altrimenti le colonne non esistono). SQL Editor
+Neon o `psql`:
+
+```bash
+psql "$NEON_PROD_DIRECT_URL" -f backend/prisma/seed-drive-mapping.sql
+```
+
+- Popola le ancore in `AppConfig` e collega le cartelle a 26 clienti + 51
+  progetti/prodotti (Servicepay/ASDPay/Edupay puntano alla stessa cartella).
+- **Idempotente** (match per nome canonico dei clienti/progetti): ri-eseguibile.
+- I 2 "Pacchetto giornate" restano senza cartella (amministrativi, voluto).
+- ⚠️ Presuppone i nomi cliente **già bonificati** in prod (Alltub, Sacbo, Tobabo
+  Salestrainer, ReMade, Milano Serravalle, Autoservizi Locatelli, San Carlo,
+  Conai, Digi): bonifica già applicata il 2026-07-22.
+
+## 4 · Verifica funzionale
+
+- [ ] Clienti/Progetti: colonna Drive mostra 📁 sui collegati; modal con sezione
+      "Cartella Drive" (collega/crea/scollega)
+- [ ] Crea un progetto di prova su un cliente con cartella: l'alberatura nasce da
+      sola sotto la cartella cliente; elimina poi il progetto di prova
+- [ ] Presale (attività con progetto collegato): il picker "analisi requisiti"
+      apre la cartella "Analisi dei Requisiti" del progetto; file **e** cartelle
+      selezionabili + scheda "Carica" (anche più file → salva la cartella)
+- [ ] Impostazioni → Google Drive: solo i 3 drive (Sviluppo/Commerciale/Contratti)
+      + nota sulle cartelle auto-individuate; "Alberatura progetti" (editor, Board)
+
+## 5 · Igiene
+
+- 🔑 **Reset password ruolo Neon** se la connection string è stata condivisa
+  durante la bonifica dati.
+
+## 6 · Note
+
+- Clienti/progetti creati **dopo** il rilascio generano le cartelle da soli: il
+  seed serve solo per allineare lo **storico**.
+- Nessun servizio server-side: tutte le operazioni Drive sono client-side col
+  token dell'utente. Nessun rollback DB necessario (colonne additive; il codice
+  vecchio gira sullo schema nuovo).
