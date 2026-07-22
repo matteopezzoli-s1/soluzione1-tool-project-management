@@ -297,7 +297,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       {/* ── Left panel: Gantt illustration ── */}
       <section className="lp-illustration" aria-hidden="true">
         <div className="lp-ill-inner">
-          <span className="lp-ill-eyebrow">PIANIFICAZIONE PROGETTI</span>
           <GanttIllustration />
           <div className="lp-metrics" aria-hidden="true">
             <div className="lp-metric">

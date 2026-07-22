@@ -294,6 +294,46 @@ export function driveFolderUrl(folderId: string): string {
   return `https://drive.google.com/drive/folders/${folderId}`
 }
 
+// Cartella genitore corrente di una cartella/file (null se non determinabile).
+async function getParents(fileId: string): Promise<string[]> {
+  const token = await driveApiToken()
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=parents`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  if (!res.ok) return []
+  const data = await res.json() as { parents?: string[] }
+  return data.parents ?? []
+}
+
+// Sposta una cartella sotto un nuovo genitore (mantiene lo STESSO id, quindi il
+// binding driveFolderId resta valido). Rimuove tutti i genitori attuali. Usata
+// dall'archiviazione (sposta il progetto sotto "Progetti chiusi").
+export async function moveDriveFolder(folderId: string, newParentId: string): Promise<void> {
+  const token = await driveApiToken()
+  const current = await getParents(folderId)
+  if (current.length === 1 && current[0] === newParentId) return // già lì
+  const params = new URLSearchParams({ supportsAllDrives: 'true', addParents: newParentId, fields: 'id,parents' })
+  if (current.length) params.set('removeParents', current.join(','))
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?${params.toString()}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: { message?: string } }
+    throw new Error(data.error?.message ?? `Errore Drive ${res.status}`)
+  }
+}
+
+// Trova una sottocartella per nome dentro parentId, creandola se non esiste.
+export async function ensureChildFolder(parentId: string, name: string): Promise<string> {
+  const existing = await findChildFolderByName(parentId, name)
+  if (existing) return existing
+  const { folderId } = await createDriveFolder(name, parentId)
+  return folderId
+}
+
 // Crea una cartella (shared drive inclusi) e ritorna id + link.
 export async function createDriveFolder(name: string, parentId: string): Promise<{ folderId: string; url: string }> {
   const token = await driveApiToken()
@@ -383,6 +423,31 @@ export async function findFolderInDriveByName(driveId: string, name: string): Pr
   const data = await res.json() as { files?: Array<{ id: string }> }
   // Solo se univoca: evita match ambigui su nomi ripetuti.
   return data.files?.length === 1 ? data.files[0].id : null
+}
+
+// Come sopra ma tollerante a spazi/varianti: cerca per "name contains" e
+// confronta il nome TRIMMATO (es. la cartella "Sviluppo - Progetti chiusi " ha
+// uno spazio finale su Drive). Usata per le ancore Progetti chiusi / Prodotti
+// dismessi dell'archiviazione.
+export async function findFolderByTrimmedName(driveId: string, trimmedName: string): Promise<string | null> {
+  const token = await driveApiToken()
+  const q = `name contains '${trimmedName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+  const params = new URLSearchParams({
+    q,
+    fields: 'files(id,name)',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+    corpora: 'drive',
+    driveId,
+    pageSize: '50',
+  })
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) return null
+  const data = await res.json() as { files?: Array<{ id: string; name: string }> }
+  const match = (data.files ?? []).find(f => (f.name ?? '').trim() === trimmedName)
+  return match?.id ?? null
 }
 
 // Estrae l'ID cartella da un link Drive a cartella/shared drive (per i link
