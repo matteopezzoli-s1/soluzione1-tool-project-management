@@ -95,15 +95,6 @@ async function logStatoChange(
   }
 }
 
-// La config SAIOT (codici, endpoint, interruttore invii) è leggibile/scrivibile
-// solo da questo allowlist — coerente con la Presale, per ora ristretta.
-const PRESALE_EMAIL_ADMINS = ['matteo.pezzoli@soluzione1.it']
-async function isPresaleEmailAdmin(prisma: PrismaClient, userId: string | null): Promise<boolean> {
-  if (!userId) return false
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
-  return !!u?.email && PRESALE_EMAIL_ADMINS.includes(u.email.toLowerCase())
-}
-
 // La mail di una fase parte solo quando il campo "chiave" di quella fase è
 // valorizzato: evita notifiche a metà se qualcosa aggira la validazione lato UI.
 function presaleFaseDataReady(
@@ -2021,20 +2012,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   // ── Config notifiche Presale (SAIOT) ────────────────────────────────
-  // GET/PUT ristretti all'allowlist Presale (contengono i codici SAIOT).
-  hono.get('/api/config/presale-email', requireAuth(), async (c) => {
+  // GET/PUT riservati al ruolo Board (contengono i codici SAIOT).
+  hono.get('/api/config/presale-email', requireAuth(), requireRole('BOARD'), async (c) => {
     const prisma = c.get('prisma')
-    if (!(await isPresaleEmailAdmin(prisma, c.get('currentUserId')))) {
-      return c.json({ error: 'Non autorizzato' }, 403)
-    }
     return c.json(await getPresaleEmailConfig(prisma))
   })
 
-  hono.put('/api/config/presale-email', requireAuth(), async (c) => {
+  hono.put('/api/config/presale-email', requireAuth(), requireRole('BOARD'), async (c) => {
     const prisma = c.get('prisma')
-    if (!(await isPresaleEmailAdmin(prisma, c.get('currentUserId')))) {
-      return c.json({ error: 'Non autorizzato' }, 403)
-    }
     const body = await readJSON<Partial<PresaleEmailConfig>>(c)
     const cfg: PresaleEmailConfig = {
       url: (body.url ?? '').toString(),
