@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { isDrivePickerConfigured, openDrivePicker, type DrivePickedFile } from '../lib/googleDrive'
+import { isDrivePickerConfigured, openDrivePicker, type DrivePickedFile, type PickerMode } from '../lib/googleDrive'
 import './DriveLinkField.css'
 
 // ─── DriveLinkField ───────────────────────────────────────────────────────────
@@ -23,13 +23,18 @@ interface DriveLinkFieldProps {
   // ricava la cartella dell'analisi da un link incollato a mano). Se torna
   // null si usano rootId/locked statici.
   resolveRoot?: () => Promise<{ rootId?: string; locked?: boolean } | null>
+  // Cosa selezionare nel picker: file (default), file o cartella, solo cartella
+  pickerMode?: PickerMode
+  // Mostra la scheda "Carica" del picker (upload nella cartella radice)
+  allowUpload?: boolean
   pickerTitle?: string
   placeholder?: string
   inputClassName?: string
 }
 
 export function DriveLinkField({
-  id, value, onChange, onPicked, rootId, locked, resolveRoot, pickerTitle, placeholder, inputClassName,
+  id, value, onChange, onPicked, rootId, locked, resolveRoot,
+  pickerMode, allowUpload, pickerTitle, placeholder, inputClassName,
 }: DriveLinkFieldProps) {
   const [picking, setPicking] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -48,7 +53,7 @@ export function DriveLinkField({
           effLocked = r.locked ?? locked
         }
       }
-      const file = await openDrivePicker({ rootId: effRootId, locked: effLocked, title: pickerTitle })
+      const file = await openDrivePicker({ rootId: effRootId, locked: effLocked, mode: pickerMode, allowUpload, title: pickerTitle })
       if (file) {
         onChange(file.url)
         onPicked?.(file)

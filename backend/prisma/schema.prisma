@@ -278,6 +278,10 @@ model Cliente {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  // Cartella del cliente su Drive "Reparto Sviluppo" (Sviluppo - Progetti in gestione - <Nome>)
+  driveFolderId  String? @map("drive_folder_id")
+  driveFolderUrl String? @map("drive_folder_url")
+
   accountId String?  @map("account_id")
   account   User?    @relation("ClienteAccount", fields: [accountId], references: [id], onDelete: SetNull)
 
@@ -308,6 +312,15 @@ model Progetto {
   dataFine    DateTime? @map("data_fine")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Cartella (root) del progetto su Drive (<Cliente> - <Progetto>, o
+  // Sviluppo - <Prodotto> per i PRODOTTO). La sottocartella "Analisi dei
+  // Requisiti" (radice del picker presale/roadmap) si ricava per nome dalla
+  // root; driveAnalisiFolderId è un OVERRIDE opzionale (normalmente null),
+  // usato solo quando l'analisi sta altrove — es. verticali di prodotto.
+  driveFolderId        String? @map("drive_folder_id")
+  driveFolderUrl       String? @map("drive_folder_url")
+  driveAnalisiFolderId String? @map("drive_analisi_folder_id")
 
   clienteId   String?   @map("cliente_id")
   cliente     Cliente?  @relation(fields: [clienteId], references: [id], onDelete: SetNull)

@@ -248,3 +248,17 @@
   .pr-table th:nth-child(4), .pr-table td:nth-child(4) { display: none; }
   .pr-topbar { flex-direction: column; align-items: stretch; }
 }
+
+/* ── Sezione Drive nel modal ───────────────────────────────── */
+
+.pr-drive { border-top: 1px solid #E5E7EB; padding-top: 0.85rem; margin-top: 0.25rem; }
+.pr-drive-hint { font-size: 0.8rem; color: #94A3B8; margin: 0.15rem 0 0; }
+.pr-drive-actions, .pr-drive-linked { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.pr-btn--sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+.pr-link { color: #0D9488; text-decoration: none; font-weight: 500; }
+.pr-link:hover { text-decoration: underline; }
+.pr-drive-msg { font-size: 0.8rem; margin: 0.4rem 0 0; }
+.pr-drive-msg--ok   { color: #047857; }
+.pr-drive-msg--err  { color: #B91C1C; }
+.pr-drive-msg--info { color: #64748B; }
+.pr-drive-missing { color: #B45309; font-size: 0.95rem; }
