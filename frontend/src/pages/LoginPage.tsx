@@ -329,7 +329,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </div>
             <div>
               <h1 className="lp-brand-name">TPM</h1>
-              <p className="lp-brand-sub">Project Management Interno</p>
+              <p className="lp-brand-sub">Project Management Soluzione 1</p>
             </div>
           </header>
 
