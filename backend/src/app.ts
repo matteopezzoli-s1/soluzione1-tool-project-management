@@ -587,9 +587,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   })
 
   hono.post('/progetti', requireAuth(), async (c) => {
-    const { nome, descrizione, tipo, stato, colore, clienteId, poId, pmRiferimentoId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
+    const { nome, descrizione, tipo, stato, colore, clienteId, poId, pmRiferimentoId, responsabileDevHubId } = await readJSON<{
       nome?: string; descrizione?: string; tipo?: string; stato?: string; colore?: string
-      clienteId?: string; poId?: string; pmRiferimentoId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
+      clienteId?: string; poId?: string; pmRiferimentoId?: string; responsabileDevHubId?: string
     }>(c)
     if (!nome?.trim()) return c.json({ error: 'Il nome è obbligatorio' }, 400)
     const prisma = c.get('prisma')
@@ -612,8 +612,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           poId: tipoVal === 'PRODOTTO' ? (poId?.trim() || null) : null,
           pmRiferimentoId: pmRiferimentoId?.trim() || null,
           responsabileDevHubId: responsabileDevHubId?.trim() || null,
-          dataInizio: dataInizio ? new Date(dataInizio) : null,
-          dataFine: dataFine ? new Date(dataFine) : null,
         },
         include: {
           cliente: { select: { id: true, nome: true } },
@@ -632,9 +630,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
   hono.put('/progetti/:id', requireAuth(), async (c) => {
     const id = c.req.param('id')
-    const { nome, descrizione, tipo, stato, colore, clienteId, poId, pmRiferimentoId, responsabileDevHubId, dataInizio, dataFine } = await readJSON<{
+    const { nome, descrizione, tipo, stato, colore, clienteId, poId, pmRiferimentoId, responsabileDevHubId } = await readJSON<{
       nome?: string; descrizione?: string; tipo?: string; stato?: string; colore?: string
-      clienteId?: string; poId?: string; pmRiferimentoId?: string; responsabileDevHubId?: string; dataInizio?: string; dataFine?: string
+      clienteId?: string; poId?: string; pmRiferimentoId?: string; responsabileDevHubId?: string
     }>(c)
     if (!nome?.trim()) return c.json({ error: 'Il nome è obbligatorio' }, 400)
     const prisma = c.get('prisma')
@@ -658,8 +656,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           poId: tipoVal === 'PRODOTTO' ? (poId?.trim() || null) : null,
           pmRiferimentoId: pmRiferimentoId?.trim() || null,
           responsabileDevHubId: responsabileDevHubId?.trim() || null,
-          dataInizio: dataInizio ? new Date(dataInizio) : null,
-          dataFine: dataFine ? new Date(dataFine) : null,
         },
         include: {
           cliente: { select: { id: true, nome: true } },
@@ -718,6 +714,32 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Progetto non trovato' }, 404)
       console.error('[progetti] PATCH drive error:', err)
       return c.json({ error: 'Errore nel collegamento della cartella Drive' }, 500)
+    }
+  })
+
+  // Archivia / ripristina un progetto. Lo spostamento della cartella Drive
+  // sotto "Progetti chiusi" è fatto dal frontend (col token utente) PRIMA di
+  // questa chiamata; qui si aggiorna solo il flag + timestamp.
+  hono.patch('/progetti/:id/archivia', requireAuth(), async (c) => {
+    const id = c.req.param('id')
+    const { archiviato } = await readJSON<{ archiviato?: unknown }>(c)
+    if (typeof archiviato !== 'boolean') return c.json({ error: 'Il campo archiviato deve essere booleano' }, 400)
+    try {
+      const progetto = await c.get('prisma').progetto.update({
+        where: { id },
+        data: { archiviato, archiviatoAt: archiviato ? new Date() : null },
+        include: {
+          cliente: { select: { id: true, nome: true } },
+          po: { select: { id: true, firstName: true, lastName: true } },
+          pmRiferimento: { select: { id: true, firstName: true, lastName: true } },
+          responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
+        },
+      })
+      return c.json(progetto)
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Progetto non trovato' }, 404)
+      console.error('[progetti] PATCH archivia error:', err)
+      return c.json({ error: 'Errore nell\'archiviazione del progetto' }, 500)
     }
   })
 
