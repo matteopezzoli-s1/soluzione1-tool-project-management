@@ -332,6 +332,7 @@
   color: #B45309; font-size: 0.75rem; font-weight: 600;
   cursor: help;
 }
+.rm-drive-warn { margin: 0.35rem 0 0; font-size: 0.78rem; color: #B45309; }
 
 /* ── Prodotti interni: economia, presa in carico, workflow ────────────── */
 

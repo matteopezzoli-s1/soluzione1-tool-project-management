@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
 import { DriveLinkField } from '../components/DriveLinkField'
-import { useDriveConfig } from '../lib/useDriveConfig'
 import { isValidHttpUrl } from '../lib/googleDrive'
 import './RoadmapPage.css'
 
@@ -10,7 +9,7 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ProdottoRef { id: string; nome: string; colore: string | null; poId: string | null }
-interface Prodotto { id: string; nome: string; colore: string | null; poId: string | null }
+interface Prodotto { id: string; nome: string; colore: string | null; poId: string | null; driveAnalisiFolderId: string | null; driveFolderId: string | null }
 interface PoRef { id: string; firstName: string | null; lastName: string }
 
 interface StatoRoadmapConfig {
@@ -258,18 +257,23 @@ interface ModalProps {
   prodotti: Prodotto[]; statiList: StatoRoadmapConfig[]; tags: TagRef[]; clienti: ClienteRef[]
   // Stato guidato dall'attività collegata (item preso in carico): select disabilitata
   statoLocked?: boolean
-  // Radice del picker Drive (Drive Sviluppo configurato in Impostazioni)
-  devDriveId?: string
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
-function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, clienti, statoLocked, devDriveId, onChange, onSave, onClose }: ModalProps) {
+function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, clienti, statoLocked, onChange, onSave, onClose }: ModalProps) {
   // In pianificazione si scelgono solo gli stati manuali: né il completato
   // (auto, dalla chiusura dell'attività) né il legacy "in corso" (pensionato).
   // Se l'item è già in uno di quegli stati, la voce corrente resta visibile.
   const statiSelezionabili = statiList.filter(s =>
     (!s.isCompletato && s.chiave !== RETIRED_STATO) || s.chiave === form.stato)
   const coinvest = form.copertura === 'COINVESTIMENTO'
+  // Cartella "Analisi dei Requisiti" del prodotto selezionato (radice del
+  // picker); se il prodotto non ha cartella collegata → warning.
+  const prodottoSel = prodotti.find(p => p.id === form.progettoId) ?? null
+  const analisiRoot = prodottoSel?.driveAnalisiFolderId || prodottoSel?.driveFolderId || null
+  const driveWarn = form.progettoId && !analisiRoot
+    ? 'Il prodotto selezionato non ha una cartella Drive collegata: collegala da Prodotti. Per ora scegli il file dalla radice.'
+    : null
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       onChange({ ...form, [key]: e.target.value })
@@ -350,9 +354,15 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
               inputClassName="rm-input"
               value={form.analisiUrl}
               onChange={url => onChange({ ...form, analisiUrl: url })}
-              rootId={devDriveId}
-              pickerTitle="Scegli il documento di analisi"
+              // Picker abilitato SOLO se il prodotto ha una cartella collegata;
+              // senza → solo input manuale (niente radice generica).
+              rootId={analisiRoot || undefined}
+              locked={!!analisiRoot}
+              pickerMode="fileOrFolder"
+              allowUpload
+              pickerTitle="Scegli un file o una cartella (Analisi dei Requisiti del prodotto)"
             />
+            {driveWarn && <p className="rm-drive-warn">{driveWarn}</p>}
           </div>
 
           <div className="rm-field">
@@ -723,7 +733,6 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [presaTarget,  setPresaTarget]  = useState<RoadmapItem | null>(null)
   const [presaLoading, setPresaLoading] = useState(false)
   const [presaErr,     setPresaErr]     = useState<string | null>(null)
-  const driveCfg = useDriveConfig(token)
 
   const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('kanban-stati')
   const [anno, setAnno] = useState(currentYear)
@@ -1299,7 +1308,6 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           form={form} loading={saving} apiError={formErr} prodotti={prodotti} statiList={statiList} tags={tags}
           clienti={clienti}
           statoLocked={modal === 'edit' && editing?.attivitaId !== null && editing?.attivitaId !== undefined}
-          devDriveId={driveCfg?.devId || undefined}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
       )}
       {!readOnly && presaTarget && (
