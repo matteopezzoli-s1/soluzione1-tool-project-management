@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
+import { GESTIONE_FOLDER_NAME } from '../lib/googleDrive'
 import './ImpostazioniPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -1030,15 +1031,24 @@ function PresaleEmailSezione({ token }: { token: string }) {
 // presale analisi/stima) e Commerciale (presale trattativa). L'utente incolla
 // il link dello shared drive/cartella, il backend estrae e salva l'ID.
 
+// Nel form restano i 3 drive condivisi; le ancore "Progetti in gestione" e
+// "Prodotti" si ricavano da sole dentro il Drive Sviluppo (vedi googleDrive.ts).
 interface GDriveConfigForm { devUrl: string; commUrl: string; contrattiUrl: string }
+interface GDriveIds { devId: string; commId: string; contrattiId: string }
+type GDriveResp = GDriveConfigForm & GDriveIds
 
 function GoogleDriveSezione({ token }: { token: string }) {
   const [form, setForm]       = useState<GDriveConfigForm>({ devUrl: '', commUrl: '', contrattiUrl: '' })
-  const [ids, setIds]         = useState<{ devId: string; commId: string; contrattiId: string }>({ devId: '', commId: '', contrattiId: '' })
+  const [ids, setIds]         = useState<GDriveIds>({ devId: '', commId: '', contrattiId: '' })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving]   = useState(false)
   const [pageErr, setPageErr] = useState<string | null>(null)
   const [okMsg, setOkMsg]     = useState<string | null>(null)
+
+  const applyResp = (data: GDriveResp) => {
+    setForm({ devUrl: data.devUrl, commUrl: data.commUrl, contrattiUrl: data.contrattiUrl })
+    setIds({ devId: data.devId, commId: data.commId, contrattiId: data.contrattiId })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -1046,10 +1056,9 @@ function GoogleDriveSezione({ token }: { token: string }) {
       try {
         const res = await fetch(`${API_URL}/api/config/google-drive`, { headers: authHeaders(token) })
         if (!res.ok) throw new Error()
-        const data = await res.json() as { devUrl: string; devId: string; commUrl: string; commId: string; contrattiUrl: string; contrattiId: string }
+        const data = await res.json() as GDriveResp
         if (cancelled) return
-        setForm({ devUrl: data.devUrl, commUrl: data.commUrl, contrattiUrl: data.contrattiUrl })
-        setIds({ devId: data.devId, commId: data.commId, contrattiId: data.contrattiId })
+        applyResp(data)
       } catch {
         if (!cancelled) setPageErr('Impossibile caricare la configurazione.')
       } finally {
@@ -1075,9 +1084,8 @@ function GoogleDriveSezione({ token }: { token: string }) {
         setPageErr((data as { error?: string }).error ?? `Errore ${res.status}`)
         return
       }
-      const data = await res.json() as { devUrl: string; devId: string; commUrl: string; commId: string; contrattiUrl: string; contrattiId: string }
-      setForm({ devUrl: data.devUrl, commUrl: data.commUrl, contrattiUrl: data.contrattiUrl })
-      setIds({ devId: data.devId, commId: data.commId, contrattiId: data.contrattiId })
+      const data = await res.json() as GDriveResp
+      applyResp(data)
       setOkMsg('Configurazione salvata.')
     } catch {
       setPageErr('Errore di rete. Riprova.')
@@ -1133,9 +1141,141 @@ function GoogleDriveSezione({ token }: { token: string }) {
           </span>
         </div>
 
+        <p className="imp-field-hint" style={{ marginTop: '-0.25rem' }}>
+          Le cartelle "{GESTIONE_FOLDER_NAME}" e "Prodotti" (dove nascono le cartelle di
+          clienti, progetti e prodotti) vengono individuate automaticamente dentro il Drive Sviluppo.
+        </p>
+
         <div className="imp-cfg-actions">
           <button className="imp-btn imp-btn--primary" type="button" onClick={handleSave} disabled={saving}>
             {saving ? 'Salvataggio…' : 'Salva configurazione'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Sezione Alberatura progetti ──────────────────────────────────────────────
+// Template delle cartelle create su Drive alla creazione di un progetto/prodotto
+// (default = doc "Reparto Sviluppo" 1.3). Editing come JSON per flessibilità;
+// il nodo con "analisi": true diventa la radice del picker presale/roadmap.
+
+interface AlberaturaTreeNode { name: string; analisi?: boolean; children?: AlberaturaTreeNode[] }
+
+// Riepilogo testuale ad albero del template (solo lettura, per orientarsi).
+function renderTreeOutline(nodes: AlberaturaTreeNode[], depth = 0): string {
+  return nodes.map(n =>
+    `${'    '.repeat(depth)}• ${n.name}${n.analisi ? '  ← Analisi (radice picker)' : ''}\n` +
+    (n.children?.length ? renderTreeOutline(n.children, depth + 1) : '')
+  ).join('')
+}
+
+function AlberaturaSezione({ token }: { token: string }) {
+  const [text, setText]       = useState('')
+  const [tree, setTree]       = useState<AlberaturaTreeNode[] | null>(null)
+  const [isDefault, setIsDef] = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [pageErr, setPageErr] = useState<string | null>(null)
+  const [okMsg, setOkMsg]     = useState<string | null>(null)
+
+  const applyTree = (t: AlberaturaTreeNode[], def: boolean) => {
+    setTree(t); setIsDef(def); setText(JSON.stringify(t, null, 2))
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/config/drive-tree`, { headers: authHeaders(token) })
+        if (!res.ok) throw new Error()
+        const data = await res.json() as { tree: AlberaturaTreeNode[]; isDefault: boolean }
+        if (!cancelled) applyTree(data.tree, data.isDefault)
+      } catch {
+        if (!cancelled) setPageErr('Impossibile caricare il template.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [token])
+
+  const onEdit = (v: string) => {
+    setText(v); setOkMsg(null)
+    try { setTree(JSON.parse(v) as AlberaturaTreeNode[]); setPageErr(null) }
+    catch { setTree(null) /* JSON non valido: outline nascosto, salvataggio bloccato */ }
+  }
+
+  const save = async () => {
+    let parsed: unknown
+    try { parsed = JSON.parse(text) } catch { setPageErr('JSON non valido: controlla la sintassi.'); return }
+    setSaving(true); setPageErr(null); setOkMsg(null)
+    try {
+      const res = await fetch(`${API_URL}/api/config/drive-tree`, {
+        method: 'PUT', headers: authHeadersJson(token), body: JSON.stringify({ tree: parsed }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setPageErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
+      }
+      const data = await res.json() as { tree: AlberaturaTreeNode[]; isDefault: boolean }
+      applyTree(data.tree, data.isDefault); setOkMsg('Template salvato.')
+    } catch { setPageErr('Errore di rete. Riprova.') }
+    finally { setSaving(false) }
+  }
+
+  const resetToDefault = async () => {
+    setSaving(true); setPageErr(null); setOkMsg(null)
+    try {
+      const res = await fetch(`${API_URL}/api/config/drive-tree`, {
+        method: 'PUT', headers: authHeadersJson(token), body: JSON.stringify({ tree: null }),
+      })
+      if (!res.ok) { setPageErr(`Errore ${res.status}`); return }
+      const data = await res.json() as { tree: AlberaturaTreeNode[]; isDefault: boolean }
+      applyTree(data.tree, data.isDefault); setOkMsg('Ripristinato il template predefinito.')
+    } catch { setPageErr('Errore di rete. Riprova.') }
+    finally { setSaving(false) }
+  }
+
+  if (loading) {
+    return <div className="imp-skeleton-list">{[...Array(3)].map((_, i) => <div key={i} className="imp-skeleton" />)}</div>
+  }
+
+  return (
+    <div className="imp-sezione">
+      <div className="imp-sezione-topbar">
+        <p className="imp-sezione-sub">
+          Cartelle create automaticamente su Drive alla creazione di un progetto o prodotto.
+          Ogni nodo è <code>{'{ "name": "…", "children": [ … ] }'}</code>; aggiungi <code>"analisi": true</code>
+          alla cartella da usare come radice del picker presale/roadmap. Max 3 livelli.
+          {isDefault && <> Attualmente è in uso il <strong>template predefinito</strong>.</>}
+        </p>
+      </div>
+
+      {pageErr && <p className="imp-page-error" role="alert">{pageErr}</p>}
+      {okMsg && <p className="imp-ok-banner" role="status">{okMsg}</p>}
+
+      <div className="imp-cfg-card">
+        <div className="imp-field">
+          <label htmlFor="cfg-tree" className="imp-label">Template (JSON)</label>
+          <textarea id="cfg-tree" className="imp-input imp-textarea-code" rows={16}
+            value={text} onChange={e => onEdit(e.target.value)} spellCheck={false} />
+        </div>
+
+        {tree && (
+          <div className="imp-field">
+            <span className="imp-label">Anteprima</span>
+            <pre className="imp-tree-outline">{renderTreeOutline(tree)}</pre>
+          </div>
+        )}
+
+        <div className="imp-cfg-actions">
+          <button className="imp-btn imp-btn--ghost" type="button" onClick={resetToDefault} disabled={saving}>
+            Ripristina predefinito
+          </button>
+          <button className="imp-btn imp-btn--primary" type="button" onClick={save} disabled={saving || !tree}>
+            {saving ? 'Salvataggio…' : 'Salva template'}
           </button>
         </div>
       </div>
@@ -1235,7 +1375,7 @@ function ContrattiConfigSezione({ token }: { token: string }) {
 
 interface ImpostazioniPageProps { token: string; showPresaleEmail?: boolean }
 
-type SettingsKey = Sezione | 'notifiche' | 'gdrive' | 'contratti-cfg'
+type SettingsKey = Sezione | 'notifiche' | 'gdrive' | 'alberatura' | 'contratti-cfg'
 
 interface SettingsNavItem {
   key: SettingsKey
@@ -1328,6 +1468,14 @@ const NAV_GROUPS: Array<{ label: string; items: SettingsNavItem[] }> = [
           </svg>
         ),
       },
+      {
+        key: 'alberatura', label: 'Alberatura progetti',
+        icon: (
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+            <path d="M4 4h5l1.5 2H16v9H4z" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ),
+      },
     ],
   },
 ]
@@ -1376,7 +1524,9 @@ export default function ImpostazioniPage({ token, showPresaleEmail }: Impostazio
             ? <PresaleEmailSezione token={token} />
             : tab === 'gdrive'
               ? <GoogleDriveSezione token={token} />
-              : tab === 'contratti-cfg'
+              : tab === 'alberatura'
+                ? <AlberaturaSezione token={token} />
+                : tab === 'contratti-cfg'
                 ? <ContrattiConfigSezione token={token} />
                 : tab === 'tag'
                   ? <TagSezione token={token} />
