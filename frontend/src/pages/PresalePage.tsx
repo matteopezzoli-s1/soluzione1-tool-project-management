@@ -46,7 +46,10 @@ interface ClienteOption {
   id: string; nome: string; accountId: string | null
   account: { id: string; firstName: string | null; lastName: string } | null
 }
-interface ProgettoOption { id: string; nome: string; clienteId: string | null; pmRiferimentoId: string | null }
+interface ProgettoOption {
+  id: string; nome: string; clienteId: string | null; pmRiferimentoId: string | null
+  driveAnalisiFolderId: string | null; driveFolderId: string | null
+}
 
 type FormData = {
   clienteId: string
@@ -260,6 +263,22 @@ function PresaleModal({
     () => progetti.filter(p => !form.clienteId || p.clienteId === form.clienteId),
     [progetti, form.clienteId],
   )
+  // Progetto selezionato e sua cartella "Analisi dei Requisiti" (radice del
+  // picker presale). Se il progetto non ha cartella collegata → warning.
+  const progettoSel = useMemo(
+    () => progetti.find(p => p.id === form.progettoId) ?? null,
+    [progetti, form.progettoId],
+  )
+  const analisiRoot = progettoSel?.driveAnalisiFolderId || progettoSel?.driveFolderId || null
+  // Radice-contesto della fase Stima: la cartella scelta in Requisiti, oppure
+  // la cartella "Analisi dei Requisiti" del progetto.
+  const stimaRoot = form.presaleDriveFolderId || analisiRoot || null
+  // Il progetto è obbligatorio (validato al salvataggio): finché non è
+  // scelto il picker è semplicemente in attesa. L'unico avviso utile è
+  // quando il progetto scelto non ha una cartella Drive collegata.
+  const driveWarn = form.progettoId && !analisiRoot
+    ? 'Il progetto selezionato non ha una cartella Drive collegata: collegala da Progetti. Per ora incolla il link a mano.'
+    : null
   const currentIdx = statiPresale.findIndex(s => s.chiave === form.stato)
   const currentCfg = statiPresale[currentIdx]
   const accent = currentCfg?.colore ?? '#7C3AED'
@@ -313,17 +332,27 @@ function PresaleModal({
             id="ps-req"
             inputClassName="ps-input"
             value={form.presaleLinkRequisiti}
-            rootId={driveCfg?.devId || undefined}
-            pickerTitle="Scegli il documento di analisi (Drive Sviluppo)"
-            // Digitazione manuale: la cartella memorizzata non è più affidabile
+            // Picker abilitato SOLO se il progetto ha una cartella collegata
+            // (rootId assente → DriveLinkField mostra il solo input manuale).
+            rootId={analisiRoot || undefined}
+            locked={!!analisiRoot}
+            // Il picker parte dalla cartella "Analisi dei Requisiti" del
+            // progetto: si può scegliere un FILE oppure una SOTTO-CARTELLA
+            // (in cui poi caricare più file), o caricare file al volo.
+            pickerMode="fileOrFolder"
+            allowUpload
+            pickerTitle="Scegli un file o una cartella (Analisi dei Requisiti del progetto)"
+            // Digitazione manuale: la cartella-contesto memorizzata non è più affidabile
             onChange={url => onChange({ ...form, presaleLinkRequisiti: url, presaleDriveFolderId: '' })}
-            // Scelta via picker: memorizzo anche la cartella (radice della Stima)
+            // Scelta via picker: il "contesto" (radice della Stima) è la
+            // cartella scelta se è una cartella, altrimenti quella del file.
             onPicked={file => onChange({
               ...form,
               presaleLinkRequisiti: file.url,
-              presaleDriveFolderId: file.parentId ?? '',
+              presaleDriveFolderId: (file.isFolder ? file.fileId : file.parentId) ?? '',
             })}
           />
+          {driveWarn && <p className="ps-drive-warn">{driveWarn}</p>}
         </div>
       )
       case 'presaleScadenzaStima': return (
@@ -367,19 +396,22 @@ function PresaleModal({
             id="ps-stima"
             inputClassName="ps-input"
             value={form.presaleLinkStima}
-            rootId={form.presaleDriveFolderId || driveCfg?.devId || undefined}
-            locked={!!form.presaleDriveFolderId}
-            // Al click risolve la cartella dell'analisi iniziale (memorizzata
-            // dal picker o ricavata via Drive API da un link incollato a
-            // mano) e ci blocca dentro il picker; senza cartella → radice
-            // del Drive Sviluppo.
-            resolveRoot={async () => {
-              const folderId = await resolveAnalisiFolder().catch(() => null)
+            // Picker abilitato SOLO se esiste un contesto (cartella scelta in
+            // Requisiti o cartella Analisi del progetto). Senza → input manuale.
+            rootId={stimaRoot || undefined}
+            locked={!!stimaRoot}
+            // Parte dal "contesto" scelto in fase Requisiti (cartella o
+            // cartella del file); in mancanza ripiega sulla cartella "Analisi
+            // dei Requisiti" del progetto. Si può linkare un file o caricarne uno.
+            allowUpload
+            resolveRoot={stimaRoot ? async () => {
+              const folderId = (await resolveAnalisiFolder().catch(() => null)) ?? stimaRoot
               return folderId ? { rootId: folderId, locked: true } : null
-            }}
-            pickerTitle="Scegli l'analisi di dettaglio (cartella dell'analisi iniziale)"
+            } : undefined}
+            pickerTitle="Analisi di dettaglio — scegli o carica un file nel contesto dell'analisi"
             onChange={url => onChange({ ...form, presaleLinkStima: url })}
           />
+          {!stimaRoot && <p className="ps-drive-warn">Il picker si attiva dopo aver scelto l'analisi requisiti in una cartella del progetto. Per ora incolla il link a mano.</p>}
         </div>
       )
       case 'giornateVendute': return (
@@ -929,7 +961,7 @@ export default function PresalePage({ token }: { token: string }) {
       setStati(s)
       setClienti(c)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setProgetti((p as any[]).map((pr: any) => ({ id: pr.id, nome: pr.nome, clienteId: pr.clienteId ?? null, pmRiferimentoId: pr.pmRiferimento?.id ?? pr.pmRiferimentoId ?? null })))
+      setProgetti((p as any[]).map((pr: any) => ({ id: pr.id, nome: pr.nome, clienteId: pr.clienteId ?? null, pmRiferimentoId: pr.pmRiferimento?.id ?? pr.pmRiferimentoId ?? null, driveAnalisiFolderId: pr.driveAnalisiFolderId ?? null, driveFolderId: pr.driveFolderId ?? null })))
       setPms(pm)
       setDevHubs(dh)
     } catch {

@@ -222,6 +222,18 @@
 .cl-confirm-sub  { font-size: 0.82rem; color: #94A3B8; }
 .cl-confirm-warn { font-size: 0.82rem; color: #B45309; }
 
+/* ── Sezione Drive nel modal ───────────────────────────────── */
+
+.cl-drive { border-top: 1px solid #E5E7EB; padding-top: 0.85rem; margin-top: 0.25rem; }
+.cl-drive-hint { font-size: 0.8rem; color: #94A3B8; margin: 0.15rem 0 0; }
+.cl-drive-actions, .cl-drive-linked { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.cl-btn--sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+.cl-drive-msg { font-size: 0.8rem; margin: 0.4rem 0 0; }
+.cl-drive-msg--ok   { color: #047857; }
+.cl-drive-msg--err  { color: #B91C1C; }
+.cl-drive-msg--info { color: #64748B; }
+.cl-drive-missing { color: #B45309; font-size: 0.95rem; }
+
 /* ── Responsive ────────────────────────────────────────────── */
 
 @media (max-width: 680px) {

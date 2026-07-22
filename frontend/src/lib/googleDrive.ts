@@ -28,7 +28,22 @@ export interface DrivePickedFile {
   name: string
   // Cartella che contiene il file (se il Picker la espone)
   parentId: string | null
+  // true se l'utente ha scelto una cartella (non un file)
+  isFolder: boolean
 }
+
+const FOLDER_MIME = 'application/vnd.google-apps.folder'
+
+// Nomi delle due cartelle-ancora dentro il Drive Sviluppo: si ricavano da lì
+// per nome, così in Impostazioni basta configurare il solo Drive Sviluppo.
+export const GESTIONE_FOLDER_NAME = 'Sviluppo - Progetti in gestione'
+export const PRODOTTI_FOLDER_NAME = 'Prodotti'
+
+// Cosa è selezionabile nel picker:
+//  'file'         → naviga tra le cartelle e sceglie un file (default)
+//  'fileOrFolder' → sceglie un file OPPURE una cartella (fase presale requisiti)
+//  'folder'       → solo cartelle (collega cartella su clienti/progetti)
+export type PickerMode = 'file' | 'fileOrFolder' | 'folder'
 
 export interface OpenDrivePickerOptions {
   // Radice di navigazione: ID di uno shared drive o di una cartella
@@ -36,6 +51,12 @@ export interface OpenDrivePickerOptions {
   // Se true l'utente resta vincolato alla cartella rootId (usato dalla fase
   // Stima: il Picker con setParent non offre navigazione verso l'alto)
   locked?: boolean
+  // Cosa può selezionare l'utente (default 'file')
+  mode?: PickerMode
+  // Aggiunge la scheda "Carica" del Picker per caricare file nella rootId
+  allowUpload?: boolean
+  // DEPRECATO: equivalente a mode:'folder' (mantenuto per i chiamanti esistenti)
+  selectFolders?: boolean
   title?: string
 }
 
@@ -58,11 +79,16 @@ declare global {
       }
       picker: {
         // Tipizzazione minimale delle classi Picker che usiamo
+        ViewId: { FOLDERS: unknown }
         DocsView: new (viewId?: unknown) => {
           setIncludeFolders: (v: boolean) => unknown
           setSelectFolderEnabled: (v: boolean) => unknown
           setParent: (id: string) => unknown
           setEnableDrives: (v: boolean) => unknown
+        }
+        DocsUploadView: new () => {
+          setParent: (id: string) => unknown
+          setIncludeFolders: (v: boolean) => unknown
         }
         PickerBuilder: new () => {
           addView: (view: unknown) => unknown
@@ -77,7 +103,7 @@ declare global {
         Feature: { SUPPORT_DRIVES: unknown }
         Action: { PICKED: string; CANCEL: string }
         Response: { ACTION: string; DOCUMENTS: string }
-        Document: { ID: string; NAME: string; URL: string; PARENT_ID: string }
+        Document: { ID: string; NAME: string; URL: string; PARENT_ID: string; MIME_TYPE: string }
       }
     }
   }
@@ -156,10 +182,16 @@ export async function openDrivePicker(opts: OpenDrivePickerOptions = {}): Promis
   const token = await getAccessToken()
   const g = window.google!
 
+  // selectFolders (deprecato) equivale a mode:'folder'
+  const mode: PickerMode = opts.mode ?? (opts.selectFolders ? 'folder' : 'file')
+
   return new Promise((resolve) => {
-    const view = new g.picker.DocsView()
+    // 'folder' → vista Cartelle (solo cartelle selezionabili).
+    // 'fileOrFolder'/'file' → vista Documenti che include le cartelle; in
+    // fileOrFolder anche la cartella è selezionabile oltre ai file.
+    const view = mode === 'folder' ? new g.picker.DocsView(g.picker.ViewId.FOLDERS) : new g.picker.DocsView()
     view.setIncludeFolders(true)
-    view.setSelectFolderEnabled(false)
+    view.setSelectFolderEnabled(mode === 'folder' || mode === 'fileOrFolder')
     view.setEnableDrives(true)
     // setParent vincola la vista al contenuto della cartella (nessuna
     // navigazione verso l'alto): con locked=true è il lucchetto della Stima.
@@ -167,6 +199,14 @@ export async function openDrivePicker(opts: OpenDrivePickerOptions = {}): Promis
 
     const builder = new g.picker.PickerBuilder()
     builder.addView(view)
+    // Scheda "Carica": consente di caricare file direttamente nella cartella
+    // di contesto (presale requisiti/stima). Richiede una rootId.
+    if (opts.allowUpload && opts.rootId) {
+      const upload = new g.picker.DocsUploadView()
+      upload.setParent(opts.rootId)
+      upload.setIncludeFolders(true)
+      builder.addView(upload)
+    }
     builder.setOAuthToken(token)
     builder.setDeveloperKey(API_KEY)
     builder.enableFeature(g.picker.Feature.SUPPORT_DRIVES)
@@ -183,6 +223,7 @@ export async function openDrivePicker(opts: OpenDrivePickerOptions = {}): Promis
           fileId: doc[g.picker.Document.ID] ?? '',
           name: doc[g.picker.Document.NAME] ?? '',
           parentId: doc[g.picker.Document.PARENT_ID] ?? null,
+          isFolder: (doc[g.picker.Document.MIME_TYPE] ?? '') === FOLDER_MIME,
         })
       } else if (action === g.picker.Action.CANCEL) {
         resolve(null)
@@ -235,6 +276,113 @@ export async function getParentFolderId(fileId: string): Promise<string | null> 
   if (!res.ok) return null
   const data = await res.json() as { parents?: string[] }
   return data.parents?.[0] ?? null
+}
+
+// ── Creazione cartelle (binding per ID sui clienti/progetti) ────────────────
+// Il tool crea SOLO cartelle nuove: mai rinomine, spostamenti o cancellazioni
+// di contenuti esistenti su Drive.
+
+export function driveFolderUrl(folderId: string): string {
+  return `https://drive.google.com/drive/folders/${folderId}`
+}
+
+// Crea una cartella (shared drive inclusi) e ritorna id + link.
+export async function createDriveFolder(name: string, parentId: string): Promise<{ folderId: string; url: string }> {
+  const token = await driveApiToken()
+  const res = await fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: { message?: string } }
+    throw new Error(data.error?.message ?? `Errore Drive ${res.status}`)
+  }
+  const { id } = await res.json() as { id: string }
+  return { folderId: id, url: driveFolderUrl(id) }
+}
+
+// Nodo del template alberatura (stessa forma di /api/config/drive-tree):
+// il nodo con `analisi: true` è la cartella "Analisi dei Requisiti" salvata
+// come radice del picker presale/roadmap.
+export interface DriveTreeNode {
+  name: string
+  analisi?: boolean
+  children?: DriveTreeNode[]
+}
+
+// Crea ricorsivamente l'alberatura del template dentro parentId e ritorna
+// l'ID del nodo marcato `analisi: true` (null se il template non lo prevede).
+// Creazione sequenziale: mantiene l'ordine e resta sotto i rate limit Drive.
+export async function createFolderTree(nodes: DriveTreeNode[], parentId: string): Promise<{ analisiFolderId: string | null }> {
+  let analisiFolderId: string | null = null
+  for (const node of nodes) {
+    const { folderId } = await createDriveFolder(node.name, parentId)
+    if (node.analisi && analisiFolderId === null) analisiFolderId = folderId
+    if (node.children?.length) {
+      const nested = await createFolderTree(node.children, folderId)
+      if (analisiFolderId === null) analisiFolderId = nested.analisiFolderId
+    }
+  }
+  return { analisiFolderId }
+}
+
+// Cerca una sottocartella per nome esatto dentro parentId (null se assente).
+// Usata quando si collega una cartella progetto esistente: risolve la
+// "Analisi dei Requisiti" senza chiederla all'utente.
+export async function findChildFolderByName(parentId: string, name: string): Promise<string | null> {
+  const token = await driveApiToken()
+  const q = `'${parentId}' in parents and name = '${name.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+  const params = new URLSearchParams({
+    q,
+    fields: 'files(id)',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+    corpora: 'allDrives',
+    pageSize: '1',
+  })
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) return null
+  const data = await res.json() as { files?: Array<{ id: string }> }
+  return data.files?.[0]?.id ?? null
+}
+
+// Cerca una cartella per nome esatto in TUTTO uno shared drive (null se assente
+// o ambigua). Usata per ricavare le ancore "Sviluppo - Progetti in gestione" e
+// "Prodotti" dal Drive Sviluppo, senza doverle configurare a mano.
+export async function findFolderInDriveByName(driveId: string, name: string): Promise<string | null> {
+  const token = await driveApiToken()
+  const q = `name = '${name.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+  const params = new URLSearchParams({
+    q,
+    fields: 'files(id)',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+    corpora: 'drive',
+    driveId,
+    pageSize: '2',
+  })
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) return null
+  const data = await res.json() as { files?: Array<{ id: string }> }
+  // Solo se univoca: evita match ambigui su nomi ripetuti.
+  return data.files?.length === 1 ? data.files[0].id : null
+}
+
+// Estrae l'ID cartella da un link Drive a cartella/shared drive (per i link
+// incollati a mano in "Collega cartella esistente").
+export function extractDriveFolderId(url: string | null | undefined): string | null {
+  if (!url) return null
+  const m = url.match(/\/(?:folders|shared-drives)\/([\w-]{10,})/)
+  return m?.[1] ?? null
 }
 
 // Estrae l'ID file da un link Drive/Docs (documenti, fogli, presentazioni,
