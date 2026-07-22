@@ -210,21 +210,29 @@ export async function openDrivePicker(opts: OpenDrivePickerOptions = {}): Promis
     builder.setOAuthToken(token)
     builder.setDeveloperKey(API_KEY)
     builder.enableFeature(g.picker.Feature.SUPPORT_DRIVES)
-    builder.setMaxItems(1)
+    // Con upload abilitato si possono caricare/selezionare più file; in tal
+    // caso il "link" salvato è la cartella che li contiene (vedi callback).
+    builder.setMaxItems(opts.allowUpload ? 20 : 1)
     if (opts.title) builder.setTitle(opts.title)
+    const mapDoc = (doc: PickerDocument): DrivePickedFile => ({
+      url: doc[g.picker.Document.URL] ?? '',
+      fileId: doc[g.picker.Document.ID] ?? '',
+      name: doc[g.picker.Document.NAME] ?? '',
+      parentId: doc[g.picker.Document.PARENT_ID] ?? null,
+      isFolder: (doc[g.picker.Document.MIME_TYPE] ?? '') === FOLDER_MIME,
+    })
     builder.setCallback((data: PickerCallbackData) => {
       const action = data[g.picker.Response.ACTION]
       if (action === g.picker.Action.PICKED) {
         const docs = data[g.picker.Response.DOCUMENTS] as PickerDocument[] | undefined
-        const doc = docs?.[0]
-        if (!doc) { resolve(null); return }
-        resolve({
-          url: doc[g.picker.Document.URL] ?? '',
-          fileId: doc[g.picker.Document.ID] ?? '',
-          name: doc[g.picker.Document.NAME] ?? '',
-          parentId: doc[g.picker.Document.PARENT_ID] ?? null,
-          isFolder: (doc[g.picker.Document.MIME_TYPE] ?? '') === FOLDER_MIME,
-        })
+        if (!docs || docs.length === 0) { resolve(null); return }
+        if (docs.length === 1) { resolve(mapDoc(docs[0])); return }
+        // Più elementi (upload/selezione multipla): tutti nella stessa cartella
+        // → il link è la cartella contenitrice, non il singolo file.
+        const parent = docs[0][g.picker.Document.PARENT_ID]
+        resolve(parent
+          ? { url: driveFolderUrl(parent), fileId: parent, name: '', parentId: null, isFolder: true }
+          : mapDoc(docs[0]))
       } else if (action === g.picker.Action.CANCEL) {
         resolve(null)
       }
