@@ -3,9 +3,14 @@ import { SectionModal } from '../components/SectionModal'
 import { useDriveConfig } from '../lib/useDriveConfig'
 import {
   isDrivePickerConfigured, openDrivePicker, createDriveFolder, createFolderTree,
-  findFolderInDriveByName, extractDriveFolderId, driveFolderUrl,
-  PRODOTTI_FOLDER_NAME, type DriveTreeNode,
+  findFolderInDriveByName, findFolderByTrimmedName, ensureChildFolder, moveDriveFolder,
+  extractDriveFolderId, driveFolderUrl,
+  PRODOTTI_FOLDER_NAME, GESTIONE_FOLDER_NAME, type DriveTreeNode,
 } from '../lib/googleDrive'
+
+// Nomi delle cartelle-radice dell'archiviazione dentro il Drive Sviluppo.
+const CHIUSI_ROOT_NAME = 'Sviluppo - Progetti chiusi'
+const DISMESSI_ROOT_NAME = 'Sviluppo - Prodotti dismessi'
 import './ProgettiPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -31,7 +36,7 @@ interface DevHubRef { id: string; firstName: string | null; lastName: string }
 interface Progetto {
   id: string; nome: string; descrizione: string | null; tipo: Tipo
   stato: StatoProgetto; colore: string | null
-  dataInizio: string | null; dataFine: string | null
+  archiviato: boolean
   clienteId: string | null; cliente: ClienteRef | null
   poId: string | null; po: PoRef | null
   pmRiferimentoId: string | null; pmRiferimento: PoRef | null
@@ -46,24 +51,13 @@ interface DevHubOption { id: string; firstName: string | null; lastName: string 
 type FormData = {
   nome: string; descrizione: string; stato: StatoProgetto
   clienteId: string; poId: string; pmRiferimentoId: string; responsabileDevHubId: string; colore: string
-  dataInizio: string; dataFine: string
 }
 const emptyForm = (): FormData => ({
-  nome: '', descrizione: '', stato: 'ATTIVO', clienteId: '', poId: '', pmRiferimentoId: '', responsabileDevHubId: '', colore: '#0D9488', dataInizio: '', dataFine: '',
+  nome: '', descrizione: '', stato: 'ATTIVO', clienteId: '', poId: '', pmRiferimentoId: '', responsabileDevHubId: '', colore: '#0D9488',
 })
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-}
-
-function fmtDate(iso: string | null) {
-  if (!iso) return null
-  return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' })
-}
-
-function toInputDate(iso: string | null) {
-  if (!iso) return ''
-  return iso.split('T')[0]
 }
 
 function poName(po: PoRef | null) {
@@ -111,12 +105,14 @@ interface ModalProps {
   tipo: Tipo; title: string; form: FormData; loading: boolean; apiError: string | null
   clienti: ClienteOption[]; pos: PoOption[]; devHubs: DevHubOption[]; statiList: StatoProgettoConfig[]
   isEdit: boolean; drive: DriveSectionState; canPickDrive: boolean
+  archiviato: boolean; archiviando: boolean
   onLinkExisting: () => void; onCreateTree: () => void; onUnlinkDrive: () => void
+  onArchivia: () => void
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
 function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, statiList,
-  isEdit, drive, canPickDrive, onLinkExisting, onCreateTree, onUnlinkDrive,
+  isEdit, drive, canPickDrive, archiviato, archiviando, onLinkExisting, onCreateTree, onUnlinkDrive, onArchivia,
   onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -233,21 +229,6 @@ function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, st
               placeholder={tipo === 'CLIENTE' ? 'Obiettivi e note del progetto…' : 'Obiettivi e note del prodotto…'} rows={3} />
           </div>
 
-          {tipo === 'CLIENTE' && (
-            <div className="pr-field-row">
-              <div className="pr-field">
-                <label htmlFor="pr-inizio" className="pr-label">Data inizio</label>
-                <input id="pr-inizio" className="pr-input" type="date"
-                  value={form.dataInizio} onChange={set('dataInizio')} />
-              </div>
-              <div className="pr-field">
-                <label htmlFor="pr-fine" className="pr-label">Data fine</label>
-                <input id="pr-fine" className="pr-input" type="date"
-                  value={form.dataFine} onChange={set('dataFine')} />
-              </div>
-            </div>
-          )}
-
           <div className="pr-field pr-drive">
             <span className="pr-label">Cartella Drive</span>
             {!isEdit ? (
@@ -280,6 +261,15 @@ function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, st
           </div>
         </div>
         <div className="pr-modal-footer">
+          {isEdit && (
+            <button className="pr-btn pr-btn--ghost pr-btn--archivia" type="button"
+              onClick={onArchivia} disabled={loading || archiviando} title={archiviato
+                ? 'Ripristina: riporta il progetto tra quelli in gestione'
+                : 'Archivia: sposta la cartella Drive sotto "Progetti chiusi"'}>
+              {archiviando ? '…' : archiviato ? 'Ripristina' : 'Archivia'}
+            </button>
+          )}
+          <span className="pr-footer-spacer" />
           <button className="pr-btn pr-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
           <button className="pr-btn pr-btn--primary" type="button" onClick={onSave} disabled={loading}>
             {loading ? 'Salvataggio…' : 'Salva'}
@@ -345,6 +335,8 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
   const [deleting,    setDeleting]    = useState(false)
   const [drive,       setDrive]       = useState<DriveSectionState>({ folderId: null, folderUrl: null, busy: false, msg: null })
   const [tree,        setTree]        = useState<DriveTreeNode[] | null>(null)
+  const [archiviando, setArchiviando] = useState(false)
+  const [showArchiviati, setShowArchiviati] = useState(false)
 
   const driveCfg = useDriveConfig(token)
   const canPickDrive = isDrivePickerConfigured()
@@ -433,7 +425,6 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
     setForm({
       nome: p.nome, descrizione: p.descrizione ?? '', stato: p.stato,
       clienteId: p.clienteId ?? '', poId: p.poId ?? '', pmRiferimentoId: p.pmRiferimentoId ?? '', responsabileDevHubId: p.responsabileDevHubId ?? '', colore: p.colore ?? '#0D9488',
-      dataInizio: toInputDate(p.dataInizio), dataFine: toInputDate(p.dataFine),
     })
     setDrive({ folderId: p.driveFolderId, folderUrl: p.driveFolderUrl, busy: false, msg: null })
     setFormErr(null); setModal('edit')
@@ -495,6 +486,61 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
     }
   }
 
+  // Archivia / ripristina. Best-effort: sposta la cartella Drive sotto
+  // "Progetti chiusi" (CLIENTE) o "Prodotti dismessi" (PRODOTTO) e viceversa
+  // in ripristino; se lo spostamento fallisce si segnala ma il flag si applica
+  // comunque (l'archiviazione è primariamente uno stato TPM).
+  const handleArchivia = async () => {
+    if (!editing) return
+    const archiviare = !editing.archiviato
+    setArchiviando(true)
+    let driveWarn: string | null = null
+
+    if (canPickDrive && editing.driveFolderId && driveCfg?.devId) {
+      try {
+        let newParent: string | null = null
+        if (tipo === 'PRODOTTO') {
+          newParent = archiviare
+            ? await findFolderByTrimmedName(driveCfg.devId, DISMESSI_ROOT_NAME)
+            : (driveCfg.prodottiId || await findFolderInDriveByName(driveCfg.devId, PRODOTTI_FOLDER_NAME))
+        } else {
+          const cliente = clienti.find(c => c.id === editing.clienteId)
+          if (archiviare) {
+            const chiusiRoot = await findFolderByTrimmedName(driveCfg.devId, CHIUSI_ROOT_NAME)
+            if (chiusiRoot && cliente?.nome) newParent = await ensureChildFolder(chiusiRoot, `Sviluppo - Progetti chiusi - ${cliente.nome}`)
+          } else {
+            // ripristino: sotto la cartella "in gestione" del cliente
+            newParent = cliente?.driveFolderId
+              || (cliente?.nome ? await ensureChildFolder(
+                    driveCfg.gestioneId || (await findFolderInDriveByName(driveCfg.devId, GESTIONE_FOLDER_NAME)) || '',
+                    `Sviluppo - Progetti in gestione - ${cliente.nome}`) : null)
+          }
+        }
+        if (newParent) await moveDriveFolder(editing.driveFolderId, newParent)
+        else driveWarn = 'cartella di destinazione su Drive non trovata: sposta la cartella a mano.'
+      } catch (e) {
+        driveWarn = `spostamento cartella Drive non riuscito (${e instanceof Error ? e.message : 'errore'}): spostala a mano.`
+      }
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/progetti/${editing.id}/archivia`, {
+        method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ archiviato: archiviare }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setFormErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
+      }
+      setModal(null)
+      if (driveWarn) setApiError(`${entityLabel === 'progetto' ? 'Progetto' : 'Prodotto'} ${archiviare ? 'archiviato' : 'ripristinato'}, ma ${driveWarn}`)
+      await fetchAll()
+    } catch {
+      setFormErr('Errore di rete. Riprova.')
+    } finally {
+      setArchiviando(false)
+    }
+  }
+
   const handleSave = async () => {
     if (!form.nome.trim()) { setFormErr(`Il nome del ${entityLabel} è obbligatorio.`); return }
     setSaving(true); setFormErr(null)
@@ -542,17 +588,78 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
     finally { setDeleting(false) }
   }
 
-  const attivi     = progetti.filter(p => p.stato === 'ATTIVO').length
-  const completati = progetti.filter(p => p.stato === 'COMPLETATO').length
+  const visibili   = progetti.filter(p => !p.archiviato)
+  const archiviati = progetti.filter(p => p.archiviato)
+  const attivi     = visibili.filter(p => p.stato === 'ATTIVO').length
+  const completati = visibili.filter(p => p.stato === 'COMPLETATO').length
+
+  const renderRow = (p: Progetto) => (
+    <tr key={p.id} className="pr-row">
+      <td className="pr-cell-nome">
+        <span className="pr-nome">
+          {tipo === 'PRODOTTO' && <span className="pr-color-dot" style={{ backgroundColor: p.colore ?? '#0D9488' }} aria-hidden="true" />}
+          {p.nome}
+        </span>
+        {p.descrizione && <span className="pr-desc-preview">{p.descrizione}</span>}
+      </td>
+      <td className="pr-cell-text">
+        {tipo === 'CLIENTE'
+          ? (p.cliente ? <span className="pr-cliente-tag">{p.cliente.nome}</span> : <span className="pr-empty-cell">—</span>)
+          : (p.po ? <span className="pr-po-tag">{poName(p.po)}</span> : <span className="pr-empty-cell">—</span>)}
+      </td>
+      {tipo === 'CLIENTE' && (
+        <td className="pr-cell-text">
+          {p.pmRiferimento ? <span className="pr-po-tag">{poName(p.pmRiferimento)}</span> : <span className="pr-empty-cell">—</span>}
+        </td>
+      )}
+      <td className="pr-cell-text">
+        {p.responsabileDevHub ? <span className="pr-po-tag">{devHubName(p.responsabileDevHub)}</span> : <span className="pr-empty-cell">—</span>}
+      </td>
+      <td><StatoBadge stato={p.stato} statiMap={statiMap} /></td>
+      <td className="pr-cell-text">
+        {p.driveFolderId
+          ? <a className="pr-link" href={p.driveFolderUrl ?? driveFolderUrl(p.driveFolderId)}
+              target="_blank" rel="noopener noreferrer" title="Apri cartella Drive">📁</a>
+          : <span className="pr-drive-missing" title="Cartelle Drive non collegate">⚠︎</span>}
+      </td>
+      <td className="pr-cell-actions">
+        <button className="pr-icon-btn" type="button" aria-label={`Modifica ${p.nome}`} onClick={() => openEdit(p)}>
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+            <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button className="pr-icon-btn pr-icon-btn--danger" type="button" aria-label={`Elimina ${p.nome}`} onClick={() => setDelTarget(p)}>
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+            <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </td>
+    </tr>
+  )
+
+  const tableHead = (
+    <thead>
+      <tr>
+        <th scope="col">{tipo === 'CLIENTE' ? 'Progetto' : 'Prodotto'}</th>
+        <th scope="col">{tipo === 'CLIENTE' ? 'Cliente' : 'PO'}</th>
+        {tipo === 'CLIENTE' && <th scope="col">PM di riferimento</th>}
+        <th scope="col">Resp. DevHub</th>
+        <th scope="col">Stato</th>
+        <th scope="col">Drive</th>
+        <th scope="col" className="pr-th--actions">Azioni</th>
+      </tr>
+    </thead>
+  )
 
   return (
     <div className="pr-sezione">
       <div className="pr-topbar">
         <div>
           <p className="pr-subtitle">
-            {loading ? '' : `${progetti.length} ${progetti.length !== 1 ? entityLabelPlural : entityLabel}`}
+            {loading ? '' : `${visibili.length} ${visibili.length !== 1 ? entityLabelPlural : entityLabel}`}
             {!loading && attivi > 0     && ` · ${attivi} attiv${attivi !== 1 ? 'i' : 'o'}`}
             {!loading && completati > 0 && ` · ${completati} completat${completati !== 1 ? 'i' : 'o'}`}
+            {!loading && archiviati.length > 0 && ` · ${archiviati.length} archiviat${archiviati.length !== 1 ? 'i' : 'o'}`}
           </p>
         </div>
         <button className="pr-btn pr-btn--primary" type="button" onClick={openAdd}>
@@ -580,81 +687,30 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
           <button className="pr-btn pr-btn--primary" type="button" onClick={openAdd}>Aggiungi il primo {entityLabel}</button>
         </div>
       ) : (
-        <div className="pr-table-wrap">
-          <table className="pr-table" aria-label={`Elenco ${entityLabelPlural}`}>
-            <thead>
-              <tr>
-                <th scope="col">{tipo === 'CLIENTE' ? 'Progetto' : 'Prodotto'}</th>
-                <th scope="col">{tipo === 'CLIENTE' ? 'Cliente' : 'PO'}</th>
-                {tipo === 'CLIENTE' && <th scope="col">PM di riferimento</th>}
-                <th scope="col">Resp. DevHub</th>
-                <th scope="col">Stato</th>
-                <th scope="col">Drive</th>
-                {tipo === 'CLIENTE' && <th scope="col">Periodo</th>}
-                <th scope="col" className="pr-th--actions">Azioni</th>
-              </tr>
-            </thead>
-            <tbody>
-              {progetti.map(p => (
-                <tr key={p.id} className="pr-row">
-                  <td className="pr-cell-nome">
-                    <span className="pr-nome">
-                      {tipo === 'PRODOTTO' && <span className="pr-color-dot" style={{ backgroundColor: p.colore ?? '#0D9488' }} aria-hidden="true" />}
-                      {p.nome}
-                    </span>
-                    {p.descrizione && <span className="pr-desc-preview">{p.descrizione}</span>}
-                  </td>
-                  <td className="pr-cell-text">
-                    {tipo === 'CLIENTE'
-                      ? (p.cliente ? <span className="pr-cliente-tag">{p.cliente.nome}</span> : <span className="pr-empty-cell">—</span>)
-                      : (p.po ? <span className="pr-po-tag">{poName(p.po)}</span> : <span className="pr-empty-cell">—</span>)}
-                  </td>
-                  {tipo === 'CLIENTE' && (
-                    <td className="pr-cell-text">
-                      {p.pmRiferimento ? <span className="pr-po-tag">{poName(p.pmRiferimento)}</span> : <span className="pr-empty-cell">—</span>}
-                    </td>
-                  )}
-                  <td className="pr-cell-text">
-                    {p.responsabileDevHub ? <span className="pr-po-tag">{devHubName(p.responsabileDevHub)}</span> : <span className="pr-empty-cell">—</span>}
-                  </td>
-                  <td><StatoBadge stato={p.stato} statiMap={statiMap} /></td>
-                  <td className="pr-cell-text">
-                    {p.driveFolderId
-                      ? <a className="pr-link" href={p.driveFolderUrl ?? driveFolderUrl(p.driveFolderId)}
-                          target="_blank" rel="noopener noreferrer" title="Apri cartella Drive">📁</a>
-                      : <span className="pr-drive-missing" title="Cartelle Drive non collegate">⚠︎</span>}
-                  </td>
-                  {tipo === 'CLIENTE' && (
-                    <td className="pr-cell-text pr-cell-date">
-                      {p.dataInizio || p.dataFine ? (
-                        <span className="pr-date-range">
-                          {fmtDate(p.dataInizio) ?? '…'}
-                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"
-                            width="12" height="12" aria-hidden="true">
-                            <path d="M3 8h10M9 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          {fmtDate(p.dataFine) ?? '…'}
-                        </span>
-                      ) : <span className="pr-empty-cell">—</span>}
-                    </td>
-                  )}
-                  <td className="pr-cell-actions">
-                    <button className="pr-icon-btn" type="button" aria-label={`Modifica ${p.nome}`} onClick={() => openEdit(p)}>
-                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
-                        <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                    <button className="pr-icon-btn pr-icon-btn--danger" type="button" aria-label={`Elimina ${p.nome}`} onClick={() => setDelTarget(p)}>
-                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
-                        <path d="M3 6h14M8 6V4h4v2M5 6l1 11h8l1-11" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="pr-table-wrap">
+            <table className="pr-table" aria-label={`Elenco ${entityLabelPlural}`}>
+              {tableHead}
+              <tbody>{visibili.map(renderRow)}</tbody>
+            </table>
+          </div>
+
+          {archiviati.length > 0 && (
+            <div className="pr-archiviati">
+              <button className="pr-archiviati-toggle" type="button" onClick={() => setShowArchiviati(v => !v)}>
+                {showArchiviati ? '▾' : '▸'} Archiviati ({archiviati.length})
+              </button>
+              {showArchiviati && (
+                <div className="pr-table-wrap">
+                  <table className="pr-table pr-table--archiviati" aria-label={`Elenco ${entityLabelPlural} archiviati`}>
+                    {tableHead}
+                    <tbody>{archiviati.map(renderRow)}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {(modal === 'add' || modal === 'edit') && (
@@ -664,7 +720,9 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
           form={form} loading={saving} apiError={formErr} clienti={clienti} pos={pos} devHubs={devHubs}
           statiList={statiList}
           isEdit={modal === 'edit'} drive={drive} canPickDrive={canPickDrive}
+          archiviato={!!editing?.archiviato} archiviando={archiviando}
           onLinkExisting={handleLinkExisting} onCreateTree={handleCreateTree} onUnlinkDrive={handleUnlinkDrive}
+          onArchivia={handleArchivia}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
       )}
       {delTarget && (
