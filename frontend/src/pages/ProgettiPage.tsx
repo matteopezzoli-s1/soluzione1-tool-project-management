@@ -3,7 +3,7 @@ import { SectionModal } from '../components/SectionModal'
 import { useDriveConfig } from '../lib/useDriveConfig'
 import {
   isDrivePickerConfigured, openDrivePicker, createDriveFolder, createFolderTree,
-  findChildFolderByName, findFolderInDriveByName, extractDriveFolderId, driveFolderUrl,
+  findFolderInDriveByName, extractDriveFolderId, driveFolderUrl,
   PRODOTTI_FOLDER_NAME, type DriveTreeNode,
 } from '../lib/googleDrive'
 import './ProgettiPage.css'
@@ -13,7 +13,6 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 // Naming convention Drive (doc "Reparto Sviluppo" 1.3)
 const progettoFolderName = (cliente: string, progetto: string) => `${cliente.trim()} - ${progetto.trim()}`
 const prodottoFolderName = (nome: string) => `Sviluppo - ${nome.trim()}`
-const ANALISI_FOLDER_NAME = 'Analisi dei Requisiti'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -360,12 +359,15 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
     return () => { cancelled = true }
   }, [token])
 
+  // Si salva solo la root del progetto: la "Analisi dei Requisiti" viene
+  // ricavata per nome dal picker, quindi driveAnalisiFolderId resta null
+  // (è un override riservato ai casi speciali, es. verticali di prodotto).
   const patchDrive = useCallback(async (
-    progettoId: string, folderId: string | null, folderUrl: string | null, analisiId: string | null,
+    progettoId: string, folderId: string | null, folderUrl: string | null,
   ) => {
     const res = await fetch(`${API_URL}/progetti/${progettoId}/drive`, {
       method: 'PATCH', headers: authHeaders(token),
-      body: JSON.stringify({ driveFolderId: folderId, driveFolderUrl: folderUrl, driveAnalisiFolderId: analisiId }),
+      body: JSON.stringify({ driveFolderId: folderId, driveFolderUrl: folderUrl, driveAnalisiFolderId: null }),
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
@@ -449,10 +451,9 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
       const picked = await openDrivePicker({ selectFolders: true, rootId: rootId || undefined, title: `Seleziona la cartella del ${entityLabel}` })
       if (!picked) { setDrive(d => ({ ...d, busy: false })); return }
       const folderId = extractDriveFolderId(picked.url) ?? picked.fileId
-      const analisiId = await findChildFolderByName(folderId, ANALISI_FOLDER_NAME)
-      await patchDrive(editing.id, folderId, picked.url, analisiId)
+      await patchDrive(editing.id, folderId, picked.url)
       setDrive({ folderId, folderUrl: picked.url, busy: false,
-        msg: { kind: 'ok', text: analisiId ? 'Cartella collegata (Analisi dei Requisiti trovata).' : 'Cartella collegata (sottocartella "Analisi dei Requisiti" non trovata).' } })
+        msg: { kind: 'ok', text: 'Cartella collegata.' } })
       await fetchAll()
     } catch (e) {
       setDrive(d => ({ ...d, busy: false, msg: { kind: 'err', text: e instanceof Error ? e.message : 'Errore Drive' } }))
@@ -473,8 +474,8 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
     }
     try {
       const { folderId, url } = await createDriveFolder(target.name, target.parentId)
-      const { analisiFolderId } = await createFolderTree(tree, folderId)
-      await patchDrive(editing.id, folderId, url, analisiFolderId)
+      await createFolderTree(tree, folderId)
+      await patchDrive(editing.id, folderId, url)
       setDrive({ folderId, folderUrl: url, busy: false, msg: { kind: 'ok', text: 'Alberatura creata e collegata.' } })
       await fetchAll()
     } catch (e) {
@@ -486,7 +487,7 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
     if (!editing) return
     setDrive(d => ({ ...d, busy: true, msg: null }))
     try {
-      await patchDrive(editing.id, null, null, null)
+      await patchDrive(editing.id, null, null)
       setDrive({ folderId: null, folderUrl: null, busy: false, msg: { kind: 'info', text: 'Cartella scollegata (contenuti su Drive non toccati).' } })
       await fetchAll()
     } catch (e) {
@@ -518,8 +519,8 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
               : `${entityLabel} creato, ma il cliente non ha una cartella Drive collegata: collegala dai Clienti e poi crea le cartelle dalla modifica.`)
           } else {
             const { folderId, url: fUrl } = await createDriveFolder(target.name, target.parentId)
-            const { analisiFolderId } = await createFolderTree(tree, folderId)
-            await patchDrive(created.id, folderId, fUrl, analisiFolderId)
+            await createFolderTree(tree, folderId)
+            await patchDrive(created.id, folderId, fUrl)
           }
         } catch (e) {
           setApiError(`${entityLabel} creato, ma le cartelle Drive non sono state create: ${e instanceof Error ? e.message : 'errore'}. Crealle dalla modifica.`)
