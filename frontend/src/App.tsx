@@ -286,10 +286,8 @@ export default function App() {
   const canConsuntivi = isBoard || roles.includes('PM') || roles.includes('ACCOUNT')
   // Contratti assistenza/AMS: stesso gating (route /api/contratti lato backend)
   const canContratti = canConsuntivi
-  // Presale: per ora visibile solo a questi indirizzi (allowlist temporanea,
-  // in attesa di gestirlo con permessi/ruoli veri).
-  const PRESALE_ALLOWED = ['matteo.pezzoli@soluzione1.it']
-  const canPresale = !!user?.email && PRESALE_ALLOWED.includes(user.email.toLowerCase())
+  // Presale: visibile a Board/PM/Account, stesso gating di Consuntivi e Contratti
+  const canPresale = canConsuntivi
 
   // Dashboard, Anagrafica Clienti e Progetti & Prodotti sono nascoste per il
   // ruolo DevHub. `page` può comunque puntare a una di queste (stato iniziale
@@ -394,7 +392,7 @@ export default function App() {
         {effectivePage === 'consuntivi'    && canConsuntivi && <ConsuntiviZohoPage token={token} />}
         {effectivePage === 'contratti'     && canContratti && <ContrattiPage token={token} />}
         {effectivePage === 'roadmap'       && <RoadmapPage           token={token} readOnly={isDevHub} />}
-        {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} showPresaleEmail={canPresale} />}
+        {effectivePage === 'impostazioni'  && <ImpostazioniPage      token={token} showPresaleEmail={isBoard} />}
         {effectivePage === 'timeline'      && <GanttPage             token={token} />}
         {effectivePage !== 'dashboard' && effectivePage !== 'clienti' && effectivePage !== 'progetti' && effectivePage !== 'utenti' && effectivePage !== 'attivita' && effectivePage !== 'presale' && effectivePage !== 'consuntivi' && effectivePage !== 'contratti' && effectivePage !== 'roadmap' && effectivePage !== 'impostazioni' && effectivePage !== 'timeline' && (
           <PlaceholderPage page={effectivePage} />
