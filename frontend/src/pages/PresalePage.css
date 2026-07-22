@@ -212,7 +212,14 @@
   background: rgba(148,163,184,0.04);
 }
 .ps-modal-footer--split { justify-content: space-between; align-items: center; }
-.ps-footer-actions { display: flex; gap: 0.55rem; }
+.ps-footer-actions { display: flex; align-items: center; gap: 0.8rem; }
+.ps-mail-check {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.8rem; font-weight: 600; color: var(--c-slate-600);
+  cursor: pointer; user-select: none;
+}
+.ps-mail-check input { accent-color: var(--c-violet-600, #7C3AED); cursor: pointer; }
+.ps-mail-check:has(input:disabled) { opacity: 0.6; cursor: default; }
 
 /* ── Stepper della pipeline ──────────────────────────────────── */
 .ps-stepper {

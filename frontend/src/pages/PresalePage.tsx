@@ -410,6 +410,10 @@ function PresaleModal({
   }
   const campiFase = (chiave: string) => FASE_CAMPI[chiave] ?? TUTTI_CAMPI
 
+  // Invio mail al salvataggio: checkbox pre-selezionata (al posto del doppio
+  // bottone "Salva" / "Salva e invia mail").
+  const [inviaMail, setInviaMail] = useState(true)
+
   return (
     <SectionModal onClose={onClose} labelledBy="ps-modal-title">
       <div className="ps-modal ps-modal--form" style={{ ['--ps-accent' as string]: accent }}>
@@ -558,12 +562,14 @@ function PresaleModal({
         <div className="ps-modal-footer ps-modal-footer--split">
           <button className="ps-btn ps-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
           <div className="ps-footer-actions">
-            <button className="ps-btn ps-btn--ghost" type="button" onClick={() => onSave(false)} disabled={loading || noLinkConfirm}>
+            <label className="ps-mail-check" title="Se selezionata, al salvataggio viene inviata la mail di questa fase via SAIOT">
+              <input type="checkbox" checked={inviaMail} disabled={loading || noLinkConfirm}
+                onChange={e => setInviaMail(e.target.checked)} />
+              {mailGiaInviata ? 'Re-invia mail' : 'Invia mail'}
+            </label>
+            <button className="ps-btn ps-btn--accent" type="button" onClick={() => onSave(inviaMail)} disabled={loading || noLinkConfirm}
+              title={inviaMail ? 'Salva e invia subito la mail di questa fase via SAIOT' : 'Salva senza inviare la mail'}>
               {loading ? 'Salvataggio…' : 'Salva'}
-            </button>
-            <button className="ps-btn ps-btn--accent" type="button" onClick={() => onSave(true)} disabled={loading || noLinkConfirm}
-              title="Salva e invia subito la mail di questa fase via SAIOT">
-              {loading ? 'Salvataggio…' : (mailGiaInviata ? 'Salva e re-invia mail' : 'Salva e invia mail')}
             </button>
           </div>
         </div>
@@ -582,6 +588,9 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
   onConfirm: (inviaMail: boolean) => void
   onClose: () => void
 }) {
+  // Come nel modal di salvataggio: checkbox pre-selezionata al posto del
+  // doppio bottone "Conferma e avvia" / "Conferma e invia mail".
+  const [inviaMail, setInviaMail] = useState(true)
   return (
     <SectionModal onClose={onClose} labelledBy="ps-eff-title">
       <div className="ps-modal ps-modal--sm">
@@ -609,12 +618,14 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
         <div className="ps-modal-footer ps-modal-footer--split">
           <button className="ps-btn ps-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
           <div className="ps-footer-actions">
-            <button className="ps-btn ps-btn--ghost" type="button" onClick={() => onConfirm(false)} disabled={loading || !esisteStato}>
+            <label className="ps-mail-check" title="Se selezionata, alla conferma viene inviata la mail di progetto confermato">
+              <input type="checkbox" checked={inviaMail} disabled={loading || !esisteStato}
+                onChange={e => setInviaMail(e.target.checked)} />
+              Invia mail
+            </label>
+            <button className="ps-btn ps-btn--primary" type="button" onClick={() => onConfirm(inviaMail)} disabled={loading || !esisteStato}
+              title={inviaMail ? 'Conferma, avvia e invia la mail di progetto confermato' : 'Conferma e avvia senza inviare la mail'}>
               {loading ? 'Conferma…' : 'Conferma e avvia'}
-            </button>
-            <button className="ps-btn ps-btn--primary" type="button" onClick={() => onConfirm(true)} disabled={loading || !esisteStato}
-              title="Conferma, avvia e invia la mail di progetto confermato">
-              {loading ? 'Conferma…' : 'Conferma e invia mail'}
             </button>
           </div>
         </div>

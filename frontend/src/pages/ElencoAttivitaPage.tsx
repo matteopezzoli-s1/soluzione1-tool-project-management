@@ -110,6 +110,7 @@ interface Riepilogo {
   totaleAttivita: number
   attivitaInSforamento: number
   attivitaInApprovazione: number
+  attivitaInPresale: number
   totaleGiornateVendute: number
   totaleGiornateFatturate: number
   totaleGiornateConsuntivate: number
@@ -459,12 +460,21 @@ function RiepilogoBar({ r, vista }: { r: Riepilogo; vista: TipoAttivita }) {
         <span className="ea-summary-lbl">Attività</span>
       </div>
       <div className="ea-summary-divider" aria-hidden="true" />
-      <div className="ea-summary-stat">
-        <span className={`ea-summary-val ${r.attivitaInApprovazione > 0 ? 'ea-summary-val--amber' : ''}`}>
-          {r.attivitaInApprovazione}
-        </span>
-        <span className="ea-summary-lbl">{isBucket ? 'Chiuse' : 'In approvazione'}</span>
-      </div>
+      {isBucket ? (
+        <div className="ea-summary-stat">
+          <span className={`ea-summary-val ${r.attivitaInApprovazione > 0 ? 'ea-summary-val--amber' : ''}`}>
+            {r.attivitaInApprovazione}
+          </span>
+          <span className="ea-summary-lbl">Chiuse</span>
+        </div>
+      ) : (
+        <div className="ea-summary-stat">
+          <span className={`ea-summary-val ${r.attivitaInPresale > 0 ? 'ea-summary-val--presale' : ''}`}>
+            {r.attivitaInPresale}
+          </span>
+          <span className="ea-summary-lbl">In presale</span>
+        </div>
+      )}
       <div className="ea-summary-divider" aria-hidden="true" />
       <div className="ea-summary-stat">
         <span className="ea-summary-val ea-summary-val--mono">{fmt(r.totaleGiornateVendute)}</span>
@@ -2228,11 +2238,12 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       totaleAttivita:             all.length,
       attivitaInSforamento:       contabili.filter(isSforamento).length,
       attivitaInApprovazione:     all.filter(isEscluso).length,
+      attivitaInPresale:          all.filter(a => statiMap.get(a.stato)?.isPresale ?? false).length,
       totaleGiornateVendute:      contabili.reduce((s, a) => s + (a.giornateVendute ?? 0), 0),
       totaleGiornateFatturate:    contabili.reduce((s, a) => s + (a.giornateFatturate ?? 0), 0),
       totaleGiornateConsuntivate: contabili.reduce((s, a) => s + (a.giornateConsuntivate ?? 0), 0),
     }
-  }, [filteredGruppi, isEscluso])
+  }, [filteredGruppi, isEscluso, statiMap])
 
   const progettoKey  = (g: GruppoAttivita) => `${g.cliente}|||${g.progetto}`
   const clienteKey   = (g: GruppoCliente)  => `cliente::${g.cliente}`
