@@ -91,6 +91,11 @@ const TIPI_INTERVENTO: { value: string; label: string }[] = [
 // Stato normale in cui l'attività confermata esce dal presale (fisso).
 const STATO_EFFETTIVA = 'DA_INIZIARE'
 
+// Fasi presale su cui il ruolo DevHub (senza Board/Account/PM) può operare:
+// può spostare le card avanti/indietro solo tra queste, con le relative form.
+// Niente creazione, niente avanzamento oltre Stima, niente conferma finale.
+const DEVHUB_PRESALE_STATI = ['PRESALE_APERTURA', 'PRESALE_PRESA_CARICO', 'PRESALE_STIMA']
+
 // Chiave stato → codice fase mail (mirror del backend). Serve a sapere quale
 // mail compete alla fase corrente di una card (stato "inviata" e re-invio).
 const STATO_TO_FASE_MAIL: Record<string, string> = {
@@ -732,13 +737,14 @@ function Timeline({ token, attivitaId, statoByChiave }: {
   )
 }
 
-function DetailDrawer({ item, token, statoCfg, statoByChiave, mailSent, mailSending, onClose, onEdit, onConfirm, onDelete, onSendMail }: {
+function DetailDrawer({ item, token, statoCfg, statoByChiave, mailSent, mailSending, devHubLimited, onClose, onEdit, onConfirm, onDelete, onSendMail }: {
   item: PresaleItem
   token: string
   statoCfg: StatoConfig | undefined
   statoByChiave: Map<string, StatoConfig>
   mailSent: boolean
   mailSending: boolean
+  devHubLimited: boolean
   onClose: () => void
   onEdit: () => void
   onConfirm: () => void
@@ -823,10 +829,16 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, mailSent, mailSend
           </div>
         </div>
         <div className="ps-modal-footer ps-modal-footer--split">
-          <button className="ps-btn ps-btn--danger-ghost" type="button" onClick={onDelete}>Elimina</button>
+          {!devHubLimited
+            ? <button className="ps-btn ps-btn--danger-ghost" type="button" onClick={onDelete}>Elimina</button>
+            : <span />}
           <div className="ps-footer-actions">
-            <button className="ps-btn ps-btn--ghost" type="button" onClick={onEdit}>Modifica</button>
-            <button className="ps-btn ps-btn--primary" type="button" onClick={onConfirm}>Conferma e avvia</button>
+            {(!devHubLimited || DEVHUB_PRESALE_STATI.includes(item.stato)) && (
+              <button className="ps-btn ps-btn--ghost" type="button" onClick={onEdit}>Modifica</button>
+            )}
+            {!devHubLimited && (
+              <button className="ps-btn ps-btn--primary" type="button" onClick={onConfirm}>Conferma e avvia</button>
+            )}
           </div>
         </div>
       </div>
@@ -919,7 +931,9 @@ function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, o
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function PresalePage({ token }: { token: string }) {
+export default function PresalePage({ token, fullAccess = true }: { token: string; fullAccess?: boolean }) {
+  // DevHub (senza Board/Account/PM): board in modalità limitata.
+  const devHubLimited = !fullAccess
   const driveCfg = useDriveConfig(token)
   const [items, setItems] = useState<PresaleItem[]>([])
   const [stati, setStati] = useState<StatoConfig[]>([])
@@ -1057,6 +1071,12 @@ export default function PresalePage({ token }: { token: string }) {
     const toIdx = statiPresale.findIndex(s => s.chiave === statoChiave)
     if (fromIdx === -1 || toIdx === -1 || Math.abs(toIdx - fromIdx) !== 1) {
       setApiError('Le fasi sono sequenziali: puoi spostare l’attività solo alla fase precedente o successiva.')
+      return
+    }
+    // DevHub: può spostare (avanti/indietro) solo tra Analisi iniziale, Presa
+    // in carico e Stima — niente Giornate/conferma.
+    if (devHubLimited && !(DEVHUB_PRESALE_STATI.includes(item.stato) && DEVHUB_PRESALE_STATI.includes(statoChiave))) {
+      setApiError('Come DevHub puoi spostare le card solo tra Analisi iniziale, Presa in carico e Stima.')
       return
     }
     changePhaseAndOpen(item, statoChiave)
@@ -1260,12 +1280,14 @@ export default function PresalePage({ token }: { token: string }) {
             {clientiInUso.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
           </select>
         </div>
-        <button className="ps-btn ps-btn--primary" type="button" onClick={openAdd} disabled={noPresaleStates}>
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-            <path d="M10 4v12M4 10h12" strokeLinecap="round" />
-          </svg>
-          Nuova attività Presale
-        </button>
+        {!devHubLimited && (
+          <button className="ps-btn ps-btn--primary" type="button" onClick={openAdd} disabled={noPresaleStates}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+              <path d="M10 4v12M4 10h12" strokeLinecap="round" />
+            </svg>
+            Nuova attività Presale
+          </button>
+        )}
       </div>
 
       {apiError && <p className="ps-page-error" role="alert">{apiError}</p>}
@@ -1311,8 +1333,9 @@ export default function PresalePage({ token }: { token: string }) {
                       mailSending={sendingMailId === item.id}
                       onDragStart={id => { dragIdRef.current = id }}
                       onOpen={setSelected}
-                      onAdvance={next ? () => changePhaseAndOpen(item, next.chiave) : undefined}
-                      onConfirm={() => tryConfirm(item)}
+                      onAdvance={next && (!devHubLimited || (DEVHUB_PRESALE_STATI.includes(item.stato) && DEVHUB_PRESALE_STATI.includes(next.chiave)))
+                        ? () => changePhaseAndOpen(item, next.chiave) : undefined}
+                      onConfirm={devHubLimited ? undefined : () => tryConfirm(item)}
                       onSendMail={() => sendMailFor(item)}
                     />
                   ))}
@@ -1359,6 +1382,7 @@ export default function PresalePage({ token }: { token: string }) {
           statoByChiave={statoByChiave}
           mailSent={faseMailInviata(selected)}
           mailSending={sendingMailId === selected.id}
+          devHubLimited={devHubLimited}
           onClose={() => setSelected(null)}
           onEdit={() => openEdit(selected)}
           onConfirm={() => tryConfirm(selected)}
