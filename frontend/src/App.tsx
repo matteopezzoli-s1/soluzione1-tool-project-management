@@ -290,7 +290,10 @@ export default function App() {
   //  • DevHub: solo Presale, Roadmap Prodotti, Attività Progetti/Prodotti
   const canAdmin  = isBoard                              // Impostazioni + Anagrafica Utenti
   const canManage = isBoard || isAccount || isPM         // dashboard/clienti/progetti/contratti/consuntivi
-  const canPresale = canManage || isDevHub               // Presale (DevHub in modalità limitata)
+  // TEMP: Presale nascosto ai DevHub. Rimettere `true` per riabilitare la
+  // modalità limitata DevHub (codice già presente in PresalePage).
+  const PRESALE_DEVHUB_ENABLED = false
+  const canPresale = canManage || (isDevHub && PRESALE_DEVHUB_ENABLED) // Presale (DevHub in modalità limitata)
   const canFullPresale = canManage                       // Board/Account/PM: presale completo
   const canConsuntivi = canManage
   const canContratti = canManage
