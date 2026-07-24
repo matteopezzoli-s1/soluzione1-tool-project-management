@@ -676,7 +676,7 @@ function PresaInCaricoConfirm({ item, po, loading, error, onConfirm, onEdit, onC
           {error && <p className="rm-field-error rm-field-error--banner" role="alert">{error}</p>}
           <p className="rm-confirm-text">
             Verrà creata l'attività <strong>{item.titolo}</strong> in stato <strong>In corso</strong>,
-            visibile nell'elenco sotto <strong>Prodotti interni</strong>. L'item passa nella colonna
+            visibile nell'elenco sotto <strong>Prodotti</strong>. L'item passa nella colonna
             In corso con lo stato dell'attività e si completerà alla sua chiusura.
           </p>
           <dl className="rm-detail-dl">
@@ -1079,7 +1079,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           </button>
           <button role="tab" aria-selected={view === 'kanban-trimestre'} type="button"
             className={`rm-view-btn${view === 'kanban-trimestre' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-trimestre')}>
-            Kanban per trimestre
+            Kanban per scadenza
           </button>
           <button role="tab" aria-selected={view === 'lista'} type="button"
             className={`rm-view-btn${view === 'lista' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('lista')}>
