@@ -1738,6 +1738,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         presaleAssegnatario: nomeUtente(a.presaleAssegnatario),
         presaleAssegnatarioId: a.presaleAssegnatarioId ?? null,
         presaleEmailFasiInviate: a.presaleEmailFasiInviate ?? [],
+        riferimentoOrdineVendita: a.riferimentoOrdineVendita ?? null,
         inizio: a.inizio?.toISOString().split('T')[0] ?? null,
         deadline: a.deadline?.toISOString().split('T')[0] ?? null,
       }))
@@ -2017,9 +2018,14 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   hono.patch('/api/attivita/:id/stato', requireAuth(), async (c) => {
     const id = c.req.param('id')
     const prisma = c.get('prisma')
-    const { stato, inviaMail } = await readJSON<{ stato?: string; inviaMail?: boolean }>(c)
+    const { stato, inviaMail, riferimentoOrdineVendita } =
+      await readJSON<{ stato?: string; inviaMail?: boolean; riferimentoOrdineVendita?: string | null }>(c)
     if (!stato?.trim()) return c.json({ error: 'stato è obbligatorio' }, 400)
     const statoVal = stato.trim()
+    // L'ordine di vendita è facoltativo: valorizzato solo se la chiave è presente
+    // nel body (evita di azzerarlo su chiamate che non lo passano, es. drag & drop).
+    const ordineFornito = riferimentoOrdineVendita !== undefined
+    const ordineVal = riferimentoOrdineVendita?.trim() || null
 
     const existing = await prisma.attivita.findUnique({ where: { id }, select: { tipo: true, stato: true } })
     if (!existing) return c.json({ error: 'Attività non trovata' }, 404)
@@ -2031,7 +2037,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if (!valido) return c.json({ error: 'Stato non valido' }, 400)
 
     try {
-      const row = await prisma.attivita.update({ where: { id }, data: { stato: statoVal } })
+      const row = await prisma.attivita.update({
+        where: { id },
+        data: { stato: statoVal, ...(ordineFornito ? { riferimentoOrdineVendita: ordineVal } : {}) },
+      })
       if (existing.stato !== statoVal) {
         await logStatoChange(prisma, id, existing.stato, statoVal, c.get('currentUserId'))
         // Uscita dal presale (era in una fase, ora in uno stato non-presale) =

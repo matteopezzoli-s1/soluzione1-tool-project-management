@@ -33,6 +33,7 @@ interface PresaleItem {
   presaleAssegnatario: string
   presaleAssegnatarioId: string | null
   presaleEmailFasiInviate: string[]
+  riferimentoOrdineVendita: string | null
   inizio: string | null
   deadline: string | null
 }
@@ -95,6 +96,23 @@ const STATO_EFFETTIVA = 'DA_INIZIARE'
 // può spostare le card avanti/indietro solo tra queste, con le relative form.
 // Niente creazione, niente avanzamento oltre Stima, niente conferma finale.
 const DEVHUB_PRESALE_STATI = ['PRESALE_APERTURA', 'PRESALE_PRESA_CARICO', 'PRESALE_STIMA']
+
+// Fasi presale opzionali: possono essere saltate avanzando/spostando le card.
+// "Presa in carico" resta come colonna, ma da "Analisi iniziale" si può passare
+// direttamente a "Stima" (avanzamento e drag & drop che la scavalcano).
+const PRESALE_STATI_OPZIONALI = ['PRESALE_PRESA_CARICO']
+
+// true se tutte le fasi STRETTAMENTE comprese tra due colonne sono opzionali
+// (quindi il salto da una all'altra è consentito); l'ordine degli indici è
+// indifferente (vale sia avanti sia indietro).
+function fasiIntermedieSaltabili(statiPresale: StatoConfig[], fromIdx: number, toIdx: number): boolean {
+  const lo = Math.min(fromIdx, toIdx)
+  const hi = Math.max(fromIdx, toIdx)
+  for (let i = lo + 1; i < hi; i++) {
+    if (!PRESALE_STATI_OPZIONALI.includes(statiPresale[i].chiave)) return false
+  }
+  return true
+}
 
 // Chiave stato → codice fase mail (mirror del backend). Serve a sapere quale
 // mail compete alla fase corrente di una card (stato "inviata" e re-invio).
@@ -639,12 +657,15 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
   statoEffettivaLabel: string
   esisteStato: boolean
   loading: boolean
-  onConfirm: (inviaMail: boolean) => void
+  onConfirm: (inviaMail: boolean, ordineVendita: string) => void
   onClose: () => void
 }) {
   // Come nel modal di salvataggio: checkbox pre-selezionata al posto del
   // doppio bottone "Conferma e avvia" / "Conferma e invia mail".
   const [inviaMail, setInviaMail] = useState(true)
+  // Ordine di vendita (facoltativo): si può valorizzare al momento della
+  // conferma, prima che l'attività esca dal presale.
+  const [ordineVendita, setOrdineVendita] = useState(item.riferimentoOrdineVendita ?? '')
   return (
     <SectionModal onClose={onClose} labelledBy="ps-eff-title">
       <div className="ps-modal ps-modal--sm">
@@ -662,6 +683,18 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
             <strong>{statoEffettivaLabel}</strong> e <strong>esce dal presale</strong>, proseguendo come
             attività normale.
           </p>
+          <div className="ps-field">
+            <label className="ps-label" htmlFor="ps-eff-ordine">Ordine di vendita</label>
+            <input
+              id="ps-eff-ordine"
+              className="ps-input"
+              type="text"
+              value={ordineVendita}
+              placeholder="es. GO-ORDV-2026-123 (facoltativo)"
+              disabled={loading}
+              onChange={e => setOrdineVendita(e.target.value)}
+            />
+          </div>
           {!esisteStato && (
             <p className="ps-error-banner" role="alert">
               Lo stato «{statoEffettivaLabel}» non esiste tra gli stati attività. Crealo in
@@ -677,7 +710,7 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
                 onChange={e => setInviaMail(e.target.checked)} />
               Invia mail
             </label>
-            <button className="ps-btn ps-btn--primary" type="button" onClick={() => onConfirm(inviaMail)} disabled={loading || !esisteStato}
+            <button className="ps-btn ps-btn--primary" type="button" onClick={() => onConfirm(inviaMail, ordineVendita)} disabled={loading || !esisteStato}
               title={inviaMail ? 'Conferma, avvia e invia la mail di progetto confermato' : 'Conferma e avvia senza inviare la mail'}>
               {loading ? 'Conferma…' : 'Conferma e avvia'}
             </button>
@@ -1065,12 +1098,12 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
     if (!draggedId) return
     const item = items.find(i => i.id === draggedId)
     if (!item || item.stato === statoChiave) return
-    // Le fasi sono sequenziali: si può spostare solo alla fase adiacente
-    // (una avanti o una indietro), niente salti.
+    // Le fasi sono sequenziali: si può spostare alla fase adiacente oppure
+    // scavalcare solo fasi opzionali (es. "Presa in carico") — niente altri salti.
     const fromIdx = statiPresale.findIndex(s => s.chiave === item.stato)
     const toIdx = statiPresale.findIndex(s => s.chiave === statoChiave)
-    if (fromIdx === -1 || toIdx === -1 || Math.abs(toIdx - fromIdx) !== 1) {
-      setApiError('Le fasi sono sequenziali: puoi spostare l’attività solo alla fase precedente o successiva.')
+    if (fromIdx === -1 || toIdx === -1 || !fasiIntermedieSaltabili(statiPresale, fromIdx, toIdx)) {
+      setApiError('Le fasi sono sequenziali: puoi spostare l’attività solo alla fase adiacente (le fasi opzionali possono essere scavalcate).')
       return
     }
     // DevHub: può spostare (avanti/indietro) solo tra Analisi iniziale, Presa
@@ -1229,12 +1262,13 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
     }
   }
 
-  const handleConfirmEffettiva = async (inviaMail: boolean) => {
+  const handleConfirmEffettiva = async (inviaMail: boolean, ordineVendita: string) => {
     if (!confirmTarget) return
     setConfirming(true)
     try {
       const res = await fetch(`${API_URL}/api/attivita/${confirmTarget.id}/stato`, {
-        method: 'PATCH', headers: authHeadersJson(token), body: JSON.stringify({ stato: STATO_EFFETTIVA, inviaMail }),
+        method: 'PATCH', headers: authHeadersJson(token),
+        body: JSON.stringify({ stato: STATO_EFFETTIVA, inviaMail, riferimentoOrdineVendita: ordineVendita.trim() || null }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -1308,7 +1342,9 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
         <div className="ps-board">
           {statiPresale.map((col, colIdx) => {
             const colItems = displayItems.filter(i => i.stato === col.chiave)
-            const next = statiPresale[colIdx + 1]
+            // Prossima fase "reale" saltando le opzionali (es. da Analisi
+            // iniziale l'avanzamento porta direttamente a Stima).
+            const next = statiPresale.slice(colIdx + 1).find(s => !PRESALE_STATI_OPZIONALI.includes(s.chiave))
             return (
               <div
                 key={col.chiave}
