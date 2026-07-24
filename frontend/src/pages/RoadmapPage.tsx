@@ -486,14 +486,13 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onD
       </div>
       <button className="rm-card-title" type="button" onClick={onOpen}>{item.titolo}</button>
       <div className="rm-card-attrs">
-        {secondary === 'stato'
-          ? (() => { const cfg = statiMap.get(item.stato); return (
-              <span className="rm-meta-item">
-                <span className="rm-meta-dot" style={{ background: cfg?.colore ?? '#94a3b8' }} aria-hidden="true" />
-                {cfg?.label ?? item.stato}
-              </span>
-            ) })()
-          : (item.quarter && <span className="rm-meta-item"><IconCalendar />{QUARTERS.find(q => q.key === item.quarter)?.label ?? item.quarter}</span>)}
+        {secondary === 'stato' && (() => { const cfg = statiMap.get(item.stato); return (
+          <span className="rm-meta-item">
+            <span className="rm-meta-dot" style={{ background: cfg?.colore ?? '#94a3b8' }} aria-hidden="true" />
+            {cfg?.label ?? item.stato}
+          </span>
+        ) })()}
+        <span className="rm-meta-item"><IconCalendar />{item.quarter ? `${QUARTERS.find(q => q.key === item.quarter)?.label ?? item.quarter} ${item.anno}` : item.anno}</span>
         {attivitaBadge && (
           <span className="rm-meta-item rm-attivita-badge" title="Stato dell'attività collegata">
             <span className="rm-meta-dot" style={{ background: attivitaBadge.colore }} aria-hidden="true" />
@@ -748,7 +747,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [presaErr,     setPresaErr]     = useState<string | null>(null)
 
   const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('kanban-stati')
-  const [anno, setAnno] = useState(currentYear)
+  const [filterAnno, setFilterAnno] = useState<string[]>([String(currentYear)])
   const [filterProdotto, setFilterProdotto] = useState<string[]>([])
   const [filterQuarter, setFilterQuarter] = useState<string[]>([])
   const [filterStato, setFilterStato] = useState<string[]>([])
@@ -801,9 +800,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
   const anni = useMemo(() => {
     const set = new Set(items.map(i => i.anno))
-    set.add(currentYear)
+    set.add(new Date().getFullYear())
     return [...set].sort((a, b) => a - b)
-  }, [items, currentYear])
+  }, [items])
 
   const completatoChiavi = useMemo(
     () => new Set(statiConfig.filter(s => s.isCompletato).map(s => s.chiave)),
@@ -817,7 +816,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
   const displayItems = useMemo(() => {
     return items
-      .filter(i => i.anno === anno)
+      .filter(i => filterAnno.length === 0 || filterAnno.includes(String(i.anno)))
       // Completati nascosti di default; visibili col toggle o filtrando
       // esplicitamente per quello stato
       .filter(i => showCompletati || filterStato.some(f => completatoChiavi.has(f)) || !completatoChiavi.has(i.stato))
@@ -827,11 +826,11 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       .filter(i => filterTag.length === 0 || i.tags.some(t => filterTag.includes(t.id)))
       .filter(i => filterDevHub.length === 0 || (i.devHubId !== null && filterDevHub.includes(i.devHubId)))
       .filter(i => !search.trim() || i.titolo.toLowerCase().includes(search.trim().toLowerCase()))
-  }, [items, anno, filterProdotto, filterQuarter, filterStato, filterTag, filterDevHub, search, showCompletati, completatoChiavi])
+  }, [items, filterAnno, filterProdotto, filterQuarter, filterStato, filterTag, filterDevHub, search, showCompletati, completatoChiavi])
 
   const completatiNascosti = useMemo(
-    () => items.filter(i => i.anno === anno && completatoChiavi.has(i.stato)).length,
-    [items, anno, completatoChiavi])
+    () => items.filter(i => (filterAnno.length === 0 || filterAnno.includes(String(i.anno))) && completatoChiavi.has(i.stato)).length,
+    [items, filterAnno, completatoChiavi])
 
   const listaRows = useMemo(() => {
     return [...displayItems].sort((a, b) =>
@@ -964,7 +963,10 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       ?? statiList.find(s => !s.isArchiviato)?.chiave
       ?? statiList[0]?.chiave
       ?? 'DA_FARE'
-    setForm({ ...emptyForm(anno), stato })
+    // Anno di default: l'anno selezionato se il filtro ne isola esattamente
+    // uno, altrimenti l'anno corrente.
+    const defaultAnno = filterAnno.length === 1 ? parseInt(filterAnno[0], 10) : new Date().getFullYear()
+    setForm({ ...emptyForm(defaultAnno), stato })
     setFormErr(null); setModal('add')
   }
   // In sola lettura non c'è form di modifica: il click apre il dettaglio.
@@ -1047,12 +1049,15 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
   // ── Render ────────────────────────────────────────────────
 
+  // Etichetta anno per sottotitolo/empty state.
+  const annoLabel = filterAnno.length === 0 ? 'tutti gli anni' : [...filterAnno].sort().join(', ')
+
   return (
     <div className="rm-page">
       <div className="rm-topbar">
         <div>
           <h1 className="rm-title">Roadmap Prodotti</h1>
-          <p className="rm-subtitle">{loading ? '' : `${displayItems.length} attività · ${anno}`}</p>
+          <p className="rm-subtitle">{loading ? '' : `${displayItems.length} attività · ${annoLabel}`}</p>
         </div>
         {!readOnly && (
           <div className="rm-topbar-actions">
@@ -1082,9 +1087,12 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           </button>
         </div>
 
-        <select className="rm-input rm-select rm-filter" value={anno} onChange={e => setAnno(parseInt(e.target.value, 10))}>
-          {anni.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
+        <MultiSelect
+          label="Tutti gli anni"
+          options={anni.map(a => ({ id: String(a), label: String(a) }))}
+          value={filterAnno}
+          onChange={setFilterAnno}
+        />
         <MultiSelect
           label="Tutti i prodotti"
           options={prodotti.map(p => ({ id: p.id, label: p.nome }))}
@@ -1135,7 +1143,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           <svg viewBox="0 0 48 48" fill="none" width="48" height="48" aria-hidden="true">
             <path d="M6 30h8l6-16 8 28 6-16h8" stroke="#CBD5E1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          <p className="rm-empty-text">Nessuna attività pianificata per {anno} con questi filtri.</p>
+          <p className="rm-empty-text">Nessuna attività pianificata per {annoLabel} con questi filtri.</p>
           {!readOnly && (
             <button className="rm-btn rm-btn--primary" type="button" onClick={openAdd}>Aggiungi la prima attività</button>
           )}
