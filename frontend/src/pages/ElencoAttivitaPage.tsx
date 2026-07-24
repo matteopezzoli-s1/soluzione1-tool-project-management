@@ -75,7 +75,18 @@ interface AttivitaItem {
   inizio: string | null
   deadline: string | null
   note: string | null
+  // Copertura bucket (solo STANDARD): l'ordine bucket che copre l'attività
+  bucketId: string | null
+  bucketTitolo: string | null
+  // Solo BUCKET: attività standard che attingono a questo ordine (forma
+  // completa: dalla riga espansa si aprono dettaglio e form di modifica)
+  attivitaCollegate?: AttivitaCollegata[]
   consuntiviMese?: ConsuntivoMese[]
+}
+
+interface AttivitaCollegata extends AttivitaItem {
+  // Stima presale, mostrata come riferimento nell'elenco delle coperte
+  giornateStimate: number | null
 }
 
 interface GruppoAttivita {
@@ -138,6 +149,8 @@ type AttivitaFormData = {
   stato: StatoAttivita
   giornateVendute: string; giornateInvestimento: string; giornateFatturate: string; giornateConsuntivate: string
   riferimentoOrdineVendita: string
+  // Copertura da ordine bucket (mutualmente esclusiva con l'ordine dedicato)
+  bucketId: string
   inizio: string; deadline: string; note: string
 }
 
@@ -145,7 +158,7 @@ const EMPTY_FORM: AttivitaFormData = {
   clienteId: '', progettoId: '', pmId: '',
   attivita: '', stato: 'IN_CORSO',
   giornateVendute: '', giornateInvestimento: '', giornateFatturate: '', giornateConsuntivate: '',
-  riferimentoOrdineVendita: '', inizio: '', deadline: '', note: '',
+  riferimentoOrdineVendita: '', bucketId: '', inizio: '', deadline: '', note: '',
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -577,6 +590,19 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
                   <dt>Ordine vendita</dt><dd>{item.riferimentoOrdineVendita}</dd>
                 </div>
               )}
+              {item.bucketTitolo && (
+                <div className="ea-drawer-row">
+                  <dt>Copertura</dt>
+                  <dd>
+                    <span className="ea-bucket-badge" title="Attività coperta da un ordine bucket: i consuntivi Zoho si agganciano al codice del bucket">
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" width="12" height="12" aria-hidden="true">
+                        <path d="M4 6h12l-1.5 10h-9L4 6zM7 6V4.5A1.5 1.5 0 0 1 8.5 3h3A1.5 1.5 0 0 1 13 4.5V6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      {item.bucketTitolo}
+                    </span>
+                  </dd>
+                </div>
+              )}
             </dl>
           </section>
 
@@ -817,6 +843,79 @@ function BucketMesiRows({ item, showProgetto, readOnly }: {
   )
 }
 
+// Attività standard coperte da questo ordine bucket (collegate in fase di
+// conferma presale, dalla modifica attività o create da qui): riga espansa
+// con dettaglio (click), modifica (matita) e aggiunta rapida sotto il bucket.
+function BucketCollegateRows({ item, colSpan, readOnly, onSelectItem, onEditItem, onAddCoperta }: {
+  item: AttivitaItem
+  colSpan: number
+  readOnly?: boolean
+  onSelectItem: (item: AttivitaItem) => void
+  onEditItem: (item: AttivitaItem) => void
+  onAddCoperta?: (bucket: AttivitaItem) => void
+}) {
+  const statiMap = useContext(StatiCtx)
+  const collegate = item.attivitaCollegate ?? []
+  if (collegate.length === 0 && (readOnly || !onAddCoperta)) return null
+  return (
+    <tr className="ea-mesi-tr ea-collegate-tr">
+      <td className="ea-cell" colSpan={colSpan}>
+        <div className="ea-collegate">
+          <span className="ea-collegate-title">Attività coperte da questo bucket</span>
+          {collegate.length === 0 ? (
+            <span className="ea-collegate-empty">Nessuna attività collegata.</span>
+          ) : (
+            <ul className="ea-collegate-list">
+              {collegate.map(c => {
+                const statoCfg = statiMap.get(c.stato)
+                return (
+                  <li key={c.id} className="ea-collegate-item">
+                    <button
+                      type="button"
+                      className="ea-collegate-open"
+                      onClick={() => onSelectItem(c)}
+                      aria-label={`Dettaglio attività: ${c.attivita}`}
+                    >
+                      <span className="ea-collegate-nome">{c.attivita}</span>
+                      {statoCfg && (
+                        <span className="ea-collegate-stato" style={{ color: statoCfg.colore }}>{statoCfg.label}</span>
+                      )}
+                      <span className="ea-collegate-meta">
+                        {c.giornateStimate !== null ? `stima ${fmt(c.giornateStimate)} gg` : 'senza stima'}
+                        {c.projectManager ? ` · ${c.projectManager}` : ''}
+                      </span>
+                    </button>
+                    {!readOnly && (
+                      <button
+                        className="ea-icon-btn"
+                        type="button"
+                        aria-label={`Modifica ${c.attivita}`}
+                        onClick={() => onEditItem(c)}
+                      >
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14" aria-hidden="true">
+                          <path d="M13.5 3.5a2.121 2.121 0 0 1 3 3L7 16l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {!readOnly && onAddCoperta && (
+            <button type="button" className="ea-btn ea-btn--ghost ea-collegate-add" onClick={() => onAddCoperta(item)}>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13" aria-hidden="true">
+                <path d="M10 4v12M4 10h12" strokeLinecap="round" />
+              </svg>
+              Aggiungi attività a questo bucket
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  )
+}
+
 // ─── Activity rows (shared by both group types) ───────────────────────────────
 
 interface ActivityRowsProps {
@@ -827,10 +926,12 @@ interface ActivityRowsProps {
   onEditItem: (item: AttivitaItem) => void
   onDeleteItem: (item: AttivitaItem) => void
   onChangeStato: (item: AttivitaItem, newStato: string) => Promise<void>
+  // Vista bucket: crea un'attività standard già coperta da questo bucket
+  onAddCoperta?: (bucket: AttivitaItem) => void
   tableLabel: string
 }
 
-function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditItem, onDeleteItem, onChangeStato, tableLabel }: ActivityRowsProps) {
+function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditItem, onDeleteItem, onChangeStato, onAddCoperta, tableLabel }: ActivityRowsProps) {
   // Le righe di una singola tabella sono sempre dello stesso tipo (la vista è
   // Standard oppure Bucket, non mischiate): basta guardare la prima.
   const isBucket = attivita[0]?.tipo === 'BUCKET'
@@ -918,7 +1019,16 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
                     </td>
                   )}
                   <td className="ea-cell">{fmtDate(item.deadline)}</td>
-                  <td className="ea-cell ea-cell--ordine">{item.riferimentoOrdineVendita || '—'}</td>
+                  <td className="ea-cell ea-cell--ordine">
+                    {item.bucketTitolo ? (
+                      <span className="ea-bucket-badge" title={`Coperta dall'ordine bucket: ${item.bucketTitolo}`}>
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" width="12" height="12" aria-hidden="true">
+                          <path d="M4 6h12l-1.5 10h-9L4 6zM7 6V4.5A1.5 1.5 0 0 1 8.5 3h3A1.5 1.5 0 0 1 13 4.5V6" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        {item.bucketTitolo}
+                      </span>
+                    ) : (item.riferimentoOrdineVendita || '—')}
+                  </td>
                   <td className="ea-cell">{item.devHub || '—'}</td>
                   {!readOnly && (
                     <td className="ea-cell ea-cell-actions" onClick={e => e.stopPropagation()}>
@@ -946,7 +1056,17 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
                   )}
                 </tr>
                 {mesiOpen && (
-                  <BucketMesiRows item={item} showProgetto={showProgetto} readOnly={readOnly} />
+                  <>
+                    <BucketMesiRows item={item} showProgetto={showProgetto} readOnly={readOnly} />
+                    <BucketCollegateRows
+                      item={item}
+                      colSpan={2 + (showProgetto ? 1 : 0) + 4 + (readOnly ? 0 : 1) + 4}
+                      readOnly={readOnly}
+                      onSelectItem={onSelectItem}
+                      onEditItem={onEditItem}
+                      onAddCoperta={onAddCoperta}
+                    />
+                  </>
                 )}
                 </Fragment>
               )
@@ -969,9 +1089,10 @@ interface GroupCardProps {
   onEditItem: (item: AttivitaItem) => void
   onDeleteItem: (item: AttivitaItem) => void
   onChangeStato: (item: AttivitaItem, newStato: string) => Promise<void>
+  onAddCoperta?: (bucket: AttivitaItem) => void
 }
 
-function GroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: GroupCardProps) {
+function GroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato, onAddCoperta }: GroupCardProps) {
   const statiMap  = useContext(StatiCtx)
   const isBucket  = group.attivita[0]?.tipo === 'BUCKET'
   const statoPrev = getStatoPrevValente(group.attivita, statiMap)
@@ -1078,6 +1199,7 @@ function GroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditIt
           onEditItem={onEditItem}
           onDeleteItem={onDeleteItem}
           onChangeStato={onChangeStato}
+          onAddCoperta={onAddCoperta}
         />
       )}
     </div>
@@ -1095,9 +1217,10 @@ interface ClienteGroupCardProps {
   onEditItem: (item: AttivitaItem) => void
   onDeleteItem: (item: AttivitaItem) => void
   onChangeStato: (item: AttivitaItem, newStato: string) => Promise<void>
+  onAddCoperta?: (bucket: AttivitaItem) => void
 }
 
-function ClienteGroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato }: ClienteGroupCardProps) {
+function ClienteGroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditItem, onDeleteItem, onChangeStato, onAddCoperta }: ClienteGroupCardProps) {
   const isBucket = group.attivita[0]?.tipo === 'BUCKET'
   // Prodotti interni: il confronto è sul budget totale (vendute + investimento)
   const budgetTot = group.totaleVendute + group.attivita.reduce((s, a) => s + (a.giornateInvestimento ?? 0), 0)
@@ -1176,6 +1299,7 @@ function ClienteGroupCard({ group, expanded, readOnly, onToggle, onSelectItem, o
           onEditItem={onEditItem}
           onDeleteItem={onDeleteItem}
           onChangeStato={onChangeStato}
+          onAddCoperta={onAddCoperta}
         />
       )}
     </div>
@@ -1237,6 +1361,7 @@ interface AttivitaModalProps {
   title: string
   tipo: TipoAttivita
   form: AttivitaFormData
+  token: string
   loading: boolean
   apiError: string | null
   clienti: ClienteOption[]
@@ -1250,7 +1375,7 @@ interface AttivitaModalProps {
   onClose: () => void
 }
 
-function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti, pms, internaProgettoNome, onChange, onSave, onClose }: AttivitaModalProps) {
+function AttivitaModal({ title, tipo, form, token, loading, apiError, clienti, progetti, pms, internaProgettoNome, onChange, onSave, onClose }: AttivitaModalProps) {
   const isInterna = internaProgettoNome !== undefined
   const statiMap   = useContext(StatiCtx)
   const isBucket   = tipo === 'BUCKET'
@@ -1280,6 +1405,27 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
     if (!c?.account) return null
     return [c.account.firstName, c.account.lastName].filter(Boolean).join(' ')
   }, [clienti, form.clienteId])
+
+  // Bucket aperti (solo per attività STANDARD): copertura alternativa
+  // all'ordine di vendita dedicato. Fetch unico al mount del modal; il filtro
+  // per cliente è derivato in render. Il bucket già collegato resta
+  // selezionabile anche se nel frattempo è stato chiuso (il backend valida
+  // solo i collegamenti nuovi).
+  const [allBuckets, setAllBuckets] = useState<{ id: string; attivita: string; clienteId: string | null; riferimentoOrdineVendita: string | null }[] | null>(null)
+  useEffect(() => {
+    if (isBucket) return
+    let alive = true
+    fetch(`${API_URL}/api/attivita?tipo=BUCKET&soloAttivi=true`, { headers: authHeaders(token) })
+      .then(r => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { gruppi: { attivita: AttivitaItem[] }[] }) => {
+        if (alive) setAllBuckets(data.gruppi.flatMap(g => g.attivita))
+      })
+      .catch(() => { if (alive) setAllBuckets([]) })
+    return () => { alive = false }
+  }, [isBucket, token])
+  const buckets = allBuckets === null
+    ? (form.clienteId ? null : [])
+    : allBuckets.filter(b => b.clienteId === form.clienteId)
 
   return (
     <SectionModal onClose={onClose} labelledBy="ea-modal-title">
@@ -1448,8 +1594,33 @@ function AttivitaModal({ title, tipo, form, loading, apiError, clienti, progetti
             <label htmlFor="ea-f-ordine" className="ea-form-label">Riferimento ordine vendita</label>
             <input id="ea-f-ordine" className="ea-form-input" type="text"
               value={form.riferimentoOrdineVendita} onChange={set('riferimentoOrdineVendita')}
-              placeholder="es. GO-ORDV-2026-78" />
+              placeholder="es. GO-ORDV-2026-78"
+              disabled={!isBucket && form.bucketId !== ''} />
+            {!isBucket && form.bucketId !== '' && (
+              <span className="ea-form-hint">
+                Disattivato: l'attività è coperta da un ordine bucket (i consuntivi Zoho si agganciano al codice del bucket).
+              </span>
+            )}
           </div>
+
+          {!isBucket && (buckets === null || buckets.length > 0 || form.bucketId !== '') && (
+            <div className="ea-form-field">
+              <label htmlFor="ea-f-bucket" className="ea-form-label">Coperto da ordine bucket</label>
+              <select id="ea-f-bucket" className="ea-form-input" value={form.bucketId}
+                disabled={buckets === null}
+                onChange={e => onChange({ ...form, bucketId: e.target.value, ...(e.target.value ? { riferimentoOrdineVendita: '' } : {}) })}>
+                <option value="">{buckets === null ? 'Caricamento…' : 'Nessuno (ordine dedicato)'}</option>
+                {(buckets ?? []).map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.attivita}{b.riferimentoOrdineVendita ? ` (${b.riferimentoOrdineVendita})` : ''}
+                  </option>
+                ))}
+                {form.bucketId && buckets !== null && !buckets.some(b => b.id === form.bucketId) && (
+                  <option value={form.bucketId}>Bucket attuale (chiuso o di altro cliente)</option>
+                )}
+              </select>
+            </div>
+          )}
 
           <div className="ea-form-field">
             <label htmlFor="ea-f-note" className="ea-form-label">Note</label>
@@ -1992,11 +2163,39 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
 
   // ── CRUD handlers ──
 
-  const openAdd = () => {
-    setForm({ ...EMPTY_FORM, stato: vista === 'BUCKET' ? 'APERTA' : 'IN_CORSO' })
+  // Tipo dell'attività in creazione: nella vista bucket il bottone "Aggiungi"
+  // è a due vie (nuovo ordine bucket / attività standard coperta da un bucket),
+  // quindi il tipo non coincide più necessariamente con la vista corrente.
+  const [addTipo, setAddTipo] = useState<TipoAttivita>('STANDARD')
+
+  // Menu a due voci del bottone "Aggiungi" (vista bucket)
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
+  const addMenuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!addMenuOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setAddMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [addMenuOpen])
+
+  const openAdd = (tipo?: TipoAttivita, prefill?: { bucketId?: string; clienteId?: string }) => {
+    const tipoVal = tipo ?? vista
+    setAddTipo(tipoVal)
+    setForm({
+      ...EMPTY_FORM,
+      stato: tipoVal === 'BUCKET' ? 'APERTA' : 'IN_CORSO',
+      bucketId: prefill?.bucketId ?? '',
+      clienteId: prefill?.clienteId ?? '',
+    })
     setFormErr(null)
     setModal('add')
   }
+
+  // Azione per-riga della vista bucket: nuova attività già coperta dal bucket
+  const openAddCoperta = (bucket: AttivitaItem) =>
+    openAdd('STANDARD', { bucketId: bucket.id, clienteId: bucket.clienteId ?? '' })
 
   const openEdit = (item: AttivitaItem) => {
     setEditing(item)
@@ -2011,6 +2210,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       giornateFatturate:        item.giornateFatturate != null ? String(item.giornateFatturate) : '',
       giornateConsuntivate:     item.giornateConsuntivate != null ? String(item.giornateConsuntivate) : '',
       riferimentoOrdineVendita: item.riferimentoOrdineVendita ?? '',
+      bucketId:                 item.bucketId ?? '',
       inizio:                   item.inizio   ? item.inizio.slice(0, 10)   : '',
       deadline:                 item.deadline ? item.deadline.slice(0, 10) : '',
       note:                     item.note ?? '',
@@ -2035,13 +2235,14 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         progettoId:               form.progettoId,
         pmId:                     form.pmId || null,
         attivita:                 form.attivita.trim(),
-        tipo:                     modal === 'edit' ? editing!.tipo : vista,
+        tipo:                     modal === 'edit' ? editing!.tipo : addTipo,
         stato:                    form.stato,
         giornateVendute:          form.giornateVendute          !== '' ? parseFloat(form.giornateVendute)          : null,
         giornateInvestimento:     form.giornateInvestimento     !== '' ? parseFloat(form.giornateInvestimento)     : null,
         giornateFatturate:        form.giornateFatturate        !== '' ? parseFloat(form.giornateFatturate)        : null,
         giornateConsuntivate:     form.giornateConsuntivate     !== '' ? parseFloat(form.giornateConsuntivate)     : null,
         riferimentoOrdineVendita: form.riferimentoOrdineVendita.trim() || null,
+        bucketId:                 form.bucketId || null,
         inizio:                   form.inizio   || null,
         deadline:                 form.deadline || null,
         note:                     form.note.trim() || null,
@@ -2290,14 +2491,45 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
           </div>
         </div>
         <div className="ea-topbar-right">
-          {!readOnly && (
-            <button type="button" className="ea-btn ea-btn--primary" onClick={openAdd}>
+          {!readOnly && !isBucketVista && (
+            <button type="button" className="ea-btn ea-btn--primary" onClick={() => openAdd('STANDARD')}>
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
                 width="15" height="15" aria-hidden="true">
                 <path d="M10 4v12M4 10h12" strokeLinecap="round" />
               </svg>
-              {isBucketVista ? 'Aggiungi ordine bucket' : 'Aggiungi attività progetto'}
+              Aggiungi attività progetto
             </button>
+          )}
+          {!readOnly && isBucketVista && (
+            <div className="ea-add-menu-wrap" ref={addMenuRef}>
+              <button type="button" className="ea-btn ea-btn--primary"
+                onClick={() => setAddMenuOpen(o => !o)}
+                aria-haspopup="menu" aria-expanded={addMenuOpen}>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
+                  width="15" height="15" aria-hidden="true">
+                  <path d="M10 4v12M4 10h12" strokeLinecap="round" />
+                </svg>
+                Aggiungi
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"
+                  width="13" height="13" aria-hidden="true">
+                  <path d="M5 7.5l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {addMenuOpen && (
+                <div className="ea-add-menu" role="menu">
+                  <button type="button" role="menuitem" className="ea-add-menu-item"
+                    onClick={() => { setAddMenuOpen(false); openAdd('BUCKET') }}>
+                    <span className="ea-add-menu-item-title">Nuovo ordine bucket</span>
+                    <span className="ea-add-menu-item-sub">Monte giornate a consumo del cliente</span>
+                  </button>
+                  <button type="button" role="menuitem" className="ea-add-menu-item"
+                    onClick={() => { setAddMenuOpen(false); openAdd('STANDARD') }}>
+                    <span className="ea-add-menu-item-title">Attività coperta da un bucket</span>
+                    <span className="ea-add-menu-item-sub">Attività standard che attinge a un bucket esistente</span>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           <div className="ea-expand-btns">
             <button type="button" className="ea-btn ea-btn--ghost" onClick={expandAll}
@@ -2489,6 +2721,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
                       onEditItem={openEdit}
                       onDeleteItem={setDelTarget}
                       onChangeStato={handleChangeStato}
+                      onAddCoperta={isBucketVista ? openAddCoperta : undefined}
                     />
                   </div>
                 )
@@ -2506,6 +2739,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
                       onEditItem={openEdit}
                       onDeleteItem={setDelTarget}
                       onChangeStato={handleChangeStato}
+                      onAddCoperta={isBucketVista ? openAddCoperta : undefined}
                     />
                   </div>
                 )
@@ -2539,11 +2773,12 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         <AttivitaModal
           title={
             modal === 'add'
-              ? (isBucketVista ? 'Aggiungi ordine bucket' : 'Aggiungi attività progetto')
+              ? (addTipo === 'BUCKET' ? 'Aggiungi ordine bucket' : (form.bucketId ? 'Aggiungi attività coperta da bucket' : 'Aggiungi attività progetto'))
               : (editing!.tipo === 'BUCKET' ? 'Modifica ordine bucket' : 'Modifica attività')
           }
-          tipo={modal === 'edit' ? editing!.tipo : vista}
+          tipo={modal === 'edit' ? editing!.tipo : addTipo}
           form={form}
+          token={token}
           loading={saving}
           apiError={formErr}
           clienti={clientiOpts}

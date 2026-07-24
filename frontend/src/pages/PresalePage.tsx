@@ -652,20 +652,58 @@ function PresaleModal({
 
 // ─── Conferma & rendi effettiva ─────────────────────────────────────────────
 
-function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onConfirm, onClose }: {
+// Bucket aperto del cliente, candidato a coprire l'attività confermata.
+interface BucketOption {
+  id: string
+  attivita: string
+  riferimentoOrdineVendita: string | null
+  giornateVendute: number | null
+  giornateFatturate: number | null
+}
+
+function ConfirmEffettiva({ item, token, statoEffettivaLabel, esisteStato, loading, onConfirm, onClose }: {
   item: PresaleItem
+  token: string
   statoEffettivaLabel: string
   esisteStato: boolean
   loading: boolean
-  onConfirm: (inviaMail: boolean, ordineVendita: string) => void
+  onConfirm: (inviaMail: boolean, ordineVendita: string, bucketId: string | null) => void
   onClose: () => void
 }) {
   // Come nel modal di salvataggio: checkbox pre-selezionata al posto del
   // doppio bottone "Conferma e avvia" / "Conferma e invia mail".
   const [inviaMail, setInviaMail] = useState(true)
-  // Ordine di vendita (facoltativo): si può valorizzare al momento della
-  // conferma, prima che l'attività esca dal presale.
+  // Copertura economica: ordine di vendita dedicato (default, facoltativo)
+  // oppure ordine bucket del cliente — mutualmente esclusivi.
+  const [copertura, setCopertura] = useState<'ORDINE' | 'BUCKET'>('ORDINE')
   const [ordineVendita, setOrdineVendita] = useState(item.riferimentoOrdineVendita ?? '')
+  const [bucketId, setBucketId] = useState('')
+  const [buckets, setBuckets] = useState<BucketOption[] | null>(null)
+
+  // Bucket aperti dello stesso cliente (lazy, al mount del modal).
+  useEffect(() => {
+    let alive = true
+    fetch(`${API_URL}/api/attivita?tipo=BUCKET&soloAttivi=true`, { headers: authHeaders(token) })
+      .then(r => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { gruppi: { attivita: (BucketOption & { clienteId: string | null })[] }[] }) => {
+        if (!alive) return
+        const list = data.gruppi
+          .flatMap(g => g.attivita)
+          .filter(b => item.clienteId !== null && b.clienteId === item.clienteId)
+        setBuckets(list)
+      })
+      .catch(() => { if (alive) setBuckets([]) })
+    return () => { alive = false }
+  }, [token, item.clienteId])
+
+  const bucketScelto = buckets?.find(b => b.id === bucketId) ?? null
+  const residuo = bucketScelto && bucketScelto.giornateVendute !== null
+    ? Math.round((bucketScelto.giornateVendute - (bucketScelto.giornateFatturate ?? 0)) * 100) / 100
+    : null
+  const stima = item.presaleGiornateStimate
+  const sforaBucket = residuo !== null && stima !== null && stima > residuo
+
+  const confirmDisabled = loading || !esisteStato || (copertura === 'BUCKET' && !bucketId)
   return (
     <SectionModal onClose={onClose} labelledBy="ps-eff-title">
       <div className="ps-modal ps-modal--sm">
@@ -683,18 +721,51 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
             <strong>{statoEffettivaLabel}</strong> e <strong>esce dal presale</strong>, proseguendo come
             attività normale.
           </p>
-          <div className="ps-field">
-            <label className="ps-label" htmlFor="ps-eff-ordine">Ordine di vendita</label>
-            <input
-              id="ps-eff-ordine"
-              className="ps-input"
-              type="text"
-              value={ordineVendita}
-              placeholder="es. GO-ORDV-2026-123 (facoltativo)"
-              disabled={loading}
-              onChange={e => setOrdineVendita(e.target.value)}
-            />
-          </div>
+          <fieldset className="ps-copertura" disabled={loading}>
+            <legend className="ps-label">Copertura economica</legend>
+            <label className={`ps-copertura-opt${copertura === 'ORDINE' ? ' ps-copertura-opt--active' : ''}`}>
+              <input type="radio" name="ps-eff-copertura" checked={copertura === 'ORDINE'}
+                onChange={() => setCopertura('ORDINE')} />
+              <span className="ps-copertura-body">
+                <span className="ps-copertura-title">Ordine di vendita dedicato</span>
+                <input
+                  id="ps-eff-ordine"
+                  className="ps-input"
+                  type="text"
+                  value={ordineVendita}
+                  placeholder="es. GO-ORDV-2026-123 (facoltativo)"
+                  disabled={loading || copertura !== 'ORDINE'}
+                  onChange={e => setOrdineVendita(e.target.value)}
+                />
+              </span>
+            </label>
+            <label className={`ps-copertura-opt${copertura === 'BUCKET' ? ' ps-copertura-opt--active' : ''}`}>
+              <input type="radio" name="ps-eff-copertura" checked={copertura === 'BUCKET'}
+                onChange={() => setCopertura('BUCKET')} />
+              <span className="ps-copertura-body">
+                <span className="ps-copertura-title">Coperto da ordine bucket</span>
+                {buckets !== null && buckets.length === 0 ? (
+                  <span className="ps-field-hint">Nessun ordine bucket aperto per {item.cliente}.</span>
+                ) : (
+                  <select className="ps-input" value={bucketId}
+                    disabled={loading || copertura !== 'BUCKET' || buckets === null}
+                    onChange={e => setBucketId(e.target.value)}>
+                    <option value="">{buckets === null ? 'Caricamento…' : 'Seleziona bucket…'}</option>
+                    {(buckets ?? []).map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.attivita}{b.riferimentoOrdineVendita ? ` (${b.riferimentoOrdineVendita})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {copertura === 'BUCKET' && bucketScelto && residuo !== null && (
+                  <span className={`ps-bucket-residuo${sforaBucket ? ' ps-bucket-residuo--warn' : ''}`}>
+                    Residuo bucket {residuo} gg{stima !== null ? ` · stima presale ${stima} gg` : ''}
+                  </span>
+                )}
+              </span>
+            </label>
+          </fieldset>
           {!esisteStato && (
             <p className="ps-error-banner" role="alert">
               Lo stato «{statoEffettivaLabel}» non esiste tra gli stati attività. Crealo in
@@ -710,7 +781,9 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
                 onChange={e => setInviaMail(e.target.checked)} />
               Invia mail
             </label>
-            <button className="ps-btn ps-btn--primary" type="button" onClick={() => onConfirm(inviaMail, ordineVendita)} disabled={loading || !esisteStato}
+            <button className="ps-btn ps-btn--primary" type="button"
+              onClick={() => onConfirm(inviaMail, copertura === 'ORDINE' ? ordineVendita : '', copertura === 'BUCKET' ? bucketId : null)}
+              disabled={confirmDisabled}
               title={inviaMail ? 'Conferma, avvia e invia la mail di progetto confermato' : 'Conferma e avvia senza inviare la mail'}>
               {loading ? 'Conferma…' : 'Conferma e avvia'}
             </button>
@@ -1262,13 +1335,13 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
     }
   }
 
-  const handleConfirmEffettiva = async (inviaMail: boolean, ordineVendita: string) => {
+  const handleConfirmEffettiva = async (inviaMail: boolean, ordineVendita: string, bucketId: string | null) => {
     if (!confirmTarget) return
     setConfirming(true)
     try {
       const res = await fetch(`${API_URL}/api/attivita/${confirmTarget.id}/stato`, {
         method: 'PATCH', headers: authHeadersJson(token),
-        body: JSON.stringify({ stato: STATO_EFFETTIVA, inviaMail, riferimentoOrdineVendita: ordineVendita.trim() || null }),
+        body: JSON.stringify({ stato: STATO_EFFETTIVA, inviaMail, riferimentoOrdineVendita: ordineVendita.trim() || null, bucketId }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -1430,6 +1503,7 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
       {confirmTarget && (
         <ConfirmEffettiva
           item={confirmTarget}
+          token={token}
           statoEffettivaLabel={statoByChiave.get(STATO_EFFETTIVA)?.label ?? 'Da iniziare'}
           esisteStato={statoByChiave.has(STATO_EFFETTIVA)}
           loading={confirming}

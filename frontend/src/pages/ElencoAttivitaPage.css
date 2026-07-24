@@ -1672,5 +1672,57 @@
   font-size: 0.72rem; color: #94A3B8;
 }
 
+/* ── Copertura bucket ── */
+/* Badge sull'attività standard coperta da un ordine bucket (colonna Ord.
+   Vendita e drawer di dettaglio) */
+.ea-bucket-badge {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 0.72rem; font-weight: 600;
+  color: #085041; background: #E1F5EE;
+  border-radius: 999px; padding: 0.15rem 0.55rem;
+}
+.ea-bucket-badge svg { flex-shrink: 0; }
+
+/* Attività collegate nella riga espansa dell'ordine bucket */
+.ea-collegate { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.2rem 0 0.35rem 2.55rem; }
+.ea-collegate-title { font-size: 0.72rem; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.03em; }
+.ea-collegate-empty { font-size: 0.8rem; color: #94A3B8; }
+.ea-collegate-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.ea-collegate-item { display: flex; align-items: center; gap: 0.3rem; }
+.ea-collegate-open {
+  display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap;
+  border: none; background: none; font-family: inherit; text-align: left;
+  font-size: 0.82rem; cursor: pointer; padding: 0.25rem 0.5rem; margin-left: -0.5rem;
+  border-radius: 7px; transition: background 120ms ease;
+}
+.ea-collegate-open:hover { background: #EEF2F7; }
+.ea-collegate-nome { color: #0F172A; font-weight: 500; }
+.ea-collegate-stato { font-size: 0.74rem; font-weight: 600; }
+.ea-collegate-meta { color: #94A3B8; font-size: 0.76rem; }
+.ea-collegate-add {
+  align-self: flex-start; margin-top: 0.15rem;
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  font-size: 0.78rem; padding: 0.3rem 0.6rem;
+}
+
+/* Menu a due voci del bottone "Aggiungi" (vista bucket) */
+.ea-add-menu-wrap { position: relative; }
+.ea-add-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  min-width: 280px; display: flex; flex-direction: column; padding: 0.3rem;
+  background: #fff; border: 1px solid #E2E8F0; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.ea-add-menu-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem;
+  border: none; background: none; font-family: inherit; text-align: left;
+  padding: 0.5rem 0.65rem; border-radius: 7px; cursor: pointer;
+  transition: background 120ms ease;
+}
+.ea-add-menu-item:hover { background: #F1F5F9; }
+.ea-add-menu-item-title { font-size: 0.84rem; font-weight: 600; color: #0F172A; }
+.ea-add-menu-item-sub { font-size: 0.74rem; color: #94A3B8; }
+
 /* ── Prodotti interni: split noi/cliente nel dettaglio ── */
 .ea-drawer-split { margin: 0.5rem 0 0; font-size: 0.82rem; color: #64748B; }
