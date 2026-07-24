@@ -411,6 +411,16 @@ model Attivita {
   // già stata inviata: evita doppioni quando la card viene ri-salvata.
   presaleEmailFasiInviate  String[]        @default([]) @map("presale_email_fasi_inviate")
 
+  // ── Copertura bucket ──
+  // Attività STANDARD coperta da un ordine bucket (riga Attivita tipo BUCKET
+  // dello stesso cliente): il bucket è la copertura economica, l'attività resta
+  // visibile nell'elenco standard. Mutualmente esclusivo con un
+  // riferimentoOrdineVendita proprio (i consuntivi Zoho si agganciano al
+  // codice DEL bucket, mai all'attività coperta — altrimenti doppio conteggio).
+  bucketId                 String?         @map("bucket_id")
+  bucket                   Attivita?       @relation("AttivitaBucket", fields: [bucketId], references: [id], onDelete: SetNull)
+  attivitaCoperte          Attivita[]      @relation("AttivitaBucket")
+
   milestones               GanttMilestone[]
   statoLog                 AttivitaStatoLog[]
   consuntiviMese           AttivitaConsuntivoMese[]
@@ -422,6 +432,7 @@ model Attivita {
   @@index([accountId])
   @@index([pmId])
   @@index([presaleAssegnatarioId])
+  @@index([bucketId])
   @@map("attivita")
 }
 
