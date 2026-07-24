@@ -1580,7 +1580,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       // Raggruppate sotto un unico cappello (per prodotto), rese per prime ed
       // escluse dai conteggi globali. Nel co-investimento il cliente del record
       // resta quello vero (chi paga): cambia solo la collocazione nell'elenco.
-      const SEZIONE_INTERNI = 'Prodotti interni'
+      const SEZIONE_INTERNI = 'Prodotti'
 
       const groupMap = new Map<string, {
         cliente: string; progetto: string; account: string

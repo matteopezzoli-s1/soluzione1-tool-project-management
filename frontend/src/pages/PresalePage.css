@@ -92,6 +92,9 @@
   box-shadow: 0 8px 20px color-mix(in srgb, var(--ps-card-c, #0f172a) 16%, transparent), 0 2px 6px rgba(15,23,42,0.06);
 }
 .ps-card:active { cursor: grabbing; transform: scale(0.995); }
+/* Card in trascinamento: sparisce dalla colonna d'origine (le card sotto
+   risalgono); il browser continua a mostrare l'immagine di drag al puntatore */
+.ps-card--dragging { display: none; }
 .ps-card-title { margin: 0 0 0.25rem; font-weight: 700; font-size: 0.9rem; color: var(--c-slate-900); line-height: 1.3; letter-spacing: -0.01em; }
 .ps-card-sub { margin: 0 0 0.55rem; font-size: 0.75rem; font-weight: 600; color: var(--c-slate-400); }
 .ps-card-meta { display: flex; flex-wrap: wrap; gap: 0.3rem; }
@@ -398,6 +401,9 @@
   background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;
   border-radius: var(--r-md); padding: 0.6rem 0.8rem; font-size: 0.83rem; margin: 0;
 }
+/* Variante ancorata al footer del modal (fuori dal corpo scrollabile):
+   visibile accanto al bottone Salva qualunque sia lo scroll del form */
+.ps-error-banner--footer { margin: 0 1.35rem; flex-shrink: 0; }
 .ps-confirm-text { margin: 0; font-size: 0.92rem; color: var(--c-slate-600); line-height: 1.55; }
 .ps-dl { display: flex; flex-direction: column; margin: 0; }
 .ps-dl-row {

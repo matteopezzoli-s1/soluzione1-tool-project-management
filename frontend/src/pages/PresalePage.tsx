@@ -527,8 +527,6 @@ function PresaleModal({
         </div>
 
         <div className="ps-modal-body">
-          {apiError && <p className="ps-error-banner" role="alert">{apiError}</p>}
-
           {/* Identità attività — solo in creazione (in modifica è già definita) */}
           {mode === 'add' && (
             <section className="ps-section">
@@ -630,6 +628,11 @@ function PresaleModal({
             </div>
           </div>
         )}
+
+        {/* L'errore sta fuori dal corpo scrollabile, attaccato al footer: deve
+            essere visibile nel punto in cui si clicca Salva, qualunque sia la
+            posizione di scroll del form. */}
+        {apiError && <p className="ps-error-banner ps-error-banner--footer" role="alert">{apiError}</p>}
 
         <div className="ps-modal-footer ps-modal-footer--split">
           <button className="ps-btn ps-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
@@ -954,14 +957,16 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, mailSent, mailSend
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
-function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, onDragStart, onOpen, onAdvance, onConfirm, onSendMail }: {
+function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, dragging, onDragStart, onDragEnd, onOpen, onAdvance, onConfirm, onSendMail }: {
   item: PresaleItem
   accent: string
   nextLabel?: string
   isLast?: boolean
   mailSent: boolean
   mailSending: boolean
+  dragging: boolean
   onDragStart: (id: string) => void
+  onDragEnd: () => void
   onOpen: (item: PresaleItem) => void
   onAdvance?: () => void
   onConfirm?: () => void
@@ -969,10 +974,11 @@ function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, o
 }) {
   return (
     <div
-      className="ps-card"
+      className={`ps-card${dragging ? ' ps-card--dragging' : ''}`}
       style={{ ['--ps-card-c' as string]: accent }}
       draggable
       onDragStart={() => onDragStart(item.id)}
+      onDragEnd={onDragEnd}
       onClick={() => onOpen(item)}
       role="button"
       tabIndex={0}
@@ -1068,6 +1074,10 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
   const [sendingMailId, setSendingMailId] = useState<string | null>(null)
 
   const dragIdRef = useRef<string | null>(null)
+  // Card in trascinamento: nascosta dalla colonna d'origine (le altre risalgono)
+  // finché il drag non termina. Valorizzata in differita (setTimeout) così il
+  // browser cattura prima l'immagine di drag della card ancora visibile.
+  const [draggingId, setDraggingId] = useState<string | null>(null)
 
   const statiPresale = useMemo(
     () => stati.filter(s => s.isPresale).sort((a, b) => a.ordine - b.ordine),
@@ -1168,6 +1178,9 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
   const onCardDrop = (statoChiave: string) => {
     const draggedId = dragIdRef.current
     dragIdRef.current = null
+    // Ripristino subito qui (oltre che su dragend): dopo un drop andato a buon
+    // fine la card d'origine viene smontata e il suo dragend può non scattare.
+    setDraggingId(null)
     if (!draggedId) return
     const item = items.find(i => i.id === draggedId)
     if (!item || item.stato === statoChiave) return
@@ -1440,7 +1453,12 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
                       isLast={!next}
                       mailSent={faseMailInviata(item)}
                       mailSending={sendingMailId === item.id}
-                      onDragStart={id => { dragIdRef.current = id }}
+                      dragging={draggingId === item.id}
+                      onDragStart={id => {
+                        dragIdRef.current = id
+                        setTimeout(() => setDraggingId(id), 0)
+                      }}
+                      onDragEnd={() => setDraggingId(null)}
                       onOpen={setSelected}
                       onAdvance={next && (!devHubLimited || (DEVHUB_PRESALE_STATI.includes(item.stato) && DEVHUB_PRESALE_STATI.includes(next.chiave)))
                         ? () => changePhaseAndOpen(item, next.chiave) : undefined}

@@ -877,13 +877,14 @@ function BucketCollegateRows({ item, colSpan, readOnly, onSelectItem, onEditItem
                       aria-label={`Dettaglio attività: ${c.attivita}`}
                     >
                       <span className="ea-collegate-nome">{c.attivita}</span>
-                      {statoCfg && (
-                        <span className="ea-collegate-stato" style={{ color: statoCfg.colore }}>{statoCfg.label}</span>
-                      )}
-                      <span className="ea-collegate-meta">
-                        {c.giornateStimate !== null ? `stima ${fmt(c.giornateStimate)} gg` : 'senza stima'}
-                        {c.projectManager ? ` · ${c.projectManager}` : ''}
+                      <span className="ea-collegate-stato" style={statoCfg ? { color: statoCfg.colore } : undefined}>
+                        {statoCfg?.label ?? c.stato}
                       </span>
+                      <span className="ea-collegate-meta">
+                        {c.giornateStimate !== null ? `Stima ${fmt(c.giornateStimate)} gg` : 'Senza stima'}
+                      </span>
+                      <span className="ea-collegate-meta">{c.projectManager || '—'}</span>
+                      <span className="ea-collegate-meta">{c.deadline ? fmtDate(c.deadline) : '—'}</span>
                     </button>
                     {!readOnly && (
                       <button
