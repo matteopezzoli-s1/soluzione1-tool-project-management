@@ -92,6 +92,9 @@
   box-shadow: 0 8px 20px color-mix(in srgb, var(--ps-card-c, #0f172a) 16%, transparent), 0 2px 6px rgba(15,23,42,0.06);
 }
 .ps-card:active { cursor: grabbing; transform: scale(0.995); }
+/* Card in trascinamento: sparisce dalla colonna d'origine (le card sotto
+   risalgono); il browser continua a mostrare l'immagine di drag al puntatore */
+.ps-card--dragging { display: none; }
 .ps-card-title { margin: 0 0 0.25rem; font-weight: 700; font-size: 0.9rem; color: var(--c-slate-900); line-height: 1.3; letter-spacing: -0.01em; }
 .ps-card-sub { margin: 0 0 0.55rem; font-size: 0.75rem; font-weight: 600; color: var(--c-slate-400); }
 .ps-card-meta { display: flex; flex-wrap: wrap; gap: 0.3rem; }
@@ -300,6 +303,24 @@
 .ps-label { font-size: 0.78rem; font-weight: 600; color: var(--c-slate-600); }
 .ps-label span { color: var(--c-destructive); }
 .ps-field-hint { font-size: 0.78rem; color: var(--c-slate-400); }
+
+/* ── Copertura economica (modal Conferma e avvia) ─────────────── */
+.ps-copertura { display: flex; flex-direction: column; gap: 0.5rem; border: none; padding: 0; margin: 0; }
+.ps-copertura legend { margin-bottom: 0.35rem; padding: 0; }
+.ps-copertura-opt {
+  display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer;
+  border: 1px solid var(--c-slate-200); border-radius: var(--r-md);
+  padding: 0.6rem 0.75rem; transition: border-color var(--t-fast);
+}
+.ps-copertura-opt--active { border-color: var(--ps-accent, #0D9488); }
+.ps-copertura-opt input[type="radio"] { margin-top: 0.2rem; accent-color: var(--ps-accent, #0D9488); cursor: pointer; }
+.ps-copertura-body { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; min-width: 0; }
+.ps-copertura-title { font-size: 0.82rem; font-weight: 600; color: var(--c-slate-700); }
+.ps-bucket-residuo { font-size: 0.78rem; color: var(--c-slate-500); }
+.ps-bucket-residuo--warn {
+  color: #B45309; background: #FEF3C7; border-radius: var(--r-sm, 6px);
+  padding: 0.25rem 0.5rem; width: fit-content;
+}
 .ps-suggest {
   margin: 0.1rem 0 0; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
   font-size: 0.78rem; color: var(--c-slate-600);
@@ -380,6 +401,9 @@
   background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;
   border-radius: var(--r-md); padding: 0.6rem 0.8rem; font-size: 0.83rem; margin: 0;
 }
+/* Variante ancorata al footer del modal (fuori dal corpo scrollabile):
+   visibile accanto al bottone Salva qualunque sia lo scroll del form */
+.ps-error-banner--footer { margin: 0 1.35rem; flex-shrink: 0; }
 .ps-confirm-text { margin: 0; font-size: 0.92rem; color: var(--c-slate-600); line-height: 1.55; }
 .ps-dl { display: flex; flex-direction: column; margin: 0; }
 .ps-dl-row {

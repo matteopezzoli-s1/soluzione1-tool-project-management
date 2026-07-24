@@ -527,8 +527,6 @@ function PresaleModal({
         </div>
 
         <div className="ps-modal-body">
-          {apiError && <p className="ps-error-banner" role="alert">{apiError}</p>}
-
           {/* Identità attività — solo in creazione (in modifica è già definita) */}
           {mode === 'add' && (
             <section className="ps-section">
@@ -631,6 +629,11 @@ function PresaleModal({
           </div>
         )}
 
+        {/* L'errore sta fuori dal corpo scrollabile, attaccato al footer: deve
+            essere visibile nel punto in cui si clicca Salva, qualunque sia la
+            posizione di scroll del form. */}
+        {apiError && <p className="ps-error-banner ps-error-banner--footer" role="alert">{apiError}</p>}
+
         <div className="ps-modal-footer ps-modal-footer--split">
           <button className="ps-btn ps-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
           <div className="ps-footer-actions">
@@ -652,20 +655,58 @@ function PresaleModal({
 
 // ─── Conferma & rendi effettiva ─────────────────────────────────────────────
 
-function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onConfirm, onClose }: {
+// Bucket aperto del cliente, candidato a coprire l'attività confermata.
+interface BucketOption {
+  id: string
+  attivita: string
+  riferimentoOrdineVendita: string | null
+  giornateVendute: number | null
+  giornateFatturate: number | null
+}
+
+function ConfirmEffettiva({ item, token, statoEffettivaLabel, esisteStato, loading, onConfirm, onClose }: {
   item: PresaleItem
+  token: string
   statoEffettivaLabel: string
   esisteStato: boolean
   loading: boolean
-  onConfirm: (inviaMail: boolean, ordineVendita: string) => void
+  onConfirm: (inviaMail: boolean, ordineVendita: string, bucketId: string | null) => void
   onClose: () => void
 }) {
   // Come nel modal di salvataggio: checkbox pre-selezionata al posto del
   // doppio bottone "Conferma e avvia" / "Conferma e invia mail".
   const [inviaMail, setInviaMail] = useState(true)
-  // Ordine di vendita (facoltativo): si può valorizzare al momento della
-  // conferma, prima che l'attività esca dal presale.
+  // Copertura economica: ordine di vendita dedicato (default, facoltativo)
+  // oppure ordine bucket del cliente — mutualmente esclusivi.
+  const [copertura, setCopertura] = useState<'ORDINE' | 'BUCKET'>('ORDINE')
   const [ordineVendita, setOrdineVendita] = useState(item.riferimentoOrdineVendita ?? '')
+  const [bucketId, setBucketId] = useState('')
+  const [buckets, setBuckets] = useState<BucketOption[] | null>(null)
+
+  // Bucket aperti dello stesso cliente (lazy, al mount del modal).
+  useEffect(() => {
+    let alive = true
+    fetch(`${API_URL}/api/attivita?tipo=BUCKET&soloAttivi=true`, { headers: authHeaders(token) })
+      .then(r => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { gruppi: { attivita: (BucketOption & { clienteId: string | null })[] }[] }) => {
+        if (!alive) return
+        const list = data.gruppi
+          .flatMap(g => g.attivita)
+          .filter(b => item.clienteId !== null && b.clienteId === item.clienteId)
+        setBuckets(list)
+      })
+      .catch(() => { if (alive) setBuckets([]) })
+    return () => { alive = false }
+  }, [token, item.clienteId])
+
+  const bucketScelto = buckets?.find(b => b.id === bucketId) ?? null
+  const residuo = bucketScelto && bucketScelto.giornateVendute !== null
+    ? Math.round((bucketScelto.giornateVendute - (bucketScelto.giornateFatturate ?? 0)) * 100) / 100
+    : null
+  const stima = item.presaleGiornateStimate
+  const sforaBucket = residuo !== null && stima !== null && stima > residuo
+
+  const confirmDisabled = loading || !esisteStato || (copertura === 'BUCKET' && !bucketId)
   return (
     <SectionModal onClose={onClose} labelledBy="ps-eff-title">
       <div className="ps-modal ps-modal--sm">
@@ -683,18 +724,51 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
             <strong>{statoEffettivaLabel}</strong> e <strong>esce dal presale</strong>, proseguendo come
             attività normale.
           </p>
-          <div className="ps-field">
-            <label className="ps-label" htmlFor="ps-eff-ordine">Ordine di vendita</label>
-            <input
-              id="ps-eff-ordine"
-              className="ps-input"
-              type="text"
-              value={ordineVendita}
-              placeholder="es. GO-ORDV-2026-123 (facoltativo)"
-              disabled={loading}
-              onChange={e => setOrdineVendita(e.target.value)}
-            />
-          </div>
+          <fieldset className="ps-copertura" disabled={loading}>
+            <legend className="ps-label">Copertura economica</legend>
+            <label className={`ps-copertura-opt${copertura === 'ORDINE' ? ' ps-copertura-opt--active' : ''}`}>
+              <input type="radio" name="ps-eff-copertura" checked={copertura === 'ORDINE'}
+                onChange={() => setCopertura('ORDINE')} />
+              <span className="ps-copertura-body">
+                <span className="ps-copertura-title">Ordine di vendita dedicato</span>
+                <input
+                  id="ps-eff-ordine"
+                  className="ps-input"
+                  type="text"
+                  value={ordineVendita}
+                  placeholder="es. GO-ORDV-2026-123 (facoltativo)"
+                  disabled={loading || copertura !== 'ORDINE'}
+                  onChange={e => setOrdineVendita(e.target.value)}
+                />
+              </span>
+            </label>
+            <label className={`ps-copertura-opt${copertura === 'BUCKET' ? ' ps-copertura-opt--active' : ''}`}>
+              <input type="radio" name="ps-eff-copertura" checked={copertura === 'BUCKET'}
+                onChange={() => setCopertura('BUCKET')} />
+              <span className="ps-copertura-body">
+                <span className="ps-copertura-title">Coperto da ordine bucket</span>
+                {buckets !== null && buckets.length === 0 ? (
+                  <span className="ps-field-hint">Nessun ordine bucket aperto per {item.cliente}.</span>
+                ) : (
+                  <select className="ps-input" value={bucketId}
+                    disabled={loading || copertura !== 'BUCKET' || buckets === null}
+                    onChange={e => setBucketId(e.target.value)}>
+                    <option value="">{buckets === null ? 'Caricamento…' : 'Seleziona bucket…'}</option>
+                    {(buckets ?? []).map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.attivita}{b.riferimentoOrdineVendita ? ` (${b.riferimentoOrdineVendita})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {copertura === 'BUCKET' && bucketScelto && residuo !== null && (
+                  <span className={`ps-bucket-residuo${sforaBucket ? ' ps-bucket-residuo--warn' : ''}`}>
+                    Residuo bucket {residuo} gg{stima !== null ? ` · stima presale ${stima} gg` : ''}
+                  </span>
+                )}
+              </span>
+            </label>
+          </fieldset>
           {!esisteStato && (
             <p className="ps-error-banner" role="alert">
               Lo stato «{statoEffettivaLabel}» non esiste tra gli stati attività. Crealo in
@@ -710,7 +784,9 @@ function ConfirmEffettiva({ item, statoEffettivaLabel, esisteStato, loading, onC
                 onChange={e => setInviaMail(e.target.checked)} />
               Invia mail
             </label>
-            <button className="ps-btn ps-btn--primary" type="button" onClick={() => onConfirm(inviaMail, ordineVendita)} disabled={loading || !esisteStato}
+            <button className="ps-btn ps-btn--primary" type="button"
+              onClick={() => onConfirm(inviaMail, copertura === 'ORDINE' ? ordineVendita : '', copertura === 'BUCKET' ? bucketId : null)}
+              disabled={confirmDisabled}
               title={inviaMail ? 'Conferma, avvia e invia la mail di progetto confermato' : 'Conferma e avvia senza inviare la mail'}>
               {loading ? 'Conferma…' : 'Conferma e avvia'}
             </button>
@@ -881,14 +957,16 @@ function DetailDrawer({ item, token, statoCfg, statoByChiave, mailSent, mailSend
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
-function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, onDragStart, onOpen, onAdvance, onConfirm, onSendMail }: {
+function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, dragging, onDragStart, onDragEnd, onOpen, onAdvance, onConfirm, onSendMail }: {
   item: PresaleItem
   accent: string
   nextLabel?: string
   isLast?: boolean
   mailSent: boolean
   mailSending: boolean
+  dragging: boolean
   onDragStart: (id: string) => void
+  onDragEnd: () => void
   onOpen: (item: PresaleItem) => void
   onAdvance?: () => void
   onConfirm?: () => void
@@ -896,10 +974,11 @@ function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, o
 }) {
   return (
     <div
-      className="ps-card"
+      className={`ps-card${dragging ? ' ps-card--dragging' : ''}`}
       style={{ ['--ps-card-c' as string]: accent }}
       draggable
       onDragStart={() => onDragStart(item.id)}
+      onDragEnd={onDragEnd}
       onClick={() => onOpen(item)}
       role="button"
       tabIndex={0}
@@ -995,6 +1074,10 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
   const [sendingMailId, setSendingMailId] = useState<string | null>(null)
 
   const dragIdRef = useRef<string | null>(null)
+  // Card in trascinamento: nascosta dalla colonna d'origine (le altre risalgono)
+  // finché il drag non termina. Valorizzata in differita (setTimeout) così il
+  // browser cattura prima l'immagine di drag della card ancora visibile.
+  const [draggingId, setDraggingId] = useState<string | null>(null)
 
   const statiPresale = useMemo(
     () => stati.filter(s => s.isPresale).sort((a, b) => a.ordine - b.ordine),
@@ -1095,6 +1178,9 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
   const onCardDrop = (statoChiave: string) => {
     const draggedId = dragIdRef.current
     dragIdRef.current = null
+    // Ripristino subito qui (oltre che su dragend): dopo un drop andato a buon
+    // fine la card d'origine viene smontata e il suo dragend può non scattare.
+    setDraggingId(null)
     if (!draggedId) return
     const item = items.find(i => i.id === draggedId)
     if (!item || item.stato === statoChiave) return
@@ -1262,13 +1348,13 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
     }
   }
 
-  const handleConfirmEffettiva = async (inviaMail: boolean, ordineVendita: string) => {
+  const handleConfirmEffettiva = async (inviaMail: boolean, ordineVendita: string, bucketId: string | null) => {
     if (!confirmTarget) return
     setConfirming(true)
     try {
       const res = await fetch(`${API_URL}/api/attivita/${confirmTarget.id}/stato`, {
         method: 'PATCH', headers: authHeadersJson(token),
-        body: JSON.stringify({ stato: STATO_EFFETTIVA, inviaMail, riferimentoOrdineVendita: ordineVendita.trim() || null }),
+        body: JSON.stringify({ stato: STATO_EFFETTIVA, inviaMail, riferimentoOrdineVendita: ordineVendita.trim() || null, bucketId }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -1367,7 +1453,12 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
                       isLast={!next}
                       mailSent={faseMailInviata(item)}
                       mailSending={sendingMailId === item.id}
-                      onDragStart={id => { dragIdRef.current = id }}
+                      dragging={draggingId === item.id}
+                      onDragStart={id => {
+                        dragIdRef.current = id
+                        setTimeout(() => setDraggingId(id), 0)
+                      }}
+                      onDragEnd={() => setDraggingId(null)}
                       onOpen={setSelected}
                       onAdvance={next && (!devHubLimited || (DEVHUB_PRESALE_STATI.includes(item.stato) && DEVHUB_PRESALE_STATI.includes(next.chiave)))
                         ? () => changePhaseAndOpen(item, next.chiave) : undefined}
@@ -1430,6 +1521,7 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
       {confirmTarget && (
         <ConfirmEffettiva
           item={confirmTarget}
+          token={token}
           statoEffettivaLabel={statoByChiave.get(STATO_EFFETTIVA)?.label ?? 'Da iniziare'}
           esisteStato={statoByChiave.has(STATO_EFFETTIVA)}
           loading={confirming}

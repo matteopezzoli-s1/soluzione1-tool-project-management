@@ -1473,6 +1473,26 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     return { tipoVal, statoVal }
   }
 
+  // Copertura bucket di un'attività STANDARD: il bucket deve esistere, essere
+  // di tipo BUCKET, in stato APERTA e dello stesso cliente. Ritorna il motivo
+  // del rifiuto, o null se il collegamento è valido.
+  async function invalidBucketError(
+    prisma: PrismaClient,
+    bucketId: string,
+    clienteId: string | null,
+  ): Promise<string | null> {
+    const bucket = await prisma.attivita.findUnique({
+      where: { id: bucketId },
+      select: { tipo: true, stato: true, clienteId: true },
+    })
+    if (!bucket || bucket.tipo !== 'BUCKET') return 'Ordine bucket non trovato'
+    if (bucket.stato !== 'APERTA') return 'L\'ordine bucket selezionato è chiuso'
+    if (!clienteId || bucket.clienteId !== clienteId) {
+      return 'L\'ordine bucket deve appartenere allo stesso cliente dell\'attività'
+    }
+    return null
+  }
+
   // GET /api/attivita — lista raggruppata per cliente+progetto
   // ?tipo=STANDARD|BUCKET (default STANDARD, per non alterare il comportamento
   // di chi già chiama questa rotta senza saperne nulla — Dashboard, Gantt).
@@ -1532,6 +1552,25 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           pm: { select: { id: true, firstName: true, lastName: true } },
           // Dettaglio mensile solo per la vista bucket (rapportino PM)
           consuntiviMese: tipoParam === 'BUCKET' ? { orderBy: { mese: 'asc' as const } } : false,
+          // Copertura bucket: sulle STANDARD il bucket che le copre; sui BUCKET
+          // le attività che vi attingono (riga espansa della vista bucket, con
+          // forma completa: da lì si aprono dettaglio e form di modifica).
+          bucket: tipoParam === 'STANDARD' ? { select: { id: true, attivita: true } } : false,
+          attivitaCoperte: tipoParam === 'BUCKET'
+            ? {
+                include: {
+                  clienteRel: { select: { id: true, nome: true, accountId: true, account: { select: { id: true, firstName: true, lastName: true } } } },
+                  progettoRel: {
+                    select: {
+                      id: true, nome: true, responsabileDevHubId: true,
+                      responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
+                    },
+                  },
+                  pm: { select: { id: true, firstName: true, lastName: true } },
+                },
+                orderBy: { attivita: 'asc' as const },
+              }
+            : false,
         },
       })
 
@@ -1541,7 +1580,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       // Raggruppate sotto un unico cappello (per prodotto), rese per prime ed
       // escluse dai conteggi globali. Nel co-investimento il cliente del record
       // resta quello vero (chi paga): cambia solo la collocazione nell'elenco.
-      const SEZIONE_INTERNI = 'Prodotti interni'
+      const SEZIONE_INTERNI = 'Prodotti'
 
       const groupMap = new Map<string, {
         cliente: string; progetto: string; account: string
@@ -1600,6 +1639,46 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             inizio: a.inizio?.toISOString().split('T')[0] ?? null,
             deadline: a.deadline?.toISOString().split('T')[0] ?? null,
             note: a.note,
+            bucketId: a.bucketId ?? null,
+            bucketTitolo: ('bucket' in a && a.bucket) ? a.bucket.attivita : null,
+            attivitaCollegate: ('attivitaCoperte' in a && Array.isArray(a.attivitaCoperte))
+              // L'include condizionale (ternario con `false`) fa perdere a Prisma
+              // l'inferenza del select annidato: il tipo va dichiarato a mano.
+              // Stessa forma delle righe standard: dalla riga espansa del bucket
+              // si aprono drawer di dettaglio e form di modifica.
+              ? (a.attivitaCoperte as unknown as Array<typeof rows[number]>).map((coperta) => ({
+                  id: coperta.id,
+                  tipo: coperta.tipo,
+                  cliente: coperta.clienteRel?.nome ?? coperta.cliente,
+                  clienteId: coperta.clienteId ?? null,
+                  progetto: coperta.progettoRel?.nome ?? coperta.progetto,
+                  progettoId: coperta.progettoId ?? null,
+                  account: coperta.clienteRel?.account
+                    ? resolvedName(coperta.clienteRel.account.firstName, coperta.clienteRel.account.lastName)
+                    : '',
+                  accountId: coperta.clienteRel?.accountId ?? null,
+                  projectManager: coperta.pm ? resolvedName(coperta.pm.firstName, coperta.pm.lastName) : '',
+                  pmId: coperta.pmId ?? null,
+                  devHub: coperta.progettoRel?.responsabileDevHub
+                    ? resolvedName(coperta.progettoRel.responsabileDevHub.firstName, coperta.progettoRel.responsabileDevHub.lastName)
+                    : '',
+                  devHubId: coperta.progettoRel?.responsabileDevHubId ?? null,
+                  attivita: coperta.attivita,
+                  giornateVendute: coperta.giornateVendute !== null ? toNumber(coperta.giornateVendute) : null,
+                  giornateInvestimento: coperta.giornateInvestimento !== null ? toNumber(coperta.giornateInvestimento) : null,
+                  giornateFatturate: coperta.giornateFatturate !== null ? toNumber(coperta.giornateFatturate) : null,
+                  giornateConsuntivate: coperta.giornateConsuntivate !== null ? toNumber(coperta.giornateConsuntivate) : null,
+                  giornateStimate: coperta.presaleGiornateStimate !== null ? toNumber(coperta.presaleGiornateStimate) : null,
+                  riferimentoOrdineVendita: coperta.riferimentoOrdineVendita,
+                  roadmapItemId: coperta.roadmapItemId ?? null,
+                  stato: coperta.stato,
+                  inizio: coperta.inizio?.toISOString().split('T')[0] ?? null,
+                  deadline: coperta.deadline?.toISOString().split('T')[0] ?? null,
+                  note: coperta.note,
+                  bucketId: coperta.bucketId ?? null,
+                  bucketTitolo: a.attivita,
+                }))
+              : [],
             consuntiviMese: ('consuntiviMese' in a && Array.isArray(a.consuntiviMese))
               ? a.consuntiviMese.map((m) => ({
                   mese: m.mese,
@@ -1756,7 +1835,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const {
       clienteId, progettoId, pmId, attivita, tipo,
       giornateVendute, giornateInvestimento, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
-      stato, inizio, deadline, note,
+      stato, inizio, deadline, note, bucketId,
       presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
@@ -1765,6 +1844,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       giornateVendute?: number | null; giornateInvestimento?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
+      bucketId?: string | null
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
       presaleDriveFolderId?: string | null
       presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
@@ -1799,6 +1879,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if ('error' in resolved) return c.json({ error: resolved.error }, 400)
     const { tipoVal, statoVal } = resolved
 
+    // Copertura bucket (solo STANDARD, mutualmente esclusiva con l'ordine dedicato)
+    const bucketVal = tipoVal === 'STANDARD' ? (bucketId?.trim() || null) : null
+    if (bucketVal) {
+      const bucketErr = await invalidBucketError(prisma, bucketVal, clienteId.trim())
+      if (bucketErr) return c.json({ error: bucketErr }, 400)
+    }
+
     try {
       const row = await prisma.attivita.create({
         data: {
@@ -1813,7 +1900,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           giornateInvestimento: giornateInvestimento != null ? giornateInvestimento : null,
           giornateFatturate: giornateFatturate != null ? giornateFatturate : null,
           giornateConsuntivate: giornateConsuntivate != null ? giornateConsuntivate : null,
-          riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
+          bucketId: bucketVal,
+          riferimentoOrdineVendita: bucketVal ? null : (riferimentoOrdineVendita?.trim() || null),
           stato: statoVal,
           inizio: inizio ? new Date(inizio) : null,
           deadline: deadline ? new Date(deadline) : null,
@@ -1851,7 +1939,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const {
       clienteId, progettoId, pmId, attivita,
       giornateVendute, giornateInvestimento, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
-      stato, inizio, deadline, note,
+      stato, inizio, deadline, note, bucketId,
       presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
@@ -1860,6 +1948,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       giornateVendute?: number | null; giornateInvestimento?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
       inizio?: string | null; deadline?: string | null; note?: string
+      bucketId?: string | null
       presaleLinkRequisiti?: string | null; presaleLinkStima?: string | null; presaleLinkOfferta?: string | null
       presaleDriveFolderId?: string | null
       presaleGiornateStimate?: number | null; presaleScadenzaStima?: string | null; presaleAssegnatarioId?: string | null
@@ -1875,7 +1964,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       where: { id },
       select: {
         tipo: true, stato: true, roadmapItemId: true,
-        cliente: true, clienteId: true, accountId: true, progettoId: true,
+        cliente: true, clienteId: true, accountId: true, progettoId: true, bucketId: true,
         presaleLinkRequisiti: true, presaleLinkStima: true, presaleLinkOfferta: true,
       },
     })
@@ -1919,13 +2008,25 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     if ('error' in resolved) return c.json({ error: resolved.error }, 400)
     const { statoVal } = resolved
 
+    // Copertura bucket (solo STANDARD): chiave assente = invariata, null = rimossa,
+    // valorizzata = validata contro il cliente effettivo post-aggiornamento.
+    // Bucket e ordine dedicato sono mutualmente esclusivi.
+    const clienteIdEff = linkedCliente ? clienteId!.trim() : (isInterna ? existing.clienteId : null)
+    const bucketVal = existing.tipo !== 'STANDARD'
+      ? null
+      : bucketId === undefined ? existing.bucketId : (bucketId?.trim() || null)
+    if (bucketVal && bucketVal !== existing.bucketId) {
+      const bucketErr = await invalidBucketError(prisma, bucketVal, clienteIdEff)
+      if (bucketErr) return c.json({ error: bucketErr }, 400)
+    }
+
     try {
       const row = await prisma.attivita.update({
         where: { id },
         data: {
           // Interna senza cliente in anagrafica: mantiene i valori esistenti
           cliente: linkedCliente ? linkedCliente.nome : existing.cliente,
-          clienteId: linkedCliente ? clienteId!.trim() : (isInterna ? existing.clienteId : null),
+          clienteId: clienteIdEff,
           progetto: linkedProgetto.nome,
           progettoId: progettoIdEff,
           accountId: linkedCliente ? (linkedCliente.accountId ?? null) : existing.accountId,
@@ -1934,7 +2035,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           giornateInvestimento: giornateInvestimento != null ? giornateInvestimento : null,
           giornateFatturate: giornateFatturate != null ? giornateFatturate : null,
           giornateConsuntivate: giornateConsuntivate != null ? giornateConsuntivate : null,
-          riferimentoOrdineVendita: riferimentoOrdineVendita?.trim() || null,
+          bucketId: bucketVal,
+          riferimentoOrdineVendita: bucketVal ? null : (riferimentoOrdineVendita?.trim() || null),
           stato: statoVal,
           inizio: inizio ? new Date(inizio) : null,
           deadline: deadline ? new Date(deadline) : null,
@@ -2018,16 +2120,21 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   hono.patch('/api/attivita/:id/stato', requireAuth(), async (c) => {
     const id = c.req.param('id')
     const prisma = c.get('prisma')
-    const { stato, inviaMail, riferimentoOrdineVendita } =
-      await readJSON<{ stato?: string; inviaMail?: boolean; riferimentoOrdineVendita?: string | null }>(c)
+    const { stato, inviaMail, riferimentoOrdineVendita, bucketId } =
+      await readJSON<{ stato?: string; inviaMail?: boolean; riferimentoOrdineVendita?: string | null; bucketId?: string | null }>(c)
     if (!stato?.trim()) return c.json({ error: 'stato è obbligatorio' }, 400)
     const statoVal = stato.trim()
     // L'ordine di vendita è facoltativo: valorizzato solo se la chiave è presente
     // nel body (evita di azzerarlo su chiamate che non lo passano, es. drag & drop).
+    // Stessa semantica per bucketId (copertura da ordine bucket): ordine dedicato
+    // e bucket sono mutualmente esclusivi — impostare l'uno azzera l'altro
+    // (i consuntivi Zoho si agganciano al codice del bucket, mai all'attività coperta).
     const ordineFornito = riferimentoOrdineVendita !== undefined
     const ordineVal = riferimentoOrdineVendita?.trim() || null
+    const bucketFornito = bucketId !== undefined
+    const bucketVal = bucketId?.trim() || null
 
-    const existing = await prisma.attivita.findUnique({ where: { id }, select: { tipo: true, stato: true } })
+    const existing = await prisma.attivita.findUnique({ where: { id }, select: { tipo: true, stato: true, clienteId: true } })
     if (!existing) return c.json({ error: 'Attività non trovata' }, 404)
     if (existing.tipo !== 'STANDARD') {
       return c.json({ error: 'Cambio stato non supportato per attività bucket' }, 400)
@@ -2036,10 +2143,19 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const valido = await prisma.statoAttivitaConfig.findUnique({ where: { chiave: statoVal }, select: { chiave: true } })
     if (!valido) return c.json({ error: 'Stato non valido' }, 400)
 
+    if (bucketVal) {
+      const bucketErr = await invalidBucketError(prisma, bucketVal, existing.clienteId)
+      if (bucketErr) return c.json({ error: bucketErr }, 400)
+    }
+
     try {
       const row = await prisma.attivita.update({
         where: { id },
-        data: { stato: statoVal, ...(ordineFornito ? { riferimentoOrdineVendita: ordineVal } : {}) },
+        data: {
+          stato: statoVal,
+          ...(ordineFornito ? { riferimentoOrdineVendita: bucketVal ? null : ordineVal } : {}),
+          ...(bucketFornito ? { bucketId: bucketVal, ...(bucketVal ? { riferimentoOrdineVendita: null } : {}) } : {}),
+        },
       })
       if (existing.stato !== statoVal) {
         await logStatoChange(prisma, id, existing.stato, statoVal, c.get('currentUserId'))
