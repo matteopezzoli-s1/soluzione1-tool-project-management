@@ -308,14 +308,17 @@ export default function App() {
   // si calcola una pagina "effettiva" senza usare effect (regole degli hook).
   const effectivePage: NavPage = canSee(page) ? page : (canManage ? 'dashboard' : 'attivita')
 
+  // Tooltip laterale al passaggio del mouse: la sidebar mostra solo icone, il
+  // tip in CSS sostituisce il `title` nativo (più leggibile e senza ritardo).
   const navBtn = (id: NavPage, label: string, icon: ReactNode) => (
     <button
       className={`db-nav-btn${effectivePage === id ? ' db-nav-btn--active' : ''}`}
-      type="button" title={label} aria-label={label}
+      type="button" aria-label={label}
       aria-current={effectivePage === id ? 'page' : undefined}
       onClick={() => setPage(id)}
     >
       {icon}
+      <span className="db-nav-tip" role="tooltip">{label}</span>
     </button>
   )
 
@@ -344,8 +347,9 @@ export default function App() {
           {canAdmin && navBtn('utenti',        'Anagrafica Utenti',    <IconUsers />)}
           {canAdmin && navBtn('impostazioni', 'Impostazioni',   <IconSettings />)}
           <button className="db-nav-btn db-nav-btn--logout" type="button"
-            title="Esci" aria-label="Esci dall'applicazione" onClick={handleLogout}>
+            aria-label="Esci dall'applicazione" onClick={handleLogout}>
             <IconLogout />
+            <span className="db-nav-tip" role="tooltip">Esci</span>
           </button>
         </div>
       </nav>
@@ -399,7 +403,7 @@ export default function App() {
         {effectivePage === 'progetti'      && canManage && <ProgettiPage          token={token} />}
         {effectivePage === 'utenti'        && canAdmin && <UtentiPage             token={token} />}
         {effectivePage === 'attivita'      && <ElencoAttivitaPage    token={token} readOnly={false} />}
-        {effectivePage === 'presale'       && canPresale && <PresalePage token={token} fullAccess={canFullPresale} />}
+        {effectivePage === 'presale'       && canPresale && <PresalePage token={token} fullAccess={canFullPresale} isBoard={isBoard} />}
         {effectivePage === 'consuntivi'    && canConsuntivi && <ConsuntiviZohoPage token={token} />}
         {effectivePage === 'contratti'     && canContratti && <ContrattiPage token={token} />}
         {effectivePage === 'roadmap'       && <RoadmapPage           token={token} readOnly={false} />}

@@ -190,16 +190,23 @@ const CAMPO_LABEL: Partial<Record<PresaleField, string>> = {
   presaleTipoIntervento: 'Tipo intervento', pmId: 'PM', presaleScadenzaStima: 'Stima desiderata entro il',
   presaleAssegnatarioId: 'Assegnatario DevHub', presaleGiornateStimate: 'Giornate stimate', giornateVendute: 'Giornate vendute',
 }
-function isObbligatorio(f: PresaleField): boolean {
+// Il Board può portare avanti una card senza assegnare nessuno del DevHub:
+// per lui l'assegnatario della fase "Presa in carico" resta facoltativo.
+function requiredCampi(stato: string, assegnatarioOpzionale: boolean): PresaleField[] {
+  const list = REQUIRED_CAMPI[stato] ?? []
+  return assegnatarioOpzionale ? list.filter(f => f !== 'presaleAssegnatarioId') : list
+}
+function isObbligatorio(f: PresaleField, assegnatarioOpzionale: boolean): boolean {
+  if (assegnatarioOpzionale && f === 'presaleAssegnatarioId') return false
   return Object.values(REQUIRED_CAMPI).some(list => list.includes(f))
 }
-function campiMancantiForm(form: FormData): PresaleField[] {
-  return (REQUIRED_CAMPI[form.stato] ?? []).filter(f =>
+function campiMancantiForm(form: FormData, assegnatarioOpzionale: boolean): PresaleField[] {
+  return requiredCampi(form.stato, assegnatarioOpzionale).filter(f =>
     f === 'pmId' ? form.pmId === '' : (form[f] ?? '').toString().trim() === '')
 }
 // Fase completa a partire dai dati dell'item (per il gating dell'avanzamento).
-function faseItemCompleta(item: PresaleItem, stato: string): boolean {
-  return (REQUIRED_CAMPI[stato] ?? []).every(f => {
+function faseItemCompleta(item: PresaleItem, stato: string, assegnatarioOpzionale: boolean): boolean {
+  return requiredCampi(stato, assegnatarioOpzionale).every(f => {
     switch (f) {
       case 'pmId': return !!item.pmId
       case 'presaleTipoIntervento': return !!item.presaleTipoIntervento
@@ -252,7 +259,7 @@ function PmChips({ pms, value, onChange }: {
 // ─── Add / Edit modal ─────────────────────────────────────────────────────────
 
 function PresaleModal({
-  mode, form, statiPresale, clienti, progetti, pms, devHubs, suggestedDevHub,
+  mode, form, statiPresale, clienti, progetti, pms, devHubs, suggestedDevHub, assegnatarioOpzionale,
   loading, apiError, mailGiaInviata, driveCfg, noLinkConfirm, onNoLinkConfirm, onNoLinkCancel, onChange, onSave, onClose,
 }: {
   mode: 'add' | 'edit'
@@ -263,6 +270,8 @@ function PresaleModal({
   pms: UserRef[]
   devHubs: UserRef[]
   suggestedDevHub: { id: string; nome: string } | null
+  // Board: l'assegnatario DevHub non è obbligatorio (si può lasciare vuoto)
+  assegnatarioOpzionale: boolean
   loading: boolean
   apiError: string | null
   mailGiaInviata: boolean
@@ -337,7 +346,7 @@ function PresaleModal({
 
   // Rende un singolo campo (usato sia per la fase corrente sia, negli accordion,
   // per le fasi precedenti — i campi sono univoci per fase).
-  const req = (f: PresaleField) => isObbligatorio(f) ? <span aria-hidden="true"> *</span> : null
+  const req = (f: PresaleField) => isObbligatorio(f, assegnatarioOpzionale) ? <span aria-hidden="true"> *</span> : null
   const renderCampo = (f: PresaleField) => {
     switch (f) {
       case 'presaleTipoIntervento': return (
@@ -410,6 +419,9 @@ function PresaleModal({
             <option value="">— Nessuno —</option>
             {devHubs.map(u => <option key={u.id} value={u.id}>{userLabel(u)}</option>)}
           </select>
+          {assegnatarioOpzionale && !form.presaleAssegnatarioId && (
+            <p className="ps-field-hint">Facoltativo: puoi procedere senza assegnare nessuno.</p>
+          )}
           {suggestedDevHub && form.presaleAssegnatarioId !== suggestedDevHub.id && (
             <p className="ps-suggest">
               Responsabile DevHub del progetto: <strong>{suggestedDevHub.nome}</strong>
@@ -1043,9 +1055,11 @@ function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, d
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function PresalePage({ token, fullAccess = true }: { token: string; fullAccess?: boolean }) {
+export default function PresalePage({ token, fullAccess = true, isBoard = false }: { token: string; fullAccess?: boolean; isBoard?: boolean }) {
   // DevHub (senza Board/Account/PM): board in modalità limitata.
   const devHubLimited = !fullAccess
+  // Il Board può lasciare una card senza assegnatario DevHub.
+  const assegnatarioOpzionale = isBoard
   const driveCfg = useDriveConfig(token)
   const [items, setItems] = useState<PresaleItem[]>([])
   const [stati, setStati] = useState<StatoConfig[]>([])
@@ -1146,7 +1160,7 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
     // essere compilati. Tornare indietro è sempre consentito.
     const fromIdx = statiPresale.findIndex(s => s.chiave === item.stato)
     const toIdx = statiPresale.findIndex(s => s.chiave === statoChiave)
-    if (toIdx > fromIdx && !faseItemCompleta(item, item.stato)) {
+    if (toIdx > fromIdx && !faseItemCompleta(item, item.stato, assegnatarioOpzionale)) {
       setApiError(`Completa i campi obbligatori di "${statiPresale[fromIdx]?.label ?? 'questa fase'}" prima di avanzare.`)
       return
     }
@@ -1204,7 +1218,7 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
   // Conferma consentita solo se i campi obbligatori della fase corrente ci sono.
   const tryConfirm = (item: PresaleItem | null) => {
     if (!item) return
-    if (!faseItemCompleta(item, item.stato)) {
+    if (!faseItemCompleta(item, item.stato, assegnatarioOpzionale)) {
       setApiError('Completa i campi obbligatori della fase prima di confermare.')
       return
     }
@@ -1256,7 +1270,7 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
     if (!form.clienteId || !form.progettoId || !form.attivita.trim()) {
       setFormErr('Cliente, progetto e attività sono obbligatori.'); return
     }
-    const mancanti = campiMancantiForm(form)
+    const mancanti = campiMancantiForm(form, assegnatarioOpzionale)
     if (mancanti.length) {
       setFormErr('Compila i campi obbligatori: ' + mancanti.map(f => CAMPO_LABEL[f] ?? f).join(', ') + '.'); return
     }
@@ -1484,6 +1498,7 @@ export default function PresalePage({ token, fullAccess = true }: { token: strin
           pms={pms}
           devHubs={devHubs}
           suggestedDevHub={suggestedDevHub}
+          assegnatarioOpzionale={assegnatarioOpzionale}
           loading={saving}
           apiError={formErr}
           mailGiaInviata={modal === 'edit' && !!editingId ? (items.find(i => i.id === editingId)?.presaleEmailFasiInviate.includes(STATO_TO_FASE_MAIL[form.stato] ?? '') ?? false) : false}

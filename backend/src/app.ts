@@ -101,11 +101,13 @@ async function logStatoChange(
 // valorizzato: evita notifiche a metà se qualcosa aggira la validazione lato UI.
 function presaleFaseDataReady(
   fase: string,
-  a: { presaleAssegnatarioId: string | null; presaleGiornateStimate: unknown; giornateVendute: unknown },
+  a: { presaleGiornateStimate: unknown; giornateVendute: unknown },
 ): boolean {
   switch (fase) {
     case 'ANALISI_INIZIALE': return true
-    case 'PRESA_IN_CARICO': return !!a.presaleAssegnatarioId
+    // L'assegnatario DevHub è facoltativo (il Board può non assegnare nessuno):
+    // la mail parte comunque, con "Nessuno" al posto del responsabile.
+    case 'PRESA_IN_CARICO': return true
     case 'STIMA': return a.presaleGiornateStimate != null
     case 'TRATTATIVA_CLIENTE': return a.giornateVendute != null
     default: return true
@@ -1493,7 +1495,36 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     return null
   }
 
-  // GET /api/attivita — lista raggruppata per cliente+progetto
+  // Normalizza la lista dei progetti "indicativi" di un ordine bucket: id
+  // ripuliti e deduplicati, `undefined` se la chiave non è stata inviata
+  // (= lista invariata, semantica del PATCH parziale usata anche altrove).
+  function normalizzaProgettiIds(input: unknown): string[] | undefined {
+    if (input === undefined) return undefined
+    if (!Array.isArray(input)) return []
+    return [...new Set(input.filter((v): v is string => typeof v === 'string').map(v => v.trim()).filter(Boolean))]
+  }
+
+  // I progetti collegati a un ordine bucket devono esistere ed essere del
+  // cliente dell'ordine: sono un'etichetta, ma un'etichetta coerente.
+  async function invalidProgettiBucketError(
+    prisma: PrismaClient,
+    progettiIds: string[],
+    clienteId: string | null,
+  ): Promise<string | null> {
+    if (progettiIds.length === 0) return null
+    const trovati = await prisma.progetto.findMany({
+      where: { id: { in: progettiIds } },
+      select: { id: true, clienteId: true },
+    })
+    if (trovati.length !== progettiIds.length) return 'Uno o più progetti selezionati non esistono'
+    if (trovati.some(p => p.clienteId !== clienteId)) {
+      return 'I progetti collegati devono appartenere al cliente dell\'ordine bucket'
+    }
+    return null
+  }
+
+  // GET /api/attivita — raggruppata per cliente+progetto (per i BUCKET, che
+  // hanno 0..N progetti indicativi, il raggruppamento è per solo cliente)
   // ?tipo=STANDARD|BUCKET (default STANDARD, per non alterare il comportamento
   // di chi già chiama questa rotta senza saperne nulla — Dashboard, Gantt).
   // Le attività BUCKET hanno uno stato fisso APERTA/CHIUSA, non collegato a
@@ -1550,6 +1581,20 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             },
           },
           pm: { select: { id: true, firstName: true, lastName: true } },
+          // Progetti "indicativi" dell'ordine bucket (0..N): etichetta
+          // descrittiva, nessun peso nelle aggregazioni economiche.
+          progettiBucket: tipoParam === 'BUCKET'
+            ? {
+                include: {
+                  progetto: {
+                    select: {
+                      id: true, nome: true, responsabileDevHubId: true,
+                      responsabileDevHub: { select: { id: true, firstName: true, lastName: true } },
+                    },
+                  },
+                },
+              }
+            : false,
           // Dettaglio mensile solo per la vista bucket (rapportino PM)
           consuntiviMese: tipoParam === 'BUCKET' ? { orderBy: { mese: 'asc' as const } } : false,
           // Copertura bucket: sulle STANDARD il bucket che le copre; sui BUCKET
@@ -1576,6 +1621,41 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
       const resolvedName = (first: string | null, last: string) => [first, last].filter(Boolean).join(' ')
 
+      // Progetto/i di una riga: sulle STANDARD l'unico `progettoRel`, sui
+      // BUCKET le 0..N righe della join `attivita_progetti`. L'include è
+      // condizionale (ternario con `false`): Prisma perde l'inferenza del
+      // select annidato, quindi la forma va dichiarata a mano.
+      type ProgettoRef = { id: string; nome: string }
+      type DevHubRef = { id: string; firstName: string | null; lastName: string } | null
+      type ProgettoBucketRow = {
+        progetto: ProgettoRef & { responsabileDevHubId: string | null; responsabileDevHub: DevHubRef }
+      }
+      const progettiBucketDi = (a: typeof rows[number]): ProgettoBucketRow[] =>
+        ('progettiBucket' in a && Array.isArray(a.progettiBucket))
+          ? (a.progettiBucket as unknown as ProgettoBucketRow[])
+          : []
+
+      const progettiCollegati = (a: typeof rows[number]): ProgettoRef[] =>
+        a.tipo === 'BUCKET'
+          ? progettiBucketDi(a)
+              .map(p => ({ id: p.progetto.id, nome: p.progetto.nome }))
+              .sort((x, y) => x.nome.localeCompare(y.nome, 'it'))
+          : (a.progettoRel ? [{ id: a.progettoRel.id, nome: a.progettoRel.nome }] : [])
+
+      // Responsabili DevHub ereditati dai progetti collegati, deduplicati.
+      const devHubEreditati = (a: typeof rows[number]): Array<{ id: string; nome: string }> => {
+        const fonti: DevHubRef[] = a.tipo === 'BUCKET'
+          ? progettiBucketDi(a).map(p => p.progetto.responsabileDevHub)
+          : [a.progettoRel?.responsabileDevHub ?? null]
+        const map = new Map<string, string>()
+        for (const u of fonti) {
+          if (u) map.set(u.id, resolvedName(u.firstName, u.lastName))
+        }
+        return [...map.entries()]
+          .map(([id, nome]) => ({ id, nome }))
+          .sort((x, y) => x.nome.localeCompare(y.nome, 'it'))
+      }
+
       // Prodotti interni: attività nate dalla roadmap (roadmapItemId != null).
       // Raggruppate sotto un unico cappello (per prodotto), rese per prime ed
       // escluse dai conteggi globali. Nel co-investimento il cliente del record
@@ -1589,7 +1669,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
 
       for (const row of rows) {
         const interno = row.roadmapItemId != null
-        const progettoNome = row.progettoRel?.nome ?? row.progetto
+        // Gli ordini bucket sono capienza a livello cliente e possono avere
+        // 0..N progetti indicativi: non esiste "il" progetto su cui
+        // raggrupparli, quindi la vista bucket ha un solo gruppo per cliente.
+        const progettoNome = tipoParam === 'BUCKET' ? '' : (row.progettoRel?.nome ?? row.progetto)
         const groupCliente = interno ? SEZIONE_INTERNI : (row.clienteRel?.nome ?? row.cliente)
         const key = `${groupCliente}|||${progettoNome}`
         if (!groupMap.has(key)) {
@@ -1610,24 +1693,33 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             ? resolvedName(a.clienteRel.account.firstName, a.clienteRel.account.lastName)
             : ''
           const pmName = a.pm ? resolvedName(a.pm.firstName, a.pm.lastName) : ''
+          // Progetti collegati: uno solo (significativo) sulle STANDARD, 0..N
+          // (indicativi) sugli ordini bucket, che sono capienza per cliente.
+          const progetti = progettiCollegati(a)
+          // Il responsabile DevHub è un attributo del progetto, non
+          // dell'attività: si eredita in sola lettura dai progetti collegati —
+          // insieme distinto, vuoto se non c'è nessun progetto. Stessa regola
+          // del PM ereditato dalle applicazioni di un contratto.
+          const devHubs = devHubEreditati(a)
           return {
             id: a.id,
             tipo: a.tipo,
             cliente: clienteNome,
             clienteId: a.clienteId ?? null,
-            progetto: progettoNome,
+            // Forma testuale (CSV, export, consumatori non aggiornati): sui
+            // bucket è la lista dei progetti indicativi separata da virgola.
+            progetto: a.tipo === 'BUCKET' ? progetti.map(p => p.nome).join(', ') : progettoNome,
             progettoId: a.progettoId ?? null,
+            progetti,
             account: accountName,
             accountId: a.clienteRel?.accountId ?? null,
             projectManager: pmName,
             pmId: a.pmId ?? null,
-            // Il responsabile DevHub è un attributo del progetto, non della
-            // singola attività: qui esposto in sola lettura ereditandolo da
-            // progettoRel (impostabile da Progetti & Prodotti).
-            devHub: a.progettoRel?.responsabileDevHub
-              ? resolvedName(a.progettoRel.responsabileDevHub.firstName, a.progettoRel.responsabileDevHub.lastName)
-              : '',
-            devHubId: a.progettoRel?.responsabileDevHubId ?? null,
+            // `devHub`/`devHubId` restano singoli (compatibilità): valorizzati
+            // solo quando il responsabile ereditato è univoco.
+            devHub: devHubs.length === 1 ? devHubs[0]!.nome : '',
+            devHubId: devHubs.length === 1 ? devHubs[0]!.id : null,
+            devHubs: devHubs.map(d => d.nome),
             attivita: a.attivita,
             giornateVendute: a.giornateVendute !== null ? toNumber(a.giornateVendute) : null,
             giornateInvestimento: a.giornateInvestimento !== null ? toNumber(a.giornateInvestimento) : null,
@@ -1653,6 +1745,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
                   clienteId: coperta.clienteId ?? null,
                   progetto: coperta.progettoRel?.nome ?? coperta.progetto,
                   progettoId: coperta.progettoId ?? null,
+                  // Sono STANDARD: progetto singolo, stessa forma delle altre righe
+                  progetti: progettiCollegati(coperta),
                   account: coperta.clienteRel?.account
                     ? resolvedName(coperta.clienteRel.account.firstName, coperta.clienteRel.account.lastName)
                     : '',
@@ -1663,6 +1757,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
                     ? resolvedName(coperta.progettoRel.responsabileDevHub.firstName, coperta.progettoRel.responsabileDevHub.lastName)
                     : '',
                   devHubId: coperta.progettoRel?.responsabileDevHubId ?? null,
+                  devHubs: devHubEreditati(coperta).map(d => d.nome),
                   attivita: coperta.attivita,
                   giornateVendute: coperta.giornateVendute !== null ? toNumber(coperta.giornateVendute) : null,
                   giornateInvestimento: coperta.giornateInvestimento !== null ? toNumber(coperta.giornateInvestimento) : null,
@@ -1833,13 +1928,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   hono.post('/api/attivita', requireAuth(), async (c) => {
     const prisma = c.get('prisma')
     const {
-      clienteId, progettoId, pmId, attivita, tipo,
+      clienteId, progettoId, progettiIds, pmId, attivita, tipo,
       giornateVendute, giornateInvestimento, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note, bucketId,
       presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
-      clienteId?: string; progettoId?: string; pmId?: string | null
+      clienteId?: string; progettoId?: string; progettiIds?: string[]; pmId?: string | null
       attivita?: string; tipo?: string
       giornateVendute?: number | null; giornateInvestimento?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
@@ -1852,8 +1947,15 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       inviaMail?: boolean
     }>(c)
 
-    if (!clienteId?.trim() || !progettoId?.trim() || !attivita?.trim()) {
-      return c.json({ error: 'cliente, progetto e attivita sono obbligatori' }, 400)
+    // Il tipo serve già qui: un ordine bucket è capienza a livello cliente e
+    // può non avere alcun progetto (ne ha 0..N, indicativi, via `progettiIds`).
+    const isBucketReq = (tipo?.trim().toUpperCase() || 'STANDARD') === 'BUCKET'
+    if (!clienteId?.trim() || !attivita?.trim() || (!isBucketReq && !progettoId?.trim())) {
+      return c.json({
+        error: isBucketReq
+          ? 'cliente e attivita sono obbligatori'
+          : 'cliente, progetto e attivita sono obbligatori',
+      }, 400)
     }
 
     const linkErr = invalidLinkError({
@@ -1868,16 +1970,26 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         where: { id: clienteId.trim() },
         select: { nome: true, accountId: true, account: { select: { firstName: true, lastName: true } } },
       }),
-      prisma.progetto.findUnique({ where: { id: progettoId.trim() }, select: { nome: true } }),
+      progettoId?.trim()
+        ? prisma.progetto.findUnique({ where: { id: progettoId.trim() }, select: { nome: true } })
+        : Promise.resolve(null),
     ])
 
-    if (!linkedCliente || !linkedProgetto) {
+    if (!linkedCliente || (progettoId?.trim() && !linkedProgetto)) {
       return c.json({ error: 'cliente o progetto non trovato' }, 400)
     }
 
     const resolved = await resolveAttivitaTipoStato(prisma, tipo, stato)
     if ('error' in resolved) return c.json({ error: resolved.error }, 400)
     const { tipoVal, statoVal } = resolved
+
+    // Progetti indicativi: solo sui BUCKET (sulle STANDARD il progetto è uno
+    // solo e sta in progettoId).
+    const progettiVal = tipoVal === 'BUCKET' ? (normalizzaProgettiIds(progettiIds) ?? []) : []
+    if (progettiVal.length) {
+      const progErr = await invalidProgettiBucketError(prisma, progettiVal, clienteId.trim())
+      if (progErr) return c.json({ error: progErr }, 400)
+    }
 
     // Copertura bucket (solo STANDARD, mutualmente esclusiva con l'ordine dedicato)
     const bucketVal = tipoVal === 'STANDARD' ? (bucketId?.trim() || null) : null
@@ -1891,8 +2003,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         data: {
           cliente: linkedCliente.nome,
           clienteId: clienteId.trim(),
-          progetto: linkedProgetto.nome,
-          progettoId: progettoId.trim(),
+          // Sui bucket il progetto singolo non è la fonte di verità: i
+          // progetti (0..N, indicativi) stanno nella join progettiBucket.
+          progetto: linkedProgetto?.nome ?? '',
+          progettoId: progettoId?.trim() || null,
+          progettiBucket: progettiVal.length
+            ? { create: progettiVal.map(id => ({ progettoId: id })) }
+            : undefined,
           accountId: linkedCliente.accountId ?? null,
           attivita: attivita.trim(),
           tipo: tipoVal,
@@ -1937,13 +2054,13 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const id = c.req.param('id')
     const prisma = c.get('prisma')
     const {
-      clienteId, progettoId, pmId, attivita,
+      clienteId, progettoId, progettiIds, pmId, attivita,
       giornateVendute, giornateInvestimento, giornateFatturate, giornateConsuntivate, riferimentoOrdineVendita,
       stato, inizio, deadline, note, bucketId,
       presaleLinkRequisiti, presaleLinkStima, presaleLinkOfferta, presaleDriveFolderId, presaleGiornateStimate, presaleScadenzaStima, presaleAssegnatarioId, presaleNotePerFase, presaleTipoIntervento,
       inviaMail,
     } = await readJSON<{
-      clienteId?: string; progettoId?: string; pmId?: string | null
+      clienteId?: string; progettoId?: string; progettiIds?: string[]; pmId?: string | null
       attivita?: string
       giornateVendute?: number | null; giornateInvestimento?: number | null; giornateFatturate?: number | null; giornateConsuntivate?: number | null
       riferimentoOrdineVendita?: string; stato?: string
@@ -1973,8 +2090,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     // Prodotti interni (nate da roadmap): il progetto è il prodotto e non si
     // cambia; il cliente può mancare (assorbita → "Soluzione1" senza anagrafica).
     const isInterna = existing.roadmapItemId !== null
-    const progettoIdEff = isInterna ? existing.progettoId : (progettoId?.trim() || null)
-    if (!progettoIdEff || (!isInterna && !clienteId?.trim())) {
+    // Gli ordini bucket non hanno "il" progetto: ne hanno 0..N indicativi.
+    const isBucketRow = existing.tipo === 'BUCKET'
+    const progettoIdEff = isBucketRow
+      ? null
+      : isInterna ? existing.progettoId : (progettoId?.trim() || null)
+    if ((!progettoIdEff && !isBucketRow) || (!isInterna && !clienteId?.trim())) {
       return c.json({ error: 'cliente, progetto e attivita sono obbligatori' }, 400)
     }
 
@@ -1997,10 +2118,12 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
             select: { nome: true, accountId: true, account: { select: { firstName: true, lastName: true } } },
           })
         : Promise.resolve(null),
-      prisma.progetto.findUnique({ where: { id: progettoIdEff }, select: { nome: true } }),
+      progettoIdEff
+        ? prisma.progetto.findUnique({ where: { id: progettoIdEff }, select: { nome: true } })
+        : Promise.resolve(null),
     ])
 
-    if ((clienteId?.trim() && !linkedCliente) || !linkedProgetto) {
+    if ((clienteId?.trim() && !linkedCliente) || (progettoIdEff && !linkedProgetto)) {
       return c.json({ error: 'cliente o progetto non trovato' }, 400)
     }
 
@@ -2020,6 +2143,20 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       if (bucketErr) return c.json({ error: bucketErr }, 400)
     }
 
+    // Progetti indicativi dell'ordine bucket: chiave assente = lista invariata,
+    // altrimenti sostituita per intero (stessa semantica delle applicazioni di
+    // un contratto). Validati contro il cliente effettivo post-aggiornamento.
+    // Se il cliente cambia e la lista non è stata rinviata, la si azzera:
+    // tenere agganciati progetti di un altro cliente sarebbe incoerente.
+    const clienteCambiato = isBucketRow && clienteIdEff !== existing.clienteId
+    const progettiVal = isBucketRow
+      ? (normalizzaProgettiIds(progettiIds) ?? (clienteCambiato ? [] : undefined))
+      : undefined
+    if (progettiVal?.length) {
+      const progErr = await invalidProgettiBucketError(prisma, progettiVal, clienteIdEff)
+      if (progErr) return c.json({ error: progErr }, 400)
+    }
+
     try {
       const row = await prisma.attivita.update({
         where: { id },
@@ -2027,8 +2164,17 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
           // Interna senza cliente in anagrafica: mantiene i valori esistenti
           cliente: linkedCliente ? linkedCliente.nome : existing.cliente,
           clienteId: clienteIdEff,
-          progetto: linkedProgetto.nome,
+          progetto: linkedProgetto?.nome ?? '',
           progettoId: progettoIdEff,
+          // Join sostituita per intero quando la chiave è stata inviata
+          ...(progettiVal !== undefined
+            ? {
+                progettiBucket: {
+                  deleteMany: {},
+                  create: progettiVal.map(pid => ({ progettoId: pid })),
+                },
+              }
+            : {}),
           accountId: linkedCliente ? (linkedCliente.accountId ?? null) : existing.accountId,
           attivita: attivita.trim(),
           giornateVendute: giornateVendute != null ? giornateVendute : null,
