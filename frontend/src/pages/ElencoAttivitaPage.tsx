@@ -54,14 +54,26 @@ interface ConsuntivoMese {
   giornateFatturate: number | null
 }
 
+interface ProgettoRef {
+  id: string
+  nome: string
+}
+
 interface AttivitaItem {
   id: string
   tipo: TipoAttivita
   cliente: string;        clienteId: string | null
+  // `progetto`/`progettoId` = il progetto singolo delle righe STANDARD.
+  // Sui BUCKET (capienza per cliente) non c'è "il" progetto: ce ne sono 0..N
+  // puramente indicativi in `progetti`, e `progetto` ne è la forma testuale.
   progetto: string;       progettoId: string | null
+  progetti: ProgettoRef[]
   account: string;        accountId: string | null
   projectManager: string; pmId: string | null
+  // Responsabile DevHub ereditato dai progetti collegati: `devHub` è
+  // valorizzato solo quando è univoco, `devHubs` contiene sempre l'insieme.
   devHub: string;         devHubId: string | null
+  devHubs: string[]
   attivita: string
   giornateVendute: number | null
   // Giornate a carico nostro (prodotti interni: assorbita/co-investimento)
@@ -145,6 +157,9 @@ interface ProgettoOption { id: string; nome: string; clienteId: string | null; c
 
 type AttivitaFormData = {
   clienteId: string; progettoId: string; pmId: string
+  // Solo BUCKET: progetti indicativi collegati (0..N). Sulle STANDARD si usa
+  // progettoId (uno solo, obbligatorio).
+  progettiIds: string[]
   attivita: string
   stato: StatoAttivita
   giornateVendute: string; giornateInvestimento: string; giornateFatturate: string; giornateConsuntivate: string
@@ -155,7 +170,7 @@ type AttivitaFormData = {
 }
 
 const EMPTY_FORM: AttivitaFormData = {
-  clienteId: '', progettoId: '', pmId: '',
+  clienteId: '', progettoId: '', pmId: '', progettiIds: [],
   attivita: '', stato: 'IN_CORSO',
   giornateVendute: '', giornateInvestimento: '', giornateFatturate: '', giornateConsuntivate: '',
   riferimentoOrdineVendita: '', bucketId: '', inizio: '', deadline: '', note: '',
@@ -224,6 +239,27 @@ function getStatoPrevValente(attivita: AttivitaItem[], statiMap: Map<string, Sta
 }
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
+
+// Progetti di una riga: uno solo (significativo) sulle STANDARD, 0..N
+// (indicativi) sugli ordini bucket, che valgono comunque per tutto il cliente.
+// Fallback su `progetto`: le righe storiche senza FK hanno solo il nome.
+function nomiProgetti(item: AttivitaItem): string[] {
+  if (item.progetti?.length) return item.progetti.map(p => p.nome)
+  return item.progetto ? [item.progetto] : []
+}
+
+function ProgettiCell({ item }: { item: AttivitaItem }) {
+  const nomi = nomiProgetti(item)
+  if (nomi.length === 0) {
+    return <span className="ea-progetti-empty">{item.tipo === 'BUCKET' ? 'Livello cliente' : '—'}</span>
+  }
+  if (nomi.length === 1) return <>{nomi[0]}</>
+  return (
+    <span className="ea-progetti-tags">
+      {nomi.map(n => <span key={n} className="ea-progetto-tag">{n}</span>)}
+    </span>
+  )
+}
 
 function StatoBadge({ stato, bucket }: { stato: StatoAttivita; bucket?: boolean }) {
   const statiMap = useContext(StatiCtx)
@@ -464,8 +500,9 @@ function RiepilogoBar({ r, vista }: { r: Riepilogo; vista: TipoAttivita }) {
   return (
     <div className="ea-summary" role="region" aria-label="Riepilogo globale">
       <div className="ea-summary-stat">
+        {/* Gli ordini bucket non stanno su un progetto: il gruppo è il cliente */}
         <span className="ea-summary-val">{r.totaleProgetti}</span>
-        <span className="ea-summary-lbl">Progetti</span>
+        <span className="ea-summary-lbl">{isBucket ? 'Clienti' : 'Progetti'}</span>
       </div>
       <div className="ea-summary-divider" aria-hidden="true" />
       <div className="ea-summary-stat">
@@ -563,7 +600,7 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
             </button>
           </div>
           <h2 id="ea-detail-title" className="ea-modal-title">{item.attivita}</h2>
-          <p className="ea-detail-sub">{item.cliente} — {item.progetto}</p>
+          <p className="ea-detail-sub">{item.cliente}{item.progetto ? ` — ${item.progetto}` : ''}</p>
         </div>
 
         <div className="ea-modal-body">
@@ -574,7 +611,7 @@ function AttivitaDetailModal({ item, readOnly, onClose, onEdit }: {
                 <dt>Cliente</dt><dd>{item.cliente}</dd>
               </div>
               <div className="ea-drawer-row">
-                <dt>Progetto</dt><dd>{item.progetto}</dd>
+                <dt>{isBucket ? 'Progetti' : 'Progetto'}</dt><dd><ProgettiCell item={item} /></dd>
               </div>
               <div className="ea-drawer-row">
                 <dt>Account</dt><dd>{item.account || '—'}</dd>
@@ -997,7 +1034,7 @@ function ActivityRows({ attivita, showProgetto, readOnly, onSelectItem, onEditIt
                     )}
                     {item.attivita}
                   </td>
-                  {showProgetto && <td className="ea-cell ea-cell--progetto">{item.progetto}</td>}
+                  {showProgetto && <td className="ea-cell ea-cell--progetto"><ProgettiCell item={item} /></td>}
                   <td className="ea-cell ea-cell--stato" onClick={e => e.stopPropagation()}>
                     {readOnly
                       ? <StatoBadge stato={item.stato} bucket={isBucket} />
@@ -1397,9 +1434,19 @@ function AttivitaModal({ title, tipo, form, token, loading, apiError, clienti, p
   )
 
   const handleClienteChange = (clienteId: string) => {
-    // Interna: il prodotto resta agganciato anche cambiando il cliente pagante
-    onChange({ ...form, clienteId, progettoId: isInterna ? form.progettoId : '' })
+    // Interna: il prodotto resta agganciato anche cambiando il cliente pagante.
+    // I progetti indicativi di un bucket sono per definizione di quel cliente:
+    // cambiando cliente vanno riscelti.
+    onChange({ ...form, clienteId, progettoId: isInterna ? form.progettoId : '', progettiIds: [] })
   }
+
+  const toggleProgettoBucket = (id: string) =>
+    onChange({
+      ...form,
+      progettiIds: form.progettiIds.includes(id)
+        ? form.progettiIds.filter(x => x !== id)
+        : [...form.progettiIds, id],
+    })
 
   const selectedAccount = useMemo(() => {
     const c = clienti.find(cl => cl.id === form.clienteId)
@@ -1453,11 +1500,38 @@ function AttivitaModal({ title, tipo, form, token, loading, apiError, clienti, p
             </div>
             <div className="ea-form-field">
               <label htmlFor="ea-f-progetto" className="ea-form-label">
-                {isInterna ? 'Prodotto' : <>Progetto <span aria-hidden="true">*</span></>}
+                {isInterna ? 'Prodotto' : isBucket ? 'Progetti (indicativi)' : <>Progetto <span aria-hidden="true">*</span></>}
               </label>
               {isInterna ? (
                 // Nata da roadmap: il prodotto non si cambia
                 <input id="ea-f-progetto" className="ea-form-input" type="text" value={internaProgettoNome} disabled readOnly />
+              ) : isBucket ? (
+                // L'ordine bucket è capienza a livello cliente: i progetti sono
+                // solo un'etichetta, quindi 0..N e mai obbligatori.
+                <div className="ea-progetti-picker">
+                  {!form.clienteId ? (
+                    <span className="ea-account-empty">Seleziona prima il cliente</span>
+                  ) : progettiCliente.length === 0 ? (
+                    <span className="ea-account-empty">Nessun progetto per questo cliente</span>
+                  ) : (
+                    <div className="ea-chip-row" role="group" aria-label="Progetti collegati all'ordine">
+                      {progettiCliente.map(p => {
+                        const on = form.progettiIds.includes(p.id)
+                        return (
+                          <button key={p.id} type="button" aria-pressed={on}
+                            className={`ea-chip${on ? ' ea-chip--on' : ''}`}
+                            onClick={() => toggleProgettoBucket(p.id)}>
+                            {p.nome}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <p className="ea-form-hint">
+                    Facoltativi: l’ordine vale comunque a livello di cliente. Servono solo a
+                    indicare su cosa viene speso.
+                  </p>
+                </div>
               ) : (
                 <select id="ea-f-progetto" className="ea-form-input ea-form-select"
                   value={form.progettoId} onChange={e => {
@@ -1660,7 +1734,7 @@ function ConfirmDeleteAttivita({ item, loading, onConfirm, onClose }: {
         <div className="ea-modal-body">
           <p className="ea-confirm-text">
             Sei sicuro di voler eliminare <strong>{item.attivita}</strong>?
-            <br /><span className="ea-confirm-sub">{item.cliente} — {item.progetto}</span>
+            <br /><span className="ea-confirm-sub">{item.cliente}{item.progetto ? ` — ${item.progetto}` : ''}</span>
             <br /><span className="ea-confirm-sub">Questa azione non è reversibile.</span>
           </p>
         </div>
@@ -2203,6 +2277,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
     setForm({
       clienteId:                item.clienteId  ?? '',
       progettoId:               item.progettoId ?? '',
+      progettiIds:              item.tipo === 'BUCKET' ? item.progetti.map(p => p.id) : [],
       pmId:                     item.pmId       ?? '',
       attivita:                 item.attivita,
       stato:                    item.stato,
@@ -2223,8 +2298,12 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
   const handleSave = async () => {
     // Interna (nata da roadmap): il cliente può mancare, il progetto è fisso
     const isInterna = modal === 'edit' && editing?.roadmapItemId != null
-    if ((!isInterna && (!form.clienteId || !form.progettoId)) || !form.attivita.trim()) {
-      setFormErr('Cliente, progetto e attività sono obbligatori.')
+    // Ordine bucket: capienza a livello cliente, il progetto non è richiesto
+    const isBucketForm = modal === 'edit' ? editing!.tipo === 'BUCKET' : addTipo === 'BUCKET'
+    if (!form.attivita.trim() || (!isInterna && !form.clienteId) || (!isInterna && !isBucketForm && !form.progettoId)) {
+      setFormErr(isBucketForm
+        ? 'Cliente e attività sono obbligatori.'
+        : 'Cliente, progetto e attività sono obbligatori.')
       return
     }
     setSaving(true); setFormErr(null)
@@ -2233,7 +2312,9 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       const method = modal === 'edit' ? 'PUT' : 'POST'
       const body = {
         clienteId:                form.clienteId || null,
-        progettoId:               form.progettoId,
+        progettoId:               isBucketForm ? null : form.progettoId,
+        // Solo per i bucket: lista sostituita per intero a ogni salvataggio
+        ...(isBucketForm ? { progettiIds: form.progettiIds } : {}),
         pmId:                     form.pmId || null,
         attivita:                 form.attivita.trim(),
         tipo:                     modal === 'edit' ? editing!.tipo : addTipo,
@@ -2382,7 +2463,9 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
         let att = g.attivita
         if (filtroAcc.length)    att = att.filter(a => filtroAcc.includes(a.account))
         if (filtroPM.length)     att = att.filter(a => filtroPM.includes(a.projectManager))
-        if (filtroDevHub.length) att = att.filter(a => filtroDevHub.includes(a.devHub))
+        // Un ordine bucket eredita 0..N responsabili DevHub dai progetti
+        // collegati: matcha se almeno uno è tra quelli filtrati.
+        if (filtroDevHub.length) att = att.filter(a => (a.devHubs ?? [a.devHub]).some(d => filtroDevHub.includes(d)))
         if (isBucketVista) {
           if (soloAttivi) att = att.filter(a => a.stato === 'APERTA')
         } else {
@@ -2457,8 +2540,12 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       return next
     })
 
+  // La vista bucket è sempre per cliente (0..N progetti indicativi per ordine):
+  // la preferenza salvata in localStorage vale solo per la vista standard.
+  const groupByEff: GroupBy = isBucketVista ? 'cliente' : groupBy
+
   const expandAll = () => {
-    if (groupBy === 'progetto') {
+    if (groupByEff === 'progetto') {
       setExpanded(new Set(filteredGruppi.map(progettoKey)))
     } else {
       setExpanded(new Set(filteredGruppiCliente.map(clienteKey)))
@@ -2467,7 +2554,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
   const collapseAll = () => setExpanded(new Set())
 
   const hasFilters = !!(filtroAcc.length || filtroPM.length || filtroDevHub.length || filtroStato.length > 0 || !soloAttivi)
-  const isEmpty    = groupBy === 'progetto' ? filteredGruppi.length === 0 : filteredGruppiCliente.length === 0
+  const isEmpty    = groupByEff === 'progetto' ? filteredGruppi.length === 0 : filteredGruppiCliente.length === 0
 
   return (
     <StatiCtx.Provider value={statiMap}>
@@ -2623,11 +2710,15 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
           />
         )}
         <div className="ea-filters-sep" aria-hidden="true" />
-        <Toggle
-          label="Raggruppa per Progetto"
-          checked={groupBy === 'progetto'}
-          onChange={handleGroupByChange}
-        />
+        {/* Gli ordini bucket hanno 0..N progetti indicativi: raggrupparli per
+            progetto non avrebbe significato, la vista è sempre per cliente. */}
+        {!isBucketVista && (
+          <Toggle
+            label="Raggruppa per Progetto"
+            checked={groupBy === 'progetto'}
+            onChange={handleGroupByChange}
+          />
+        )}
         <Toggle
           label={isBucketVista
             ? (soloAttivi ? 'Solo aperte' : 'Tutte')
@@ -2708,7 +2799,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
       {/* ── Group list ── */}
       {!loading && !error && !isEmpty && (
         <div className="ea-groups" role="list">
-          {groupBy === 'progetto'
+          {groupByEff === 'progetto'
             ? filteredGruppi.map(g => {
                 const key = progettoKey(g)
                 return (
