@@ -336,9 +336,10 @@ model Progetto {
   responsabileDevHubId String? @map("responsabile_dev_hub_id")
   responsabileDevHub   User?   @relation("ProgettoDevHub", fields: [responsabileDevHubId], references: [id], onDelete: SetNull)
 
-  attivita     Attivita[]
-  roadmapItems RoadmapItem[]
-  contratti    ContrattoApplicazione[]
+  attivita       Attivita[]
+  roadmapItems   RoadmapItem[]
+  contratti      ContrattoApplicazione[]
+  ordiniBucket   AttivitaProgetto[]
 
   @@index([clienteId])
   @@index([pmRiferimentoId])
@@ -421,6 +422,14 @@ model Attivita {
   bucket                   Attivita?       @relation("AttivitaBucket", fields: [bucketId], references: [id], onDelete: SetNull)
   attivitaCoperte          Attivita[]      @relation("AttivitaBucket")
 
+  // ── Progetti indicativi di un ordine bucket (solo tipo BUCKET) ──
+  // Un ordine bucket è capienza a livello CLIENTE: i consuntivi Zoho si
+  // agganciano al suo codice ordine e la copertura delle attività standard è
+  // validata sul solo cliente. I progetti qui collegati (0..N) sono
+  // un'etichetta descrittiva — non entrano in nessuna aggregazione economica.
+  // Sulle righe STANDARD resta invece `progettoId` (uno solo, significativo).
+  progettiBucket           AttivitaProgetto[]
+
   milestones               GanttMilestone[]
   statoLog                 AttivitaStatoLog[]
   consuntiviMese           AttivitaConsuntivoMese[]
@@ -434,6 +443,21 @@ model Attivita {
   @@index([presaleAssegnatarioId])
   @@index([bucketId])
   @@map("attivita")
+}
+
+// Join ordine bucket ↔ progetti "indicativi" (0..N). Stessa forma di
+// ContrattoApplicazione: chiave composta, join sostituita interamente a ogni
+// PUT. Cascade su entrambi i lati — cancellare il bucket o il progetto toglie
+// solo l'etichetta, non tocca dati economici.
+model AttivitaProgetto {
+  attivitaId String   @map("attivita_id")
+  progettoId String   @map("progetto_id")
+  attivita   Attivita @relation(fields: [attivitaId], references: [id], onDelete: Cascade)
+  progetto   Progetto @relation(fields: [progettoId], references: [id], onDelete: Cascade)
+
+  @@id([attivitaId, progettoId])
+  @@index([progettoId])
+  @@map("attivita_progetti")
 }
 
 // ── Contratti di assistenza / AMS ─────────────────────────────

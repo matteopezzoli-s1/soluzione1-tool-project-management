@@ -146,7 +146,9 @@ async function loadAttivitaMailData(
     attivita: a.attivita,
     pmNome: nomeUtente(pm),
     pmEmail: pm?.email ?? null,
-    assegnatarioNome: nomeUtente(a.presaleAssegnatario) || DASH,
+    // L'assegnatario DevHub è facoltativo (il Board può non assegnare nessuno):
+    // in mail lo diciamo esplicitamente invece di lasciare un trattino ambiguo.
+    assegnatarioNome: nomeUtente(a.presaleAssegnatario) || 'Nessuno',
     tipoInterventoLabel:
       a.presaleTipoIntervento === 'NUOVO_PROGETTO'
         ? 'Nuovo progetto'
