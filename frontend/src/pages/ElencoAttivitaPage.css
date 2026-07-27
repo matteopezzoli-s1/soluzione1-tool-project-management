@@ -1672,6 +1672,30 @@
   font-size: 0.72rem; color: #94A3B8;
 }
 
+/* Progetti indicativi di un ordine bucket: toggle-chips 0..N nel form
+   (stesso trattamento delle applicazioni coperte di un contratto) */
+.ea-progetti-picker { display: flex; flex-direction: column; gap: 0.1rem; }
+.ea-chip-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.ea-chip {
+  padding: 0.35rem 0.8rem; border-radius: 999px;
+  border: 1.5px solid #E2E8F0; background: #fff; color: #475569;
+  font-family: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.ea-chip:hover { border-color: #99F6E4; background: #F0FDFA; }
+.ea-chip--on { background: #0D9488; border-color: #0D9488; color: #fff; }
+.ea-chip--on:hover { background: #0F766E; border-color: #0F766E; }
+.ea-chip:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+
+/* Progetti indicativi mostrati in tabella / drawer (sola lettura) */
+.ea-progetti-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.ea-progetto-tag {
+  padding: 0.1rem 0.45rem; border-radius: 5px;
+  background: #F1F5F9; border: 1px solid #E2E8F0;
+  font-size: 0.72rem; font-weight: 600; color: #475569; white-space: nowrap;
+}
+.ea-progetti-empty { font-size: 0.78rem; color: #CBD5E1; }
+
 /* ── Copertura bucket ── */
 /* Badge sull'attività standard coperta da un ordine bucket (colonna Ord.
    Vendita e drawer di dettaglio) */
