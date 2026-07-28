@@ -887,7 +887,13 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   // Sulle card (kanban) segna anche quale sta volando, per nasconderla
   // dall'origine. Nella vista Lista le righe restano visibili: nascondere un
   // <tr> a metà trascinamento farebbe collassare la tabella.
-  const onCardDragStart = (id: string) => { dragIdRef.current = id; setDraggingId(id) }
+  // Il setTimeout NON è rimovibile: React flusha in modo sincrono gli update
+  // degli eventi discreti, quindi senza rinvio la card sparirebbe PRIMA che il
+  // browser scatti l'immagine di trascinamento e il drag verrebbe annullato.
+  const onCardDragStart = (id: string) => {
+    dragIdRef.current = id
+    setTimeout(() => setDraggingId(id), 0)
+  }
   const onRowDrop = (targetId: string) => {
     const draggedId = dragIdRef.current
     dragIdRef.current = null
