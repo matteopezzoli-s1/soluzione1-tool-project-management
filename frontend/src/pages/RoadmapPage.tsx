@@ -443,21 +443,24 @@ function ItemModal({ title, form, loading, apiError, prodotti, statiList, tags, 
 interface RoadmapCardProps {
   item: RoadmapItem; secondary: 'stato' | 'quarter'; statiMap: Map<string, StatoRoadmapConfig>
   po: PoRef | undefined; readOnly?: boolean
-  onDragStart: () => void; onDrop: (e: React.DragEvent) => void; onOpen: () => void; onDelete: () => void
+  // Card in trascinamento: sparisce dalla colonna d'origine (come nel Presale)
+  dragging?: boolean
+  onDragStart: () => void; onDragEnd: () => void; onDrop: (e: React.DragEvent) => void; onOpen: () => void; onDelete: () => void
   // Presa in carico (o conversione dei legacy "in corso"): mostrato solo dove ha senso
   presaLabel?: string; onPresaInCarico?: () => void
   // Stato reale dell'attività collegata (item preso in carico)
   attivitaBadge?: { label: string; colore: string } | null
 }
 
-function RoadmapCard({ item, secondary, statiMap, po, readOnly, onDragStart, onDrop, onOpen, onDelete, presaLabel, onPresaInCarico, attivitaBadge }: RoadmapCardProps) {
+function RoadmapCard({ item, secondary, statiMap, po, readOnly, dragging, onDragStart, onDragEnd, onDrop, onOpen, onDelete, presaLabel, onPresaInCarico, attivitaBadge }: RoadmapCardProps) {
   // Item preso in carico (attività collegata): non trascinabile né eliminabile,
   // lo stato è guidato dall'attività.
   const locked = item.attivitaId !== null
   const canDrag = !readOnly && !locked
   return (
-    <div className="rm-card" draggable={canDrag}
+    <div className={`rm-card${dragging ? ' rm-card--dragging' : ''}`} draggable={canDrag}
       onDragStart={canDrag ? onDragStart : undefined}
+      onDragEnd={canDrag ? onDragEnd : undefined}
       onDragOver={readOnly ? undefined : e => { e.preventDefault(); e.stopPropagation() }}
       onDrop={readOnly ? undefined : e => { e.stopPropagation(); onDrop(e) }}>
       <div className="rm-card-head">
@@ -765,6 +768,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [deleting,  setDeleting]  = useState(false)
 
   const dragIdRef = useRef<string | null>(null)
+  // Card attualmente trascinata: nascosta nella colonna d'origine, così il
+  // trascinamento non sembra una copia (stesso comportamento del Presale).
+  const [draggingId, setDraggingId] = useState<string | null>(null)
 
   const pmById = useMemo(() => new Map(pms.map(p => [p.id, p])), [pms])
   const prodottoById = useMemo(() => new Map(prodotti.map(p => [p.id, p])), [prodotti])
@@ -878,6 +884,10 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   }, [token])
 
   const onRowDragStart = (id: string) => { dragIdRef.current = id }
+  // Sulle card (kanban) segna anche quale sta volando, per nasconderla
+  // dall'origine. Nella vista Lista le righe restano visibili: nascondere un
+  // <tr> a metà trascinamento farebbe collassare la tabella.
+  const onCardDragStart = (id: string) => { dragIdRef.current = id; setDraggingId(id) }
   const onRowDrop = (targetId: string) => {
     const draggedId = dragIdRef.current
     dragIdRef.current = null
@@ -888,6 +898,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const onCardDrop = (columnItems: RoadmapItem[], targetId: string | null, overrides: { quarter?: string; stato?: string }) => {
     const draggedId = dragIdRef.current
     dragIdRef.current = null
+    // Ripristino subito qui (oltre che su dragend): dopo un drop andato a buon
+    // fine la card d'origine viene smontata e il suo dragend può non scattare.
+    setDraggingId(null)
     if (!draggedId) return
     // Workflow sul kanban stati: un passo per volta, niente completato a mano,
     // niente "in corso" (l'esecuzione parte da "Prendi in carico"). Il server
@@ -1271,7 +1284,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                     <RoadmapCard key={item.id} item={item} secondary="stato" statiMap={statiMap}
                       po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
                       readOnly={readOnly}
-                      onDragStart={() => onRowDragStart(item.id)}
+                      dragging={draggingId === item.id}
+                      onDragStart={() => onCardDragStart(item.id)}
+                      onDragEnd={() => setDraggingId(null)}
                       onDrop={() => onCardDrop(colItems, item.id, { quarter: col.key })}
                       onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
                       attivitaBadge={attivitaBadgeFor(item)}
@@ -1310,7 +1325,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                     <RoadmapCard key={item.id} item={item} secondary="quarter" statiMap={statiMap}
                       po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
                       readOnly={readOnly}
-                      onDragStart={() => onRowDragStart(item.id)}
+                      dragging={draggingId === item.id}
+                      onDragStart={() => onCardDragStart(item.id)}
+                      onDragEnd={() => setDraggingId(null)}
                       onDrop={() => onCardDrop(colItems, item.id, { stato: col.chiave })}
                       onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
                       attivitaBadge={attivitaBadgeFor(item)}
