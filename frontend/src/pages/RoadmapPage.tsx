@@ -109,6 +109,95 @@ function byDeadlineAsc(a: RoadmapItem, b: RoadmapItem): number {
   return a.ordine - b.ordine
 }
 
+// ─── Export CSV ───────────────────────────────────────────────────────────────
+
+// Decimali con la virgola: così Excel it-IT legge le giornate come numeri e non
+// come testo (stessa scelta dell'export di ElencoAttivitaPage).
+function csvNum(n: number | null | undefined): string {
+  if (n === null || n === undefined) return ''
+  return String(n).replace('.', ',')
+}
+
+function csvDate(iso: string | null): string {
+  return fmtDateLong(iso) ?? ''
+}
+
+// Ordinamento export: Prodotto → Anno → Trimestre (ordine QUARTERS, non
+// pianificato per primo come sulla board) → Deadline (senza data in coda).
+function byProdottoAnnoQuarterDeadline(a: RoadmapItem, b: RoadmapItem): number {
+  const p = a.progetto.nome.localeCompare(b.progetto.nome, 'it')
+  if (p !== 0) return p
+  if (a.anno !== b.anno) return a.anno - b.anno
+  const qa = QUARTERS.findIndex(q => q.key === (a.quarter ?? ''))
+  const qb = QUARTERS.findIndex(q => q.key === (b.quarter ?? ''))
+  if (qa !== qb) return qa - qb
+  const da = a.dataDeadline ? new Date(a.dataDeadline).getTime() : null
+  const db = b.dataDeadline ? new Date(b.dataDeadline).getTime() : null
+  if (da === null && db === null) return a.titolo.localeCompare(b.titolo, 'it')
+  if (da === null) return 1
+  if (db === null) return -1
+  return da - db
+}
+
+interface ExportCtx {
+  prodottoById: Map<string, Prodotto>
+  pmById: Map<string, PoRef>
+  statiMap: Map<string, StatoRoadmapConfig>
+  statiAttivitaMap: Map<string, StatoAttivitaRef>
+}
+
+// Esporta gli item già filtrati a schermo (anno/prodotto/trimestre/stato/tag/
+// DevHub/ricerca + toggle "Mostra completati"), non tutta la roadmap.
+function exportCSV(items: RoadmapItem[], ctx: ExportCtx) {
+  const rows: string[][] = [[
+    'Prodotto', 'Titolo', 'Stato', 'Stato attività collegata', 'Anno', 'Trimestre',
+    'Deadline', 'Tag', 'Stima gg', 'PO', 'DevHub', 'Copertura', 'Cliente pagante',
+    'GG a carico cliente', 'GG a carico Soluzione1', 'Ordine di vendita',
+    'Link analisi', 'Descrizione',
+  ]]
+
+  for (const i of [...items].sort(byProdottoAnnoQuarterDeadline)) {
+    const po = ctx.pmById.get(ctx.prodottoById.get(i.progettoId)?.poId ?? '')
+    const coinvest = i.copertura === 'COINVESTIMENTO'
+    // Quota nostra: solo per il co-investimento e solo se abbiamo entrambi i
+    // numeri (stima totale e quota cliente).
+    const ggNostre = coinvest && i.stimaGg !== null && i.giornateVendute !== null
+      ? i.stimaGg - i.giornateVendute
+      : null
+    rows.push([
+      i.progetto.nome,
+      i.titolo,
+      ctx.statiMap.get(i.stato)?.label ?? i.stato,
+      // Qui, a differenza del badge sulle card, mostriamo lo stato anche quando
+      // l'attività è chiusa: in un export serve il dato, non l'avviso.
+      i.attivitaStato ? (ctx.statiAttivitaMap.get(i.attivitaStato)?.label ?? i.attivitaStato) : '',
+      String(i.anno),
+      QUARTERS.find(q => q.key === (i.quarter ?? ''))?.label ?? (i.quarter ?? ''),
+      csvDate(i.dataDeadline),
+      i.tags.map(t => t.label).join(', '),
+      csvNum(i.stimaGg),
+      poFullName(po),
+      poFullName(i.devHub ?? undefined),
+      coinvest ? 'Co-investimento' : 'Assorbita',
+      i.clientePagante?.nome ?? '',
+      csvNum(i.giornateVendute),
+      csvNum(ggNostre),
+      i.riferimentoOrdineVendita ?? '',
+      i.analisiUrl ?? '',
+      i.descrizione ?? '',
+    ])
+  }
+
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `roadmap-prodotti-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ─── Icone meta (card Kanban) ─────────────────────────────────────────────────
 
 function IconClock() {
@@ -1078,16 +1167,27 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           <h1 className="rm-title">Roadmap Prodotti</h1>
           <p className="rm-subtitle">{loading ? '' : `${displayItems.length} attività · ${annoLabel}`}</p>
         </div>
-        {!readOnly && (
-          <div className="rm-topbar-actions">
+        {/* L'export è disponibile anche in sola lettura (es. DevHub): fuori dal
+            blocco !readOnly, che resta solo per "Nuova attività". */}
+        <div className="rm-topbar-actions">
+          <button className="rm-btn rm-btn--ghost" type="button"
+            disabled={loading || displayItems.length === 0}
+            onClick={() => exportCSV(displayItems, { prodottoById, pmById, statiMap, statiAttivitaMap })}
+            title="Esporta le attività filtrate come file CSV/Excel">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
+              <path d="M10 3v9M6 8l4 4 4-4M4 16h12" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Esporta XLS
+          </button>
+          {!readOnly && (
             <button className="rm-btn rm-btn--primary" type="button" onClick={openAdd}>
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
                 <path d="M10 4v12M4 10h12" strokeLinecap="round" />
               </svg>
               Nuova attività
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="rm-toolbar">

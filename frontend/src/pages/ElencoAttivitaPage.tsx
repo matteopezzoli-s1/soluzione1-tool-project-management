@@ -1346,6 +1346,13 @@ function ClienteGroupCard({ group, expanded, readOnly, onToggle, onSelectItem, o
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
+// Decimali con la virgola: così Excel it-IT legge le giornate come numeri e non
+// come testo (stessa scelta dell'export della Roadmap Prodotti).
+function csvNum(n: number | null | undefined): string {
+  if (n === null || n === undefined) return ''
+  return String(n).replace('.', ',')
+}
+
 function exportCSV(gruppi: GruppoAttivita[], vista: TipoAttivita) {
   const isBucket = vista === 'BUCKET'
   const rows: string[][] = [
@@ -1359,24 +1366,24 @@ function exportCSV(gruppi: GruppoAttivita[], vista: TipoAttivita) {
     for (const a of g.attivita) {
       if (isBucket) {
         const residuo = a.giornateVendute !== null && a.giornateFatturate !== null
-          ? (a.giornateVendute - a.giornateFatturate).toFixed(1)
+          ? csvNum(Number((a.giornateVendute - a.giornateFatturate).toFixed(1)))
           : ''
         rows.push([
           a.cliente, a.progetto, a.attivita, a.account, a.projectManager, a.devHub, a.stato,
-          a.giornateVendute !== null ? String(a.giornateVendute) : '',
-          a.giornateFatturate !== null ? String(a.giornateFatturate) : '',
-          a.giornateConsuntivate !== null ? String(a.giornateConsuntivate) : '',
+          csvNum(a.giornateVendute),
+          csvNum(a.giornateFatturate),
+          csvNum(a.giornateConsuntivate),
           residuo, a.inizio ?? '', a.deadline ?? '',
           a.riferimentoOrdineVendita ?? '', a.note ?? '',
         ])
       } else {
         const delta = a.giornateVendute !== null && a.giornateConsuntivate !== null
-          ? (a.giornateVendute - a.giornateConsuntivate).toFixed(1)
+          ? csvNum(Number((a.giornateVendute - a.giornateConsuntivate).toFixed(1)))
           : ''
         rows.push([
           a.cliente, a.progetto, a.attivita, a.account, a.projectManager, a.devHub, a.stato,
-          a.giornateVendute !== null ? String(a.giornateVendute) : '',
-          a.giornateConsuntivate !== null ? String(a.giornateConsuntivate) : '',
+          csvNum(a.giornateVendute),
+          csvNum(a.giornateConsuntivate),
           delta, a.inizio ?? '', a.deadline ?? '',
           a.riferimentoOrdineVendita ?? '', a.note ?? '',
         ])
@@ -2629,6 +2636,9 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
               Collassa tutto
             </button>
           </div>
+          {/* Bottone "Importa consuntivi" nascosto: l'import si fa dalla pagina
+              Consuntivi Zoho. La modale ImportTimesheetModal resta agganciata più
+              sotto — per riattivarlo basta togliere il commento a questo blocco.
           {!readOnly && (
             <button
               type="button"
@@ -2644,6 +2654,7 @@ export default function ElencoAttivitaPage({ token, readOnly }: ElencoAttivitaPa
               Importa consuntivi
             </button>
           )}
+          */}
           <button
             type="button"
             className="ea-btn ea-btn--outline"
