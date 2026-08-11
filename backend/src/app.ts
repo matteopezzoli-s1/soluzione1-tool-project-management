@@ -2381,6 +2381,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       eventName: (body.eventName ?? 'tpm').toString(),
       devhubEmail: (body.devhubEmail ?? '').toString(),
       enabled: body.enabled === true,
+      // Assente = attivo: l'account in Cc è il default (vedi getPresaleEmailConfig).
+      accountInCc: body.accountInCc !== false,
     }
     if (cfg.devhubEmail && !EMAIL_RE.test(cfg.devhubEmail.trim())) {
       return c.json({ error: 'Email gruppo DevHub non valida' }, 400)

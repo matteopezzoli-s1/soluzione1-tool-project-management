@@ -101,6 +101,7 @@ async function main() {
     ['saiot_event_name', 'tpm'],
     ['presale_devhub_email', 'matteo.pezzoli@gmail.com'],
     ['presale_email_enabled', 'true'],
+    ['presale_account_in_cc', 'true'],
   ]
   for (const [chiave, valore] of configPresale) {
     await prisma.appConfig.upsert({ where: { chiave }, update: {}, create: { chiave, valore } })
