@@ -876,10 +876,12 @@ interface PresaleEmailConfig {
   eventName: string
   devhubEmail: string
   enabled: boolean
+  accountInCc: boolean
 }
 
 const EMPTY_PRESALE_CFG: PresaleEmailConfig = {
   url: '', contextCode: '', senderCode: '', eventName: 'tpm', devhubEmail: '', enabled: false,
+  accountInCc: true,
 }
 
 function PresaleEmailSezione({ token }: { token: string }) {
@@ -970,6 +972,34 @@ function PresaleEmailSezione({ token }: { token: string }) {
               }
             </span>
           </label>
+        </div>
+
+        {/* Account del cliente in Cc: si aggiunge ai destinatari già previsti
+            dalla fase (PM e gruppo DevHub), non li sostituisce. */}
+        <div className="imp-field">
+          <span className="imp-label">Account in copia</span>
+          <label className="imp-toggle-wrap">
+            <input
+              type="checkbox"
+              className="imp-toggle-input"
+              checked={cfg.accountInCc}
+              onChange={e => set('accountInCc', e.target.checked)}
+              role="switch"
+              aria-checked={cfg.accountInCc}
+            />
+            <span className="imp-toggle-track" data-checked={cfg.accountInCc}>
+              <span className="imp-toggle-thumb" />
+            </span>
+            <span className="imp-toggle-label">
+              {cfg.accountInCc
+                ? <><span className="imp-tipo-tag imp-tipo-tag--active">Incluso</span> — l'account del cliente è in Cc a ogni mail di fase</>
+                : <><span className="imp-tipo-tag imp-tipo-tag--arch">Escluso</span> — l'account non riceve le mail di fase</>
+              }
+            </span>
+          </label>
+          <span className="imp-field-hint">
+            Si aggiunge ai destinatari della fase (PM e gruppo DevHub). Se il cliente non ha un account, o l'account non ha email, la mail parte comunque senza.
+          </span>
         </div>
 
         <div className="imp-field">

@@ -18,6 +18,7 @@ export interface PresaleEmailConfig {
   eventName: string
   devhubEmail: string
   enabled: boolean
+  accountInCc: boolean
 }
 
 const CONFIG_KEYS = {
@@ -27,6 +28,7 @@ const CONFIG_KEYS = {
   eventName: 'saiot_event_name',
   devhubEmail: 'presale_devhub_email',
   enabled: 'presale_email_enabled',
+  accountInCc: 'presale_account_in_cc',
 } as const
 
 export async function getPresaleEmailConfig(prisma: PrismaClient): Promise<PresaleEmailConfig> {
@@ -41,6 +43,9 @@ export async function getPresaleEmailConfig(prisma: PrismaClient): Promise<Presa
     eventName: map.get(CONFIG_KEYS.eventName) ?? 'tpm',
     devhubEmail: map.get(CONFIG_KEYS.devhubEmail) ?? '',
     enabled: (map.get(CONFIG_KEYS.enabled) ?? 'false') === 'true',
+    // Chiave assente = account in Cc (comportamento voluto di default: chi
+    // segue il cliente vede passare tutte le mail di fase).
+    accountInCc: (map.get(CONFIG_KEYS.accountInCc) ?? 'true') === 'true',
   }
 }
 
@@ -55,6 +60,7 @@ export async function savePresaleEmailConfig(
     [CONFIG_KEYS.eventName, cfg.eventName.trim() || 'tpm'],
     [CONFIG_KEYS.devhubEmail, cfg.devhubEmail.trim()],
     [CONFIG_KEYS.enabled, cfg.enabled ? 'true' : 'false'],
+    [CONFIG_KEYS.accountInCc, cfg.accountInCc ? 'true' : 'false'],
   ]
   await prisma.$transaction(
     entries.map(([chiave, valore]) =>
@@ -102,6 +108,7 @@ export interface AttivitaMailData {
   attivita: string
   pmNome: string
   pmEmail: string | null
+  accountEmail: string | null
   assegnatarioNome: string
   tipoInterventoLabel: string
   giornateStimate: string
@@ -132,7 +139,11 @@ async function loadAttivitaMailData(
   const a = await prisma.attivita.findUnique({
     where: { id: attivitaId },
     include: {
-      clienteRel: { select: { nome: true } },
+      // L'account "di riferimento" è quello del cliente: è la stessa fonte che
+      // le API espongono in lista (Attivita.accountId ne è solo una copia,
+      // riallineata a ogni POST/PUT, che qui usiamo come fallback).
+      clienteRel: { select: { nome: true, account: { select: { email: true } } } },
+      accountRel: { select: { email: true } },
       progettoRel: { select: { nome: true } },
       pm: { select: { firstName: true, lastName: true, email: true } },
       presaleAssegnatario: { select: { firstName: true, lastName: true } },
@@ -146,6 +157,7 @@ async function loadAttivitaMailData(
     attivita: a.attivita,
     pmNome: nomeUtente(pm),
     pmEmail: pm?.email ?? null,
+    accountEmail: a.clienteRel?.account?.email ?? a.accountRel?.email ?? null,
     // L'assegnatario DevHub è facoltativo (il Board può non assegnare nessuno):
     // in mail lo diciamo esplicitamente invece di lasciare un trattino ambiguo.
     assegnatarioNome: nomeUtente(a.presaleAssegnatario) || 'Nessuno',
@@ -180,12 +192,35 @@ interface SaiotEvent {
   cus8?: string
 }
 
+// SAIOT separa più destinatari dentro un singolo campo con ';' (verificato in
+// test sull'endpoint: la virgola non va bene).
+const CC_SEP = ';'
+
+// Compone il Cc (cus1) da una lista di indirizzi: scarta i vuoti, i duplicati e
+// il destinatario principale (che è già in To), poi unisce con ';'.
+function buildCc(to: string, ...cc: Array<string | null | undefined>): string {
+  const visti = new Set([to.trim().toLowerCase()])
+  const out: string[] = []
+  for (const raw of cc) {
+    const email = raw?.trim()
+    if (!email) continue
+    const key = email.toLowerCase()
+    if (visti.has(key)) continue
+    visti.add(key)
+    out.push(email)
+  }
+  return out.join(CC_SEP)
+}
+
 // Ritorna l'evento SAIOT + il destinatario "obbligatorio" (email principale):
 // se manca (es. PM senza email) l'invio va saltato.
+// `accountEmail` è l'account di riferimento del cliente, aggiunto in Cc a tutte
+// le fasi; il chiamante passa '' quando il flag in Impostazioni è disattivato.
 export function buildEvent(
   fase: PresaleFaseCode,
   d: AttivitaMailData,
   devhubEmail: string,
+  accountEmail = '',
 ): SaiotEvent | null {
   const pmEmail = d.pmEmail?.trim() || ''
   // cus3 = "Cliente - Progetto" su un'unica riga (separatore ASCII-safe).
@@ -201,34 +236,34 @@ export function buildEvent(
   }
 
   switch (fase) {
-    case 'ANALISI_INIZIALE': // → DevHub, Cc PM
+    case 'ANALISI_INIZIALE': // → DevHub, Cc PM + Account
       if (!devhubEmail) return null
       return {
-        ...base, email: devhubEmail, cus1: pmEmail, cus2: fase,
+        ...base, email: devhubEmail, cus1: buildCc(devhubEmail, pmEmail, accountEmail), cus2: fase,
         cus6: d.tipoInterventoLabel, cus7: d.scadenzaStima, cus8: d.linkRequisiti,
       }
-    case 'PRESA_IN_CARICO': // → PM, Cc DevHub
+    case 'PRESA_IN_CARICO': // → PM, Cc DevHub + Account
       if (!pmEmail) return null
       return {
-        ...base, email: pmEmail, cus1: devhubEmail, cus2: fase,
+        ...base, email: pmEmail, cus1: buildCc(pmEmail, devhubEmail, accountEmail), cus2: fase,
         cus6: d.assegnatarioNome,
       }
-    case 'STIMA': // → PM, Cc DevHub
+    case 'STIMA': // → PM, Cc DevHub + Account
       if (!pmEmail) return null
       return {
-        ...base, email: pmEmail, cus1: devhubEmail, cus2: fase,
+        ...base, email: pmEmail, cus1: buildCc(pmEmail, devhubEmail, accountEmail), cus2: fase,
         cus6: d.assegnatarioNome, cus7: d.giornateStimate, cus8: d.linkStima,
       }
-    case 'TRATTATIVA_CLIENTE': // → DevHub, Cc PM
+    case 'TRATTATIVA_CLIENTE': // → DevHub, Cc PM + Account
       if (!devhubEmail) return null
       return {
-        ...base, email: devhubEmail, cus1: pmEmail, cus2: fase,
+        ...base, email: devhubEmail, cus1: buildCc(devhubEmail, pmEmail, accountEmail), cus2: fase,
         cus6: d.giornateStimate, cus7: d.giornateVendute, cus8: d.linkOfferta,
       }
-    case 'PROGETTO_CONFERMATO': // → DevHub, Cc PM
+    case 'PROGETTO_CONFERMATO': // → DevHub, Cc PM + Account
       if (!devhubEmail) return null
       return {
-        ...base, email: devhubEmail, cus1: pmEmail, cus2: fase,
+        ...base, email: devhubEmail, cus1: buildCc(devhubEmail, pmEmail, accountEmail), cus2: fase,
         cus6: d.tipoInterventoLabel, cus7: d.giornateVendute, cus8: d.assegnatarioNome,
       }
   }
@@ -265,7 +300,9 @@ export async function sendPresaleFaseEmail(
     const data = await loadAttivitaMailData(prisma, attivitaId)
     if (!data) return { sent: false, reason: 'Attività non trovata' }
 
-    const event = buildEvent(fase, data, cfg.devhubEmail.trim())
+    // L'account del cliente va in Cc a tutte le fasi, salvo flag disattivato.
+    const accountEmail = cfg.accountInCc ? (data.accountEmail?.trim() ?? '') : ''
+    const event = buildEvent(fase, data, cfg.devhubEmail.trim(), accountEmail)
     if (!event) return { sent: false, reason: `Destinatario mancante per la fase (email PM o gruppo DevHub non impostata)` }
 
     const payload = {
