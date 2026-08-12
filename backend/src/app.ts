@@ -1300,8 +1300,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     const prisma = c.get('prisma')
     const nuovoStato = stato?.trim()
     // Enforcement del workflow lato server (oltre alla UI): il drag può muovere
-    // solo di uno stato di pianificazione per volta, non può creare completati
-    // né toccare item già presi in carico.
+    // la card fra gli stati di pianificazione in qualsiasi ordine (anche
+    // saltandone alcuni), ma non può creare completati né toccare item già
+    // presi in carico.
     if (nuovoStato) {
       const existing = await prisma.roadmapItem.findUnique({
         where: { id }, select: { stato: true, attivita: { select: { id: true } } },
@@ -1319,13 +1320,6 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         }
         if (target.chiave === RETIRED_ROADMAP_STATO) {
           return c.json({ error: 'Stato non più disponibile: usa "Prendi in carico"' }, 409)
-        }
-        // Adiacenza sulla sequenza di pianificazione (esclusi completato e legacy)
-        const seq = stati.filter((s) => !s.isCompletato && s.chiave !== RETIRED_ROADMAP_STATO).map((s) => s.chiave)
-        const from = seq.indexOf(existing.stato)
-        const to = seq.indexOf(nuovoStato)
-        if (from !== -1 && to !== -1 && Math.abs(from - to) > 1) {
-          return c.json({ error: 'Puoi spostare solo di uno stato per volta' }, 400)
         }
       }
     }
@@ -1368,8 +1362,8 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // POST /api/roadmap-items/:id/prendi-in-carico — converte un item di
   // pianificazione in un'attività IN_CORSO (prodotti interni). L'item resta come
   // seme collegato 1:1 e lascia la board finché l'attività è aperta. Riservato a
-  // Board/PM/Account (DevHub è in sola lettura).
-  hono.post('/api/roadmap-items/:id/prendi-in-carico', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
+  // Board/PM/Account/DevHub (il DevHub avvia le attività dei prodotti interni).
+  hono.post('/api/roadmap-items/:id/prendi-in-carico', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT', 'DEVHUB'), async (c) => {
     const id = c.req.param('id')
     const prisma = c.get('prisma')
     const item = await prisma.roadmapItem.findUnique({
