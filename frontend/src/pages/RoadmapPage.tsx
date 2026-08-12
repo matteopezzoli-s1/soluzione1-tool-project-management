@@ -997,20 +997,16 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
     // fine la card d'origine viene smontata e il suo dragend può non scattare.
     setDraggingId(null)
     if (!draggedId) return
-    // Workflow sul kanban stati: un passo per volta, niente completato a mano,
-    // niente "in corso" (l'esecuzione parte da "Prendi in carico"). Il server
-    // applica le stesse regole; qui il messaggio-guida.
+    // Workflow sul kanban stati: fra gli stati di pianificazione il movimento è
+    // libero (anche saltando colonne), niente completato a mano, niente "in
+    // corso" (l'esecuzione parte da "Prendi in carico"). Il server applica le
+    // stesse regole; qui il messaggio-guida.
     if (overrides.stato !== undefined) {
       const dragged = items.find(i => i.id === draggedId)
       if (dragged && overrides.stato !== dragged.stato) {
         if (dragged.attivitaId) { showDragHint('Item collegato a un\'attività: lo stato segue l\'attività.'); return }
         if (completatoChiavi.has(overrides.stato)) { showDragHint('Il completamento è automatico: si chiude dall\'attività collegata.'); return }
         if (overrides.stato === RETIRED_STATO) { showDragHint('Per avviare l\'esecuzione usa "Prendi in carico" sulla card.'); return }
-        const from = seqStati.indexOf(dragged.stato)
-        const to = seqStati.indexOf(overrides.stato)
-        if (from !== -1 && to !== -1 && Math.abs(from - to) > 1) {
-          showDragHint('Puoi spostare solo di uno stato per volta.'); return
-        }
       }
     }
     reorderAndPersist(columnItems.map(i => i.id), draggedId, targetId, overrides)
