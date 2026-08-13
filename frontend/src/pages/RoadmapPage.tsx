@@ -839,6 +839,10 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   const [presaErr,     setPresaErr]     = useState<string | null>(null)
 
   const [view, setView] = useState<'lista' | 'kanban-trimestre' | 'kanban-stati'>('kanban-stati')
+  // Vista "Kanban per scadenza": l'anno non è un filtro ma il "cappello" delle
+  // colonne Q1..Q4, navigabile con le freccioline (il "Non pianificato" resta
+  // trasversale a tutti gli anni). Nelle altre viste vale il filtro in toolbar.
+  const [boardAnno, setBoardAnno] = useState(currentYear)
   const [filterAnno, setFilterAnno] = useState<string[]>([String(currentYear)])
   const [filterProdotto, setFilterProdotto] = useState<string[]>([])
   const [filterQuarter, setFilterQuarter] = useState<string[]>([])
@@ -909,9 +913,10 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
     () => statiList.filter(s => !s.isCompletato && s.chiave !== RETIRED_STATO).map(s => s.chiave),
     [statiList])
 
-  const displayItems = useMemo(() => {
+  // Tutti i filtri tranne l'anno: la vista per scadenza naviga gli anni col suo
+  // selettore, quindi parte da qui.
+  const filteredNoAnno = useMemo(() => {
     return items
-      .filter(i => filterAnno.length === 0 || filterAnno.includes(String(i.anno)))
       // Completati nascosti di default; visibili col toggle o filtrando
       // esplicitamente per quello stato
       .filter(i => showCompletati || filterStato.some(f => completatoChiavi.has(f)) || !completatoChiavi.has(i.stato))
@@ -921,11 +926,28 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       .filter(i => filterTag.length === 0 || i.tags.some(t => filterTag.includes(t.id)))
       .filter(i => filterDevHub.length === 0 || (i.devHubId !== null && filterDevHub.includes(i.devHubId)))
       .filter(i => !search.trim() || i.titolo.toLowerCase().includes(search.trim().toLowerCase()))
-  }, [items, filterAnno, filterProdotto, filterQuarter, filterStato, filterTag, filterDevHub, search, showCompletati, completatoChiavi])
+  }, [items, filterProdotto, filterQuarter, filterStato, filterTag, filterDevHub, search, showCompletati, completatoChiavi])
+
+  const displayItems = useMemo(
+    () => filteredNoAnno.filter(i => filterAnno.length === 0 || filterAnno.includes(String(i.anno))),
+    [filteredNoAnno, filterAnno])
+
+  const isScadenza = view === 'kanban-trimestre'
+
+  // Vista per scadenza: i trimestri sono quelli dell'anno navigato; gli item non
+  // pianificati restano visibili qualunque sia il loro anno (backlog trasversale).
+  const scadenzaItems = useMemo(
+    () => filteredNoAnno.filter(i => !i.quarter || i.anno === boardAnno),
+    [filteredNoAnno, boardAnno])
+
+  // Insieme effettivamente a schermo (conteggio nel sottotitolo, export, empty state)
+  const viewItems = isScadenza ? scadenzaItems : displayItems
 
   const completatiNascosti = useMemo(
-    () => items.filter(i => (filterAnno.length === 0 || filterAnno.includes(String(i.anno))) && completatoChiavi.has(i.stato)).length,
-    [items, filterAnno, completatoChiavi])
+    () => items.filter(i => completatoChiavi.has(i.stato) && (isScadenza
+      ? (!i.quarter || i.anno === boardAnno)
+      : (filterAnno.length === 0 || filterAnno.includes(String(i.anno))))).length,
+    [items, filterAnno, completatoChiavi, isScadenza, boardAnno])
 
   const listaRows = useMemo(() => {
     return [...displayItems].sort((a, b) =>
@@ -935,17 +957,20 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
     )
   }, [displayItems])
 
-  // ── Drag & drop (reorder scoped a prodotto+anno+quarter; quarter/stato
+  // ── Drag & drop (reorder scoped a prodotto+anno+quarter; anno/quarter/stato
   //    possono essere sovrascritti spostando la card in un'altra colonna) ────
 
   const reorderAndPersist = useCallback((
     scopeIds: string[], draggedId: string, targetId: string | null,
-    overrides: { quarter?: string | null; stato?: string } = {},
+    overrides: { anno?: number; quarter?: string | null; stato?: string } = {},
   ) => {
     setItems(prev => {
       const byId = new Map(prev.map(it => [it.id, it]))
       const dragged = byId.get(draggedId)
       if (!dragged) return prev
+      // L'anno cambia quando si trascina nei trimestri di un altro anno (vista
+      // per scadenza: il "Non pianificato" è trasversale)
+      const newAnno = overrides.anno !== undefined ? overrides.anno : dragged.anno
       const newQuarter = overrides.quarter !== undefined ? overrides.quarter : dragged.quarter
       const newStato = overrides.stato !== undefined ? overrides.stato : dragged.stato
       const seq = scopeIds.filter(id => id !== draggedId)
@@ -954,12 +979,14 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       seq.splice(idx, 0, draggedId)
 
       const groupIds = seq.filter(id => {
-        const it = id === draggedId ? { ...dragged, quarter: newQuarter } : byId.get(id)
-        return it && it.progettoId === dragged.progettoId && it.anno === dragged.anno && (it.quarter ?? '') === (newQuarter ?? '')
+        const it = id === draggedId ? { ...dragged, anno: newAnno, quarter: newQuarter } : byId.get(id)
+        return it && it.progettoId === dragged.progettoId && it.anno === newAnno && (it.quarter ?? '') === (newQuarter ?? '')
       })
       const patches = groupIds.map((id, i) => ({ id, ordine: i }))
       patches.forEach(p => {
-        const body = p.id === draggedId ? { ordine: p.ordine, quarter: newQuarter || null, stato: newStato } : { ordine: p.ordine }
+        const body = p.id === draggedId
+          ? { ordine: p.ordine, anno: newAnno, quarter: newQuarter || null, stato: newStato }
+          : { ordine: p.ordine }
         fetch(`${API_URL}/api/roadmap-items/${p.id}/posizione`, {
           method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(body),
         }).catch(() => {})
@@ -967,7 +994,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       return prev.map(it => {
         const p = patches.find(pp => pp.id === it.id)
         if (!p) return it
-        return it.id === draggedId ? { ...it, ordine: p.ordine, quarter: newQuarter, stato: newStato } : { ...it, ordine: p.ordine }
+        return it.id === draggedId
+          ? { ...it, ordine: p.ordine, anno: newAnno, quarter: newQuarter, stato: newStato }
+          : { ...it, ordine: p.ordine }
       })
     })
   }, [token])
@@ -990,7 +1019,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
     reorderAndPersist(listaRows.map(r => r.id), draggedId, targetId)
   }
 
-  const onCardDrop = (columnItems: RoadmapItem[], targetId: string | null, overrides: { quarter?: string; stato?: string }) => {
+  const onCardDrop = (columnItems: RoadmapItem[], targetId: string | null, overrides: { anno?: number; quarter?: string; stato?: string }) => {
     const draggedId = dragIdRef.current
     dragIdRef.current = null
     // Ripristino subito qui (oltre che su dragend): dopo un drop andato a buon
@@ -1067,9 +1096,12 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       ?? statiList.find(s => !s.isArchiviato)?.chiave
       ?? statiList[0]?.chiave
       ?? 'DA_FARE'
-    // Anno di default: l'anno selezionato se il filtro ne isola esattamente
-    // uno, altrimenti l'anno corrente.
-    const defaultAnno = filterAnno.length === 1 ? parseInt(filterAnno[0], 10) : new Date().getFullYear()
+    // Anno di default: nella vista per scadenza l'anno navigato, altrimenti
+    // l'anno selezionato se il filtro ne isola esattamente uno, altrimenti
+    // l'anno corrente.
+    const defaultAnno = isScadenza
+      ? boardAnno
+      : filterAnno.length === 1 ? parseInt(filterAnno[0], 10) : new Date().getFullYear()
     setForm({ ...emptyForm(defaultAnno), stato })
     setFormErr(null); setModal('add')
   }
@@ -1154,21 +1186,23 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   // ── Render ────────────────────────────────────────────────
 
   // Etichetta anno per sottotitolo/empty state.
-  const annoLabel = filterAnno.length === 0 ? 'tutti gli anni' : [...filterAnno].sort().join(', ')
+  const annoLabel = isScadenza
+    ? `${boardAnno} + non pianificato`
+    : filterAnno.length === 0 ? 'tutti gli anni' : [...filterAnno].sort().join(', ')
 
   return (
     <div className="rm-page">
       <div className="rm-topbar">
         <div>
           <h1 className="rm-title">Roadmap Prodotti</h1>
-          <p className="rm-subtitle">{loading ? '' : `${displayItems.length} attività · ${annoLabel}`}</p>
+          <p className="rm-subtitle">{loading ? '' : `${viewItems.length} attività · ${annoLabel}`}</p>
         </div>
         {/* L'export è disponibile anche in sola lettura (es. DevHub): fuori dal
             blocco !readOnly, che resta solo per "Nuova attività". */}
         <div className="rm-topbar-actions">
           <button className="rm-btn rm-btn--ghost" type="button"
-            disabled={loading || displayItems.length === 0}
-            onClick={() => exportCSV(displayItems, { prodottoById, pmById, statiMap, statiAttivitaMap })}
+            disabled={loading || viewItems.length === 0}
+            onClick={() => exportCSV(viewItems, { prodottoById, pmById, statiMap, statiAttivitaMap })}
             title="Esporta le attività filtrate come file CSV/Excel">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="16" height="16" aria-hidden="true">
               <path d="M10 3v9M6 8l4 4 4-4M4 16h12" strokeLinecap="round" strokeLinejoin="round" />
@@ -1202,12 +1236,16 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
           </button>
         </div>
 
-        <MultiSelect
-          label="Tutti gli anni"
-          options={anni.map(a => ({ id: String(a), label: String(a) }))}
-          value={filterAnno}
-          onChange={setFilterAnno}
-        />
+        {/* Nella vista per scadenza l'anno si naviga dal cappello dei trimestri:
+            il filtro qui sarebbe un doppione. */}
+        {!isScadenza && (
+          <MultiSelect
+            label="Tutti gli anni"
+            options={anni.map(a => ({ id: String(a), label: String(a) }))}
+            value={filterAnno}
+            onChange={setFilterAnno}
+          />
+        )}
         <MultiSelect
           label="Tutti i prodotti"
           options={prodotti.map(p => ({ id: p.id, label: p.nome }))}
@@ -1253,7 +1291,112 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
 
       {loading ? (
         <div className="rm-loading">{Array.from({ length: 4 }, (_, i) => <div key={i} className="rm-skeleton" />)}</div>
-      ) : displayItems.length === 0 ? (
+      ) : isScadenza ? (
+        // La board per scadenza si disegna sempre (anche vuota): serve a
+        // navigare gli anni e a ricevere i drop nei trimestri liberi.
+        <div className="rm-board rm-board--scadenza">
+          {(() => {
+            const backlogItems = [...viewItems].filter(i => !i.quarter).sort(byDeadlineAsc)
+            const annoItems = viewItems.filter(i => i.quarter)
+            return (
+              <>
+                <div className="rm-year-group rm-year-group--backlog">
+                  <div className="rm-year-head rm-year-head--muted">
+                    <span className="rm-year-label rm-year-label--muted">Tutti gli anni</span>
+                  </div>
+                  <div className="rm-year-cols">
+                    <div className="rm-col"
+                      onDragOver={readOnly ? undefined : e => e.preventDefault()}
+                      onDrop={readOnly ? undefined : () => onCardDrop(backlogItems, null, { quarter: '' })}>
+                      <div className="rm-col-head">
+                        <span className="rm-col-label">Non pianificato</span>
+                        <span className="rm-col-count">{backlogItems.length}</span>
+                      </div>
+                      <div className="rm-col-body">
+                        {backlogItems.map(item => (
+                          <RoadmapCard key={item.id} item={item} secondary="stato" statiMap={statiMap}
+                            po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
+                            readOnly={readOnly}
+                            dragging={draggingId === item.id}
+                            onDragStart={() => onCardDragStart(item.id)}
+                            onDragEnd={() => setDraggingId(null)}
+                            onDrop={() => onCardDrop(backlogItems, item.id, { quarter: '' })}
+                            onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
+                            attivitaBadge={attivitaBadgeFor(item)}
+                            {...presaProps(item)} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rm-year-group">
+                  {/* Freccioline + anno sono l'unico contenuto in flusso e stanno
+                      sempre nella stessa posizione: conteggio e "torna all'anno
+                      corrente" sono ancorati ai bordi, così non spostano nulla
+                      quando compaiono o cambiano larghezza. */}
+                  <div className="rm-year-head">
+                    <span className="rm-year-total">{annoItems.length} pianificate</span>
+                    <button type="button" className="rm-year-nav" aria-label={`Vai al ${boardAnno - 1}`}
+                      title={`${boardAnno - 1}`} onClick={() => setBoardAnno(a => a - 1)}>
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
+                        <path d="M12 5l-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    <span className="rm-year-label">{boardAnno}</span>
+                    <button type="button" className="rm-year-nav" aria-label={`Vai al ${boardAnno + 1}`}
+                      title={`${boardAnno + 1}`} onClick={() => setBoardAnno(a => a + 1)}>
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
+                        <path d="M8 5l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    {boardAnno !== currentYear && (
+                      <button type="button" className="rm-year-today" onClick={() => setBoardAnno(currentYear)}
+                        title={`Torna all'anno corrente (${currentYear})`}>
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="13" height="13" aria-hidden="true">
+                          <rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8h13M7 3v3M13 3v3" strokeLinecap="round" />
+                        </svg>
+                        {currentYear}
+                      </button>
+                    )}
+                  </div>
+                  <div className="rm-year-cols">
+                    {QUARTERS.filter(q => q.key).map(col => {
+                      const colItems = [...viewItems]
+                        .filter(i => (i.quarter ?? '') === col.key)
+                        .sort(byDeadlineAsc)
+                      return (
+                        <div key={col.key} className="rm-col"
+                          onDragOver={readOnly ? undefined : e => e.preventDefault()}
+                          onDrop={readOnly ? undefined : () => onCardDrop(colItems, null, { anno: boardAnno, quarter: col.key })}>
+                          <div className="rm-col-head">
+                            <span className="rm-col-label">{col.label}</span>
+                            <span className="rm-col-count">{colItems.length}</span>
+                          </div>
+                          <div className="rm-col-body">
+                            {colItems.map(item => (
+                              <RoadmapCard key={item.id} item={item} secondary="stato" statiMap={statiMap}
+                                po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
+                                readOnly={readOnly}
+                                dragging={draggingId === item.id}
+                                onDragStart={() => onCardDragStart(item.id)}
+                                onDragEnd={() => setDraggingId(null)}
+                                onDrop={() => onCardDrop(colItems, item.id, { anno: boardAnno, quarter: col.key })}
+                                onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
+                                attivitaBadge={attivitaBadgeFor(item)}
+                                {...presaProps(item)} />
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </>
+            )
+          })()}
+        </div>
+      ) : viewItems.length === 0 ? (
         <div className="rm-empty">
           <svg viewBox="0 0 48 48" fill="none" width="48" height="48" aria-hidden="true">
             <path d="M6 30h8l6-16 8 28 6-16h8" stroke="#CBD5E1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -1366,38 +1509,6 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
               ))}
             </tbody>
           </table>
-        </div>
-      ) : view === 'kanban-trimestre' ? (
-        <div className="rm-board">
-          {QUARTERS.map(col => {
-            const colItems = [...displayItems]
-              .filter(i => (i.quarter ?? '') === col.key)
-              .sort(byDeadlineAsc)
-            return (
-              <div key={col.key || 'backlog'} className="rm-col"
-                onDragOver={readOnly ? undefined : e => e.preventDefault()}
-                onDrop={readOnly ? undefined : () => onCardDrop(colItems, null, { quarter: col.key })}>
-                <div className="rm-col-head">
-                  <span className="rm-col-label">{col.label}</span>
-                  <span className="rm-col-count">{colItems.length}</span>
-                </div>
-                <div className="rm-col-body">
-                  {colItems.map(item => (
-                    <RoadmapCard key={item.id} item={item} secondary="stato" statiMap={statiMap}
-                      po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
-                      readOnly={readOnly}
-                      dragging={draggingId === item.id}
-                      onDragStart={() => onCardDragStart(item.id)}
-                      onDragEnd={() => setDraggingId(null)}
-                      onDrop={() => onCardDrop(colItems, item.id, { quarter: col.key })}
-                      onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
-                      attivitaBadge={attivitaBadgeFor(item)}
-                      {...presaProps(item)} />
-                  ))}
-                </div>
-              </div>
-            )
-          })}
         </div>
       ) : statiList.length === 0 ? (
         <div className="rm-empty">
