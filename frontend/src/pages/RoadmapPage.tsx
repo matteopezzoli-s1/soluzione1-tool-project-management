@@ -546,11 +546,14 @@ function RoadmapCard({ item, secondary, statiMap, po, readOnly, dragging, onDrag
   // lo stato è guidato dall'attività.
   const locked = item.attivitaId !== null
   const canDrag = !readOnly && !locked
+  // dragover NON fermato: bolla alla colonna, che così resta evidenziata anche
+  // mentre il puntatore passa sopra le card. Il drop invece sì: sulla card
+  // inserisce prima di lei, sulla colonna accoda in fondo.
   return (
     <div className={`rm-card${dragging ? ' rm-card--dragging' : ''}`} draggable={canDrag}
       onDragStart={canDrag ? onDragStart : undefined}
       onDragEnd={canDrag ? onDragEnd : undefined}
-      onDragOver={readOnly ? undefined : e => { e.preventDefault(); e.stopPropagation() }}
+      onDragOver={readOnly ? undefined : e => { e.preventDefault() }}
       onDrop={readOnly ? undefined : e => { e.stopPropagation(); onDrop(e) }}>
       <div className="rm-card-head">
         <span className="rm-card-prod">
@@ -864,6 +867,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
   // Card attualmente trascinata: nascosta nella colonna d'origine, così il
   // trascinamento non sembra una copia (stesso comportamento del Presale).
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  // Colonna sotto il puntatore durante il drag: evidenziata, così si vede dove
+  // finirà la card prima di rilasciarla.
+  const [dropCol, setDropCol] = useState<string | null>(null)
 
   const pmById = useMemo(() => new Map(pms.map(p => [p.id, p])), [pms])
   const prodottoById = useMemo(() => new Map(prodotti.map(p => [p.id, p])), [prodotti])
@@ -1025,6 +1031,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
     // Ripristino subito qui (oltre che su dragend): dopo un drop andato a buon
     // fine la card d'origine viene smontata e il suo dragend può non scattare.
     setDraggingId(null)
+    setDropCol(null)
     if (!draggedId) return
     // Workflow sul kanban stati: fra gli stati di pianificazione il movimento è
     // libero (anche saltando colonne), niente completato a mano, niente "in
@@ -1039,6 +1046,33 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       }
     }
     reorderAndPersist(columnItems.map(i => i.id), draggedId, targetId, overrides)
+  }
+
+  const endDrag = () => { setDraggingId(null); setDropCol(null) }
+
+  // Un drop di stato che il workflow rifiuterebbe (stessi controlli di
+  // onCardDrop): la colonna si evidenzia come "non consentita" invece di
+  // promettere uno spostamento che poi non avviene.
+  const statoDropRifiutato = (colChiave: string) => {
+    const dragged = items.find(i => i.id === draggingId)
+    if (!dragged || dragged.stato === colChiave) return false
+    return dragged.attivitaId !== null || completatoChiavi.has(colChiave) || colChiave === RETIRED_STATO
+  }
+
+  // Handler comuni alle colonne: evidenziano la colonna sotto il puntatore.
+  // dragleave arriva anche passando su una card figlia, quindi si ignora finché
+  // il puntatore resta dentro la colonna.
+  const colHighlightProps = (key: string) => readOnly ? {} : {
+    onDragEnter: () => setDropCol(key),
+    onDragLeave: (e: React.DragEvent) => {
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+      setDropCol(prev => prev === key ? null : prev)
+    },
+  }
+
+  const colClass = (key: string, rifiutato = false) => {
+    if (dropCol !== key || !draggingId) return 'rm-col'
+    return `rm-col ${rifiutato ? 'rm-col--drop-no' : 'rm-col--drop'}`
   }
 
   // ── Presa in carico (item → attività, sezione Prodotti interni) ────────────
@@ -1310,8 +1344,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                     <span className="rm-year-label rm-year-label--muted">Tutti gli anni</span>
                   </div>
                   <div className="rm-year-cols">
-                    <div className="rm-col"
+                    <div className={colClass('backlog')}
                       onDragOver={readOnly ? undefined : e => e.preventDefault()}
+                      {...colHighlightProps('backlog')}
                       onDrop={readOnly ? undefined : () => onCardDrop(backlogItems, null, { quarter: '' })}>
                       <div className="rm-col-head">
                         <span className="rm-col-label">Non pianificato</span>
@@ -1324,7 +1359,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                             readOnly={readOnly}
                             dragging={draggingId === item.id}
                             onDragStart={() => onCardDragStart(item.id)}
-                            onDragEnd={() => setDraggingId(null)}
+                            onDragEnd={endDrag}
                             onDrop={() => onCardDrop(backlogItems, item.id, { quarter: '' })}
                             onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
                             attivitaBadge={attivitaBadgeFor(item)}
@@ -1371,8 +1406,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                         .filter(i => (i.quarter ?? '') === col.key)
                         .sort(byDeadlineAsc)
                       return (
-                        <div key={col.key} className="rm-col"
+                        <div key={col.key} className={colClass(col.key)}
                           onDragOver={readOnly ? undefined : e => e.preventDefault()}
+                          {...colHighlightProps(col.key)}
                           onDrop={readOnly ? undefined : () => onCardDrop(colItems, null, { anno: boardAnno, quarter: col.key })}>
                           <div className="rm-col-head">
                             <span className="rm-col-label">{col.label}</span>
@@ -1385,7 +1421,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                                 readOnly={readOnly}
                                 dragging={draggingId === item.id}
                                 onDragStart={() => onCardDragStart(item.id)}
-                                onDragEnd={() => setDraggingId(null)}
+                                onDragEnd={endDrag}
                                 onDrop={() => onCardDrop(colItems, item.id, { anno: boardAnno, quarter: col.key })}
                                 onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
                                 attivitaBadge={attivitaBadgeFor(item)}
@@ -1531,8 +1567,9 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
               .filter(i => i.stato === col.chiave)
               .sort(byDeadlineAsc)
             return (
-              <div key={col.chiave} className="rm-col"
+              <div key={col.chiave} className={colClass(col.chiave, statoDropRifiutato(col.chiave))}
                 onDragOver={readOnly ? undefined : e => e.preventDefault()}
+                {...colHighlightProps(col.chiave)}
                 onDrop={readOnly ? undefined : () => onCardDrop(colItems, null, { stato: col.chiave })}>
                 <div className="rm-col-head">
                   <span className="rm-col-label">{col.label}</span>
@@ -1545,7 +1582,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       readOnly={readOnly}
                       dragging={draggingId === item.id}
                       onDragStart={() => onCardDragStart(item.id)}
-                      onDragEnd={() => setDraggingId(null)}
+                      onDragEnd={endDrag}
                       onDrop={() => onCardDrop(colItems, item.id, { stato: col.chiave })}
                       onOpen={() => openItem(item)} onDelete={() => setDelTarget(item)}
                       attivitaBadge={attivitaBadgeFor(item)}
