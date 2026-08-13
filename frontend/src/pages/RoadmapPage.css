@@ -36,7 +36,10 @@
 
 /* ── Toolbar ───────────────────────────────────────────────── */
 
-.rm-toolbar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+/* Due righe fisse: viste + tendine sopra, ricerca e "mostra completati" sotto
+   (posizione stabile, non dipende da quanto scorre il wrap della prima riga) */
+.rm-toolbar { display: flex; flex-direction: column; align-items: stretch; gap: 0.6rem; }
+.rm-toolbar-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .rm-view-toggle {
   display: flex; border: 1.5px solid #E2E8F0; border-radius: 10px; overflow: hidden;
 }
