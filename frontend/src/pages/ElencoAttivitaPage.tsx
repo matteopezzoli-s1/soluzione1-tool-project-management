@@ -1183,43 +1183,51 @@ function GroupCard({ group, expanded, readOnly, onToggle, onSelectItem, onEditIt
         </div>
 
         <div className="ea-group-header-stats">
-          <div className="ea-group-stat">
-            <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleVendute)}</span>
-            <span className="ea-group-stat-lbl">Vendute</span>
-          </div>
-          {isBucket && (
-            <div className="ea-group-stat">
-              <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleFatturate)}</span>
-              <span className="ea-group-stat-lbl">Fatturate</span>
-            </div>
-          )}
-          <div className="ea-group-stat">
-            <span className="ea-group-stat-val ea-group-stat-val--mono">
-              {fmt(group.totaleConsuntivate)}
-            </span>
-            <span className="ea-group-stat-lbl">Consuntivate</span>
-          </div>
-          {isBucket ? (
-            <div className="ea-group-stat">
-              <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleResiduoDaFatturare)}</span>
-              <span className="ea-group-stat-lbl">Residuo da fatturare</span>
-            </div>
-          ) : (
+          {/* Sezione "Prodotti": niente somme economiche. Sono attività a
+              investimento, quindi vendute è sempre 0 e delta/margine misurano
+              solo il budget interno — numeri fuorvianti accanto a quelli dei
+              clienti. Restano stato prevalente e conteggio. */}
+          {!group.interno && (
             <>
               <div className="ea-group-stat">
-                <span className={`ea-group-stat-val ea-group-stat-val--mono ${delta < 0 ? 'ea-group-stat-val--red' : delta > 0 ? 'ea-group-stat-val--green' : ''}`}>
-                  {delta >= 0 ? `+${fmt(delta)}` : fmt(delta)}
+                <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleVendute)}</span>
+                <span className="ea-group-stat-lbl">Vendute</span>
+              </div>
+              {isBucket && (
+                <div className="ea-group-stat">
+                  <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleFatturate)}</span>
+                  <span className="ea-group-stat-lbl">Fatturate</span>
+                </div>
+              )}
+              <div className="ea-group-stat">
+                <span className="ea-group-stat-val ea-group-stat-val--mono">
+                  {fmt(group.totaleConsuntivate)}
                 </span>
-                <span className="ea-group-stat-lbl">Delta</span>
+                <span className="ea-group-stat-lbl">Consuntivate</span>
               </div>
+              {isBucket ? (
+                <div className="ea-group-stat">
+                  <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleResiduoDaFatturare)}</span>
+                  <span className="ea-group-stat-lbl">Residuo da fatturare</span>
+                </div>
+              ) : (
+                <>
+                  <div className="ea-group-stat">
+                    <span className={`ea-group-stat-val ea-group-stat-val--mono ${delta < 0 ? 'ea-group-stat-val--red' : delta > 0 ? 'ea-group-stat-val--green' : ''}`}>
+                      {delta >= 0 ? `+${fmt(delta)}` : fmt(delta)}
+                    </span>
+                    <span className="ea-group-stat-lbl">Delta</span>
+                  </div>
 
-              <div className="ea-group-progress-wrap">
-                <MargineDisplay vendute={budgetTot} consuntivate={group.totaleConsuntivate} />
-              </div>
-
-              <StatoBadge stato={statoPrev} />
+                  <div className="ea-group-progress-wrap">
+                    <MargineDisplay vendute={budgetTot} consuntivate={group.totaleConsuntivate} />
+                  </div>
+                </>
+              )}
             </>
           )}
+
+          {!isBucket && <StatoBadge stato={statoPrev} />}
 
           <span className="ea-group-count">{group.attivita.length} att.</span>
 
@@ -1284,39 +1292,44 @@ function ClienteGroupCard({ group, expanded, readOnly, onToggle, onSelectItem, o
         </div>
 
         <div className="ea-group-header-stats">
-          <div className="ea-group-stat">
-            <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleVendute)}</span>
-            <span className="ea-group-stat-lbl">Vendute</span>
-          </div>
-          {isBucket && (
-            <div className="ea-group-stat">
-              <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleFatturate)}</span>
-              <span className="ea-group-stat-lbl">Fatturate</span>
-            </div>
-          )}
-          <div className="ea-group-stat">
-            <span className="ea-group-stat-val ea-group-stat-val--mono">
-              {fmt(group.totaleConsuntivate)}
-            </span>
-            <span className="ea-group-stat-lbl">Consuntivate</span>
-          </div>
-          {isBucket ? (
-            <div className="ea-group-stat">
-              <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleResiduoDaFatturare)}</span>
-              <span className="ea-group-stat-lbl">Residuo da fatturare</span>
-            </div>
-          ) : (
+          {/* Sezione "Prodotti": niente somme economiche (vedi GroupCard) */}
+          {!group.interno && (
             <>
               <div className="ea-group-stat">
-                <span className={`ea-group-stat-val ea-group-stat-val--mono ${delta < 0 ? 'ea-group-stat-val--red' : delta > 0 ? 'ea-group-stat-val--green' : ''}`}>
-                  {delta >= 0 ? `+${fmt(delta)}` : fmt(delta)}
+                <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleVendute)}</span>
+                <span className="ea-group-stat-lbl">Vendute</span>
+              </div>
+              {isBucket && (
+                <div className="ea-group-stat">
+                  <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleFatturate)}</span>
+                  <span className="ea-group-stat-lbl">Fatturate</span>
+                </div>
+              )}
+              <div className="ea-group-stat">
+                <span className="ea-group-stat-val ea-group-stat-val--mono">
+                  {fmt(group.totaleConsuntivate)}
                 </span>
-                <span className="ea-group-stat-lbl">Delta</span>
+                <span className="ea-group-stat-lbl">Consuntivate</span>
               </div>
+              {isBucket ? (
+                <div className="ea-group-stat">
+                  <span className="ea-group-stat-val ea-group-stat-val--mono">{fmt(group.totaleResiduoDaFatturare)}</span>
+                  <span className="ea-group-stat-lbl">Residuo da fatturare</span>
+                </div>
+              ) : (
+                <>
+                  <div className="ea-group-stat">
+                    <span className={`ea-group-stat-val ea-group-stat-val--mono ${delta < 0 ? 'ea-group-stat-val--red' : delta > 0 ? 'ea-group-stat-val--green' : ''}`}>
+                      {delta >= 0 ? `+${fmt(delta)}` : fmt(delta)}
+                    </span>
+                    <span className="ea-group-stat-lbl">Delta</span>
+                  </div>
 
-              <div className="ea-group-progress-wrap">
-                <MargineDisplay vendute={budgetTot} consuntivate={group.totaleConsuntivate} />
-              </div>
+                  <div className="ea-group-progress-wrap">
+                    <MargineDisplay vendute={budgetTot} consuntivate={group.totaleConsuntivate} />
+                  </div>
+                </>
+              )}
             </>
           )}
 

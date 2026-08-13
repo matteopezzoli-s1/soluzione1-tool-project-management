@@ -535,17 +535,22 @@ interface RoadmapCardProps {
   // Card in trascinamento: sparisce dalla colonna d'origine (come nel Presale)
   dragging?: boolean
   onDragStart: () => void; onDragEnd: () => void; onDrop: (e: React.DragEvent) => void; onOpen: () => void; onDelete: () => void
+  // Drag bloccato: lo decide la board. Sul kanban stati un drag CAMBIA lo stato,
+  // quindi gli item già presi in carico (stato guidato dall'attività) non si
+  // muovono; sul kanban per scadenza sposta solo anno/trimestre, che è
+  // pianificazione e resta modificabile anche mentre l'attività è in corso.
+  dragLocked?: boolean
   // Presa in carico (o conversione dei legacy "in corso"): mostrato solo dove ha senso
   presaLabel?: string; onPresaInCarico?: () => void
   // Stato reale dell'attività collegata (item preso in carico)
   attivitaBadge?: { label: string; colore: string } | null
 }
 
-function RoadmapCard({ item, secondary, statiMap, po, readOnly, dragging, onDragStart, onDragEnd, onDrop, onOpen, onDelete, presaLabel, onPresaInCarico, attivitaBadge }: RoadmapCardProps) {
-  // Item preso in carico (attività collegata): non trascinabile né eliminabile,
-  // lo stato è guidato dall'attività.
+function RoadmapCard({ item, secondary, statiMap, po, readOnly, dragging, onDragStart, onDragEnd, onDrop, onOpen, onDelete, dragLocked, presaLabel, onPresaInCarico, attivitaBadge }: RoadmapCardProps) {
+  // Item preso in carico (attività collegata): non eliminabile, lo stato è
+  // guidato dall'attività.
   const locked = item.attivitaId !== null
-  const canDrag = !readOnly && !locked
+  const canDrag = !readOnly && !dragLocked
   // dragover NON fermato: bolla alla colonna, che così resta evidenziata anche
   // mentre il puntatore passa sopra le card. Il drop invece sì: sulla card
   // inserisce prima di lei, sulla colonna accoda in fondo.
@@ -1358,6 +1363,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                             po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
                             readOnly={readOnly}
                             dragging={draggingId === item.id}
+                            dragLocked={false}
                             onDragStart={() => onCardDragStart(item.id)}
                             onDragEnd={endDrag}
                             onDrop={() => onCardDrop(backlogItems, item.id, { quarter: '' })}
@@ -1420,6 +1426,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                                 po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
                                 readOnly={readOnly}
                                 dragging={draggingId === item.id}
+                                dragLocked={false}
                                 onDragStart={() => onCardDragStart(item.id)}
                                 onDragEnd={endDrag}
                                 onDrop={() => onCardDrop(colItems, item.id, { anno: boardAnno, quarter: col.key })}
@@ -1581,6 +1588,7 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
                       po={pmById.get(prodottoById.get(item.progettoId)?.poId ?? '')}
                       readOnly={readOnly}
                       dragging={draggingId === item.id}
+                      dragLocked={item.attivitaId !== null}
                       onDragStart={() => onCardDragStart(item.id)}
                       onDragEnd={endDrag}
                       onDrop={() => onCardDrop(colItems, item.id, { stato: col.chiave })}
