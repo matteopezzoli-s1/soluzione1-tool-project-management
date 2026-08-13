@@ -1221,69 +1221,74 @@ export default function RoadmapPage({ token, readOnly }: RoadmapPageProps) {
       </div>
 
       <div className="rm-toolbar">
-        <div className="rm-view-toggle" role="tablist" aria-label="Vista roadmap">
-          <button role="tab" aria-selected={view === 'kanban-stati'} type="button"
-            className={`rm-view-btn${view === 'kanban-stati' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-stati')}>
-            Kanban per stati
-          </button>
-          <button role="tab" aria-selected={view === 'kanban-trimestre'} type="button"
-            className={`rm-view-btn${view === 'kanban-trimestre' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-trimestre')}>
-            Kanban per scadenza
-          </button>
-          <button role="tab" aria-selected={view === 'lista'} type="button"
-            className={`rm-view-btn${view === 'lista' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('lista')}>
-            Lista
-          </button>
+        <div className="rm-toolbar-row">
+          <div className="rm-view-toggle" role="tablist" aria-label="Vista roadmap">
+            <button role="tab" aria-selected={view === 'kanban-stati'} type="button"
+              className={`rm-view-btn${view === 'kanban-stati' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-stati')}>
+              Kanban per stati
+            </button>
+            <button role="tab" aria-selected={view === 'kanban-trimestre'} type="button"
+              className={`rm-view-btn${view === 'kanban-trimestre' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('kanban-trimestre')}>
+              Kanban per scadenza
+            </button>
+            <button role="tab" aria-selected={view === 'lista'} type="button"
+              className={`rm-view-btn${view === 'lista' ? ' rm-view-btn--active' : ''}`} onClick={() => setView('lista')}>
+              Lista
+            </button>
+          </div>
+
+          {/* Nella vista per scadenza l'anno si naviga dal cappello dei trimestri:
+              il filtro qui sarebbe un doppione. */}
+          {!isScadenza && (
+            <MultiSelect
+              label="Tutti gli anni"
+              options={anni.map(a => ({ id: String(a), label: String(a) }))}
+              value={filterAnno}
+              onChange={setFilterAnno}
+            />
+          )}
+          <MultiSelect
+            label="Tutti i prodotti"
+            options={prodotti.map(p => ({ id: p.id, label: p.nome }))}
+            value={filterProdotto}
+            onChange={setFilterProdotto}
+          />
+          <MultiSelect
+            label="Tutti i trimestri"
+            options={QUARTERS.map(q => ({ id: q.key, label: q.label }))}
+            value={filterQuarter}
+            onChange={setFilterQuarter}
+          />
+          <MultiSelect
+            label="Tutti gli stati"
+            options={statiList.map(s => ({ id: s.chiave, label: s.label }))}
+            value={filterStato}
+            onChange={setFilterStato}
+          />
+          <MultiSelect
+            label="Tutti i tag"
+            options={tags.map(t => ({ id: t.id, label: t.label }))}
+            value={filterTag}
+            onChange={setFilterTag}
+          />
+          <MultiSelect
+            label="Tutti i DevHub"
+            options={devHubs.map(d => ({ id: d.id, label: poFullName(d) }))}
+            value={filterDevHub}
+            onChange={setFilterDevHub}
+          />
         </div>
 
-        {/* Nella vista per scadenza l'anno si naviga dal cappello dei trimestri:
-            il filtro qui sarebbe un doppione. */}
-        {!isScadenza && (
-          <MultiSelect
-            label="Tutti gli anni"
-            options={anni.map(a => ({ id: String(a), label: String(a) }))}
-            value={filterAnno}
-            onChange={setFilterAnno}
-          />
-        )}
-        <MultiSelect
-          label="Tutti i prodotti"
-          options={prodotti.map(p => ({ id: p.id, label: p.nome }))}
-          value={filterProdotto}
-          onChange={setFilterProdotto}
-        />
-        <MultiSelect
-          label="Tutti i trimestri"
-          options={QUARTERS.map(q => ({ id: q.key, label: q.label }))}
-          value={filterQuarter}
-          onChange={setFilterQuarter}
-        />
-        <MultiSelect
-          label="Tutti gli stati"
-          options={statiList.map(s => ({ id: s.chiave, label: s.label }))}
-          value={filterStato}
-          onChange={setFilterStato}
-        />
-        <MultiSelect
-          label="Tutti i tag"
-          options={tags.map(t => ({ id: t.id, label: t.label }))}
-          value={filterTag}
-          onChange={setFilterTag}
-        />
-        <MultiSelect
-          label="Tutti i DevHub"
-          options={devHubs.map(d => ({ id: d.id, label: poFullName(d) }))}
-          value={filterDevHub}
-          onChange={setFilterDevHub}
-        />
-        <input className="rm-input rm-filter rm-filter--search" type="text" placeholder="Cerca titolo…"
-          value={search} onChange={e => setSearch(e.target.value)} />
-        {completatiNascosti > 0 && (
-          <button type="button" className={`rm-btn rm-btn--ghost rm-btn--completati${showCompletati ? ' rm-btn--completati-on' : ''}`}
-            onClick={() => setShowCompletati(v => !v)} aria-pressed={showCompletati}>
-            {showCompletati ? 'Nascondi completati' : `Mostra completati (${completatiNascosti})`}
-          </button>
-        )}
+        <div className="rm-toolbar-row">
+          <input className="rm-input rm-filter rm-filter--search" type="text" placeholder="Cerca titolo…"
+            value={search} onChange={e => setSearch(e.target.value)} />
+          {completatiNascosti > 0 && (
+            <button type="button" className={`rm-btn rm-btn--ghost rm-btn--completati${showCompletati ? ' rm-btn--completati-on' : ''}`}
+              onClick={() => setShowCompletati(v => !v)} aria-pressed={showCompletati}>
+              {showCompletati ? 'Nascondi completati' : `Mostra completati (${completatiNascosti})`}
+            </button>
+          )}
+        </div>
       </div>
 
       {dragHint && <p className="rm-drag-hint" role="status">{dragHint}</p>}
