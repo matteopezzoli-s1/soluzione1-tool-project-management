@@ -97,6 +97,11 @@ const STATO_EFFETTIVA = 'DA_INIZIARE'
 // Niente creazione, niente avanzamento oltre Stima, niente conferma finale.
 const DEVHUB_PRESALE_STATI = ['PRESALE_APERTURA', 'PRESALE_PRESA_CARICO', 'PRESALE_STIMA']
 
+// Fasi in cui la "stima desiderata entro" non si mostra più sulla card: la
+// stima è già stata prodotta, quindi la sua scadenza non è più un'informazione
+// utile (resta nella scheda, sulla fase Analisi iniziale che la definisce).
+const PRESALE_STATI_SENZA_SCADENZA = ['PRESALE_STIMA', 'PRESALE_GIORNATE']
+
 // Fasi presale opzionali: possono essere saltate avanzando/spostando le card.
 // "Presa in carico" resta come colonna, ma da "Analisi iniziale" si può passare
 // direttamente a "Stima" (avanzamento e drag & drop che la scavalcano).
@@ -984,6 +989,7 @@ function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, d
   onConfirm?: () => void
   onSendMail: () => void
 }) {
+  const mostraScadenza = !!item.presaleScadenzaStima && !PRESALE_STATI_SENZA_SCADENZA.includes(item.stato)
   return (
     <div
       className={`ps-card${dragging ? ' ps-card--dragging' : ''}`}
@@ -1007,11 +1013,11 @@ function PresaleCard({ item, accent, nextLabel, isLast, mailSent, mailSending, d
         {item.presaleAssegnatario && <span className="ps-tag ps-tag--dev">{item.presaleAssegnatario}</span>}
         {item.projectManager && <span className="ps-tag">{item.projectManager}</span>}
       </div>
-      {(item.presaleGiornateStimate !== null || item.giornateVendute !== null || item.presaleScadenzaStima) && (
+      {(item.presaleGiornateStimate !== null || item.giornateVendute !== null || mostraScadenza) && (
         <div className="ps-card-foot">
           {item.presaleGiornateStimate !== null && <span title="Giornate stimate">≈ {fmtNum(item.presaleGiornateStimate)}gg</span>}
           {item.giornateVendute !== null && <span title="Giornate vendute">✓ {fmtNum(item.giornateVendute)}gg</span>}
-          {item.presaleScadenzaStima && <span className="ps-card-deadline" title="Stima desiderata entro">🎯 {fmtDate(item.presaleScadenzaStima)}</span>}
+          {mostraScadenza && <span className="ps-card-deadline" title="Stima desiderata entro">🎯 {fmtDate(item.presaleScadenzaStima)}</span>}
         </div>
       )}
       <div className="ps-card-mail" onClick={e => e.stopPropagation()}>

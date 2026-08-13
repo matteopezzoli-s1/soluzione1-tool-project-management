@@ -27,6 +27,8 @@ interface StatoConfigItem {
 // attività: nell'elenco si mostrano come un unico "Presale (fase)" e nel filtro
 // come un'unica voce ombrello con questa chiave sentinella.
 const PRESALE_FILTER_KEY = '__PRESALE__'
+// Viola del gruppo Presale: usato per la voce aggregata del filtro (che non ha
+// una fase dietro) e come fallback se una fase non ha colore in anagrafica
 const PRESALE_COLORE = '#7C3AED'
 
 // Context per la mappa chiave→config (evita prop-drilling nei subcomponenti)
@@ -274,7 +276,9 @@ function StatoBadge({ stato, bucket }: { stato: StatoAttivita; bucket?: boolean 
     label = 'Presale'; colore = PRESALE_COLORE
   } else if (cfg?.isPresale) {
     // Attività nata da pre-sale: un unico "Presale" con la fase tra parentesi.
-    label = `Presale (${cfg.label})`; colore = PRESALE_COLORE
+    // Il colore è quello della fase in anagrafica (come sulla board Presale),
+    // non un viola fisso: così le fasi si distinguono anche qui.
+    label = `Presale (${cfg.label})`; colore = cfg.colore || PRESALE_COLORE
   } else {
     label = cfg?.label ?? stato
     colore = cfg?.colore ?? '#94a3b8'
