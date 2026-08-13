@@ -192,6 +192,8 @@ const ROLE_META: Record<Role, { label: string; className: string }> = {
 interface JwtUser {
   name?: string
   email?: string
+  // Foto del profilo Google, messa nel token al login (claim `picture`)
+  picture?: string
   roles?: Role[]
 }
 
@@ -233,6 +235,9 @@ export default function App() {
   const [fetchedRoles, setFetchedRoles] = useState<{ token: string; roles: Role[] } | null>(null)
   const [fetchedAuth, setFetchedAuth] = useState<{ token: string; status: 'authorized' | 'unauthorized' } | null>(null)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  // La foto Google può non caricare (URL scaduto, rete, blocco del browser):
+  // in quel caso si torna alle iniziali invece di lasciare un buco.
+  const [avatarBroken, setAvatarBroken] = useState(false)
 
   const handleLogin  = (t: string) => setToken(t)
   const handleLogout = () => {
@@ -375,7 +380,17 @@ export default function App() {
                 title={user?.name ?? user?.email}
                 onClick={() => setUserMenuOpen((o) => !o)}
               >
-                {getInitials(user)}
+                {user?.picture && !avatarBroken ? (
+                  <img
+                    className="db-avatar-img"
+                    src={user.picture}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    onError={() => setAvatarBroken(true)}
+                  />
+                ) : (
+                  getInitials(user)
+                )}
               </button>
 
               {userMenuOpen && (

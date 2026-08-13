@@ -304,7 +304,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       const users = await c.get('prisma').user.findMany({
         where,
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }, { name: 'asc' }],
-        select: { id: true, firstName: true, lastName: true, name: true, email: true, roles: true },
+        select: { id: true, firstName: true, lastName: true, name: true, email: true, avatarUrl: true, roles: true },
       })
       return c.json(users)
     } catch (err) {

@@ -22,6 +22,8 @@ interface UserItem {
   lastName:  string | null
   name:      string | null
   email:     string | null
+  // Foto del profilo Google, salvata al login: null per chi è solo anagrafica
+  avatarUrl: string | null
   roles:     Role[]
 }
 
@@ -47,8 +49,25 @@ function initialsOf(u: { firstName: string | null; lastName: string | null; name
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
+// Foto Google se l'utente ha già fatto login almeno una volta, iniziali per chi
+// esiste solo come anagrafica (o se l'immagine non carica).
 function Avatar({ user }: { user: UserItem }) {
-  return <span className="ut-avatar" aria-hidden="true">{initialsOf(user)}</span>
+  const [broken, setBroken] = useState(false)
+  if (!user.avatarUrl || broken) {
+    return <span className="ut-avatar" aria-hidden="true">{initialsOf(user)}</span>
+  }
+  return (
+    <span className="ut-avatar" aria-hidden="true">
+      <img
+        className="ut-avatar-img"
+        src={user.avatarUrl}
+        alt=""
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(true)}
+      />
+    </span>
+  )
 }
 
 // ─── Role chips (sola visualizzazione) ───────────────────────────────────────

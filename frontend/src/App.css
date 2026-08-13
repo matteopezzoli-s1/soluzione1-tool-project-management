@@ -248,6 +248,17 @@
   user-select: none;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(13, 148, 136, 0.28);
+  overflow: hidden;
+  padding: 0;
+}
+
+/* Foto Google: riempie il cerchio, il gradiente resta come sfondo di fallback
+   (visibile mentre l'immagine carica o se non arriva). */
+.db-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 /* ── User menu (dropdown ruoli) ────────────────────────────── */
