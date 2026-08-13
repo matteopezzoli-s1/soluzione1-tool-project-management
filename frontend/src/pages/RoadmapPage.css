@@ -21,8 +21,10 @@
 
 /* ── Page ──────────────────────────────────────────────────── */
 
+/* 1400px come ElencoAttivitaPage (la pagina più larga del progetto): serve alla
+   board per scadenza, che con "Non pianificato" + Q1..Q4 chiede ~1260px */
 .rm-page {
-  flex: 1; padding: 2rem 1.75rem; max-width: 1200px; width: 100%; margin: 0 auto;
+  flex: 1; padding: 2rem 1.75rem; max-width: 1400px; width: 100%; margin: 0 auto;
   display: flex; flex-direction: column; gap: 1.25rem;
   animation: rm-fade-up 0.35s ease both;
   font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
@@ -204,6 +206,50 @@
   background: #F8FAFC; border: 1px dashed #E2E8F0; border-radius: 14px;
   padding: 0.5rem; min-height: 60px;
 }
+
+/* ── Vista "Kanban per scadenza": cappello anno ──────────────
+   Q1..Q4 stanno sotto un unico cappello (l'anno, navigabile con le
+   freccioline); il "Non pianificato" è un gruppo a sé, trasversale. */
+
+.rm-board--scadenza { gap: 1.1rem; }
+.rm-year-group { display: flex; flex-direction: column; gap: 0.5rem; }
+/* Solo freccioline + anno stanno nel flusso (e l'anno ha larghezza fissa a 4
+   cifre): la freccia non si sposta mai fra un anno e l'altro. Totale e "torna
+   all'anno corrente" sono ancorati ai bordi. */
+.rm-year-head {
+  position: relative;
+  display: flex; align-items: center; justify-content: center; gap: 0.45rem;
+  min-height: 36px; padding: 0.25rem 0.5rem;
+  background: #F1F5F9; border: 1px solid #E2E8F0; border-radius: 10px;
+}
+.rm-year-total {
+  position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%);
+  font-size: 0.72rem; font-weight: 600; color: #94A3B8; white-space: nowrap;
+}
+/* Cappello del backlog: stessa altezza (le colonne restano allineate) ma senza peso visivo */
+.rm-year-head--muted { background: transparent; border-color: transparent; }
+.rm-year-label {
+  font-size: 0.95rem; font-weight: 800; color: #0F172A; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; min-width: 3.4ch; text-align: center;
+}
+.rm-year-label--muted { font-size: 0.78rem; font-weight: 600; color: #94A3B8; letter-spacing: 0; }
+.rm-year-nav {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
+  background: #fff; border: 1px solid #E2E8F0; color: #64748B;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.rm-year-nav:hover { background: #0D9488; border-color: #0D9488; color: #fff; }
+.rm-year-today {
+  position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  font-family: inherit; font-size: 0.7rem; font-weight: 700; color: #0D9488;
+  background: #fff; border: 1px solid #99F6E4; border-radius: 999px;
+  padding: 0.2rem 0.5rem; cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.rm-year-today:hover { background: #F0FDFA; border-color: #0D9488; }
+.rm-year-cols { display: flex; gap: 0.85rem; align-items: flex-start; }
 .rm-card {
   background: #fff; border: 1px solid #E2E8F0; border-radius: 12px;
   padding: 0.6rem 0.7rem; cursor: grab; display: flex; flex-direction: column; gap: 0.4rem;
