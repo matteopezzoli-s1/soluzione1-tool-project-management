@@ -10,6 +10,7 @@ import {
 import { importCSV } from './services/importService'
 import {
   GO_CODE_RE,
+  ZohoApiError,
   fetchConsuntiviProgetto,
   listZohoProjects,
   type ZohoConfig,
@@ -2924,7 +2925,11 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json({ projects: projects.map((p) => ({ ...p, selected: selected.has(p.id) })) })
     } catch (err) {
       console.error('[zoho] GET projects error:', err)
-      return c.json({ error: 'Errore nel recupero dei progetti da Zoho' }, 502)
+      // Gli errori Zoho "spiegati" (scope, rate limit, HTTP) arrivano fino
+      // all'utente: la causa è operativa e nasconderla allunga solo la diagnosi.
+      return c.json({
+        error: err instanceof ZohoApiError ? err.message : 'Errore nel recupero dei progetti da Zoho',
+      }, 502)
     }
   })
 
@@ -2951,7 +2956,9 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       return c.json(await fetchConsuntiviProgetto(cfg, c.req.param('projectId')))
     } catch (err) {
       console.error('[zoho] consuntivi error:', err)
-      return c.json({ error: 'Errore nel recupero dei consuntivi da Zoho' }, 502)
+      return c.json({
+        error: err instanceof ZohoApiError ? err.message : 'Errore nel recupero dei consuntivi da Zoho',
+      }, 502)
     }
   })
 
