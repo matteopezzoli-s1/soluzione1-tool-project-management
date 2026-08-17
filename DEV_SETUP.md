@@ -25,7 +25,7 @@ Verifica: `docker ps` deve mostrare `s1-tpm-db` in stato `Up`.
 ```bash
 cd backend && npm run dev
 ```
-Il comando usa `dotenv -e .env -- nodemon src/index.ts`.  
+Il comando usa `dotenv -e .env -- nodemon src/server.ts`.  
 Verifica: il log deve stampare:
 ```
 [tpm] Backend → http://localhost:8080
@@ -52,8 +52,34 @@ GOOGLE_CLIENT_ID="<vedi Google Cloud Console>"
 GOOGLE_CLIENT_SECRET="<vedi Google Cloud Console>"
 FRONTEND_URL=http://localhost:5173
 BACKEND_URL=http://localhost:8080
+
+# Import consuntivi da Zoho Projects (senza, le route /api/zoho/* danno 503)
+ZOHO_CLIENT_ID="<Zoho API Console → Self Client>"
+ZOHO_CLIENT_SECRET="<Zoho API Console → Self Client>"
+ZOHO_REFRESH_TOKEN="<vedi sotto>"
+ZOHO_PORTAL_ID="20080726048"
+ZOHO_ACCOUNTS_URL=https://accounts.zoho.eu
+ZOHO_PROJECTS_API_URL=https://projectsapi.zoho.eu
 ```
 > **ATTENZIONE**: `BACKEND_URL` deve essere `http://localhost:8080` — è l'URL usato per costruire il callback OAuth Google. Cambiarlo rompe il login.
+
+> Dopo ogni modifica a `backend/.env` va **riavviato** il dev server: `dotenv-cli` legge il file solo all'avvio e nodemon non lo rilegge.
+
+#### Refresh token Zoho (datacenter EU)
+
+Il token porta con sé gli scope fissati al momento della generazione: per cambiarli va rifatto. Servono tutti e cinque — l'API v3 ricava la milestone dal timelog con la catena log → task → tasklist → phase, e senza `tasks.READ` l'import risponde `401 INVALID_OAUTHSCOPE`.
+
+1. [api-console.zoho.eu](https://api-console.zoho.eu) → Self Client esistente → **Generate Code**, scope:
+   ```
+   ZohoProjects.projects.READ,ZohoProjects.tasklists.READ,ZohoProjects.milestones.READ,ZohoProjects.timesheets.READ,ZohoProjects.tasks.READ
+   ```
+   Durata 10 minuti, poi copia il grant code (usabile una volta sola).
+2. Scambialo con il refresh token:
+   ```bash
+   cd backend && CODE='<grant code>' && set -a && . ./.env && set +a && curl -s -X POST "https://accounts.zoho.eu/oauth/v2/token" -d grant_type=authorization_code -d client_id="$ZOHO_CLIENT_ID" -d client_secret="$ZOHO_CLIENT_SECRET" -d code="$CODE"
+   ```
+   Nella risposta controlla che `scope` contenga tutti e cinque, poi metti `refresh_token` in `ZOHO_REFRESH_TOKEN`.
+3. In produzione lo stesso valore va caricato come secret del Worker: `npx wrangler secret put ZOHO_REFRESH_TOKEN --env production`.
 
 ### `frontend/.env.local`
 ```

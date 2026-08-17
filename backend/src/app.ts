@@ -2904,7 +2904,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // Selezione dei progetti da importare + preview della diff. La conferma
   // riusa PATCH /api/attivita/bulk-consuntivato. Il download dei consuntivi
   // è per-progetto: il frontend itera sui progetti selezionati (rate limit
-  // Zoho + limiti subrequest Workers — vedi zohoService.ts).
+  // Zoho + limiti subrequest Workers — vedi zohoService.ts, API v3).
 
   const ZOHO_SELECTION_KEY = 'zoho_selected_projects'
 
@@ -2943,7 +2943,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     return c.json({ selectedIds: ids })
   })
 
-  // Consuntivi di UN progetto Zoho: {codes: [{code, ore}], mesiScansionati}
+  // Consuntivi di UN progetto Zoho: {codes: [{code, ore, mesi}], chiamate}
   hono.post('/api/zoho/consuntivi/:projectId', requireAuth(), requireRole('BOARD', 'PM', 'ACCOUNT'), async (c) => {
     const cfg = c.get('config').zoho
     if (!cfg) return c.json({ error: 'Integrazione Zoho non configurata (variabili ZOHO_* mancanti)' }, 503)
