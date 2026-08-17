@@ -61,9 +61,9 @@ async function getAccessToken(cfg: ZohoConfig): Promise<string> {
       refresh_token: cfg.refreshToken,
     }),
   })
-  if (!res.ok) throw new Error(`Zoho OAuth: HTTP ${res.status}`)
+  if (!res.ok) throw new ZohoApiError(`Zoho OAuth: HTTP ${res.status} — refresh token non valido o revocato`)
   const data = (await res.json()) as { access_token?: string; expires_in?: number; error?: string }
-  if (!data.access_token) throw new Error(`Zoho OAuth: ${data.error ?? 'access_token mancante'}`)
+  if (!data.access_token) throw new ZohoApiError(`Zoho OAuth: ${data.error ?? 'access_token mancante'}`)
 
   tokenCache.set(cfg.refreshToken, {
     token: data.access_token,
@@ -81,6 +81,17 @@ async function getAccessToken(cfg: ZohoConfig): Promise<string> {
 // restano numerici).
 function parseZohoJSON<T>(text: string): T {
   return JSON.parse(text.replace(/:\s*(\d{16,})(\s*[,}\]])/g, ':"$1"$2')) as T
+}
+
+// Errore con un messaggio già scritto per chi usa l'app (scope mancante, rate
+// limit, HTTP di Zoho). Le route lo propagano in chiaro invece del generico
+// "errore nel recupero da Zoho": la causa è quasi sempre operativa (un secret
+// da aggiornare), e nasconderla costa solo tempo di diagnosi.
+export class ZohoApiError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ZohoApiError'
+  }
 }
 
 interface ZohoErrorBody {
@@ -102,16 +113,16 @@ async function zohoGet<T>(cfg: ZohoConfig, path: string): Promise<T | null> {
     // milestone, e l'import non può funzionare. Messaggio esplicito perché la
     // soluzione è operativa (rigenerare il token), non di codice.
     if (res.status === 401 && title === 'INVALID_OAUTHSCOPE') {
-      throw new Error(
+      throw new ZohoApiError(
         'Zoho: scope OAuth insufficiente. Il refresh token va rigenerato includendo ' +
         'ZohoProjects.tasks.READ (oltre a projects/tasklists/milestones/timesheets.READ).',
       )
     }
     if (res.status === 429) {
       const retry = res.headers.get('retry-after')
-      throw new Error(`Zoho: rate limit superato${retry ? `, riprovare fra ${retry}s` : ''}`)
+      throw new ZohoApiError(`Zoho: rate limit superato${retry ? `, riprovare fra ${retry}s` : ''}`)
     }
-    throw new Error(`Zoho API ${path.split('?')[0]}: HTTP ${res.status}${title ? ` ${title}` : ''}`)
+    throw new ZohoApiError(`Zoho API ${path.split('?')[0]}: HTTP ${res.status}${title ? ` ${title}` : ''}`)
   }
   const text = await res.text()
   if (!text.trim()) return null
