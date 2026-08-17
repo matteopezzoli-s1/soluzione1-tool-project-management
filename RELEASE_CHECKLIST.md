@@ -77,6 +77,21 @@ HAVING COUNT(*) > 1;
 `VITE_GOOGLE_API_KEY` (senza: i bottoni Drive non compaiono, degradazione pulita).
 Secrets Worker (Zoho, JWT, Google OAuth): `cd backend && npx wrangler secret list --env production`.
 
+**0.6-bis Refresh token Zoho con lo scope nuovo** — ⛔ **STOP se saltato**: l'import
+consuntivi è passato alle API v3, che ricavano la milestone con la catena
+log → task → tasklist → phase e quindi richiedono **`ZohoProjects.tasks.READ`**,
+scope che il token in produzione non ha (gli scope si fissano alla generazione).
+Senza questo passo la pagina Consuntivi Zoho carica ma ogni import fallisce con
+"scope OAuth insufficiente". Il token nuovo è già in uso in locale: caricalo sul
+Worker **prima** del merge su `main` (il vecchio resta valido, non si rompe nulla
+nel frattempo):
+
+```bash
+cd backend && npx wrangler secret put ZOHO_REFRESH_TOKEN --env production
+```
+
+Procedura completa per rigenerarlo: `DEV_SETUP.md` → "Refresh token Zoho".
+
 **0.7 Fotografa i KPI.** Screenshot del riepilogo dell'elenco attività e della
 dashboard in prod: dopo il deploy i numeri devono essere **identici**
 (i Prodotti interni non esistono ancora, l'esclusione dai KPI non cambia nulla).
@@ -125,6 +140,12 @@ SELECT COUNT(*) FROM attivita WHERE roadmap_item_id IS NOT NULL;
       "Prodotti interni" nell'elenco, la card resta in In corso col badge stato
 - [ ] Contratti Assistenza: la pagina carica, banner scadenze ok
 - [ ] Consuntivi Zoho: la pagina carica (se 503 → secrets `ZOHO_*` mancanti sul Worker)
+- [ ] Consuntivi Zoho: avvia un import di **preview** su 1-2 progetti e **fermati
+      prima di confermare** — deve arrivare alla diff senza errori (se compare
+      "scope OAuth insufficiente" → è saltato lo 0.6-bis, il Worker ha ancora il
+      token vecchio). Atteso: molto più veloce di prima (~10s per l'intero
+      portale) e **alcuni totali più alti** delle giornate già in DB: è la
+      correzione del troncamento a 100 log/mese della v2, non un errore
 - [ ] Impostazioni → stati roadmap/attività/contratti visibili e corretti
 - [ ] ⚠️ Presale: NON usare "Salva e invia mail" per testare — manda mail vere
       via SAIOT (visibilità comunque limitata dall'allowlist)
@@ -143,6 +164,12 @@ SELECT COUNT(*) FROM attivita WHERE roadmap_item_id IS NOT NULL;
 - Lo stato **Standby è stato dismesso** (gli item parcheggiati sono in Backlog)
 - I completati sono **nascosti di default** (toggle per mostrarli)
 - Ogni PM vede **un solo PM per attività** (era già così nei dati)
+- **Import Zoho: alcune giornate consuntivate salgono.** L'import girava sulle API
+  v2, che senza `index`/`range` tagliano la risposta a **100 timelog per mese e
+  progetto**: i mesi più carichi erano importati per difetto (es. Sacbo, maggio
+  2026: 137,08 h invece di 138,58 h). Le v3 paginano e non perdono nulla, quindi al
+  primo import quei totali si alzano — è una correzione, non un doppio conteggio.
+  Chi ha già fatturato su quei numeri va avvisato
 
 ---
 
