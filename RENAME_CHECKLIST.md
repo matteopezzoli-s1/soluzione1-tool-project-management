@@ -1,5 +1,7 @@
 # Rename Checklist — S1 Gantt → Tool Project Management (TPM)
 
+> ✅ **DOCUMENTO STORICO — rebrand completato.** Attenzione: alcune note su infrastruttura e CI/CD (es. "CI/CD è Google Cloud Build", "risorse GCP esistenti") fotografano lo stato di allora e **non sono più valide**. Oggi lo stack è su Cloudflare (Workers + Pages) con CI/CD via GitHub Actions. Per lo stack corrente vedi `README.md` e `CI_CD_SETUP.md`.
+
 Elenco di ogni occorrenza testuale del vecchio naming trovata nel repo. **Nessun file è stato modificato** — questo documento serve solo a censire il lavoro prima di eseguirlo.
 
 Ricerca eseguita su tutto il repo escludendo `node_modules`, `.git`, `dist`, `build`, `generated/` e `.claude/worktrees/*` (worktree effimeri di altre sessioni agent, non fanno parte del contenuto versionato da rinominare).

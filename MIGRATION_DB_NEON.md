@@ -1,5 +1,7 @@
 # Migrazione database: GCP Cloud SQL → Neon Postgres
 
+> ✅ **DOCUMENTO STORICO — migrazione completata.** Lo stack attuale è interamente su Cloudflare (backend su Workers, frontend su Pages, DB su Neon via Hyperdrive). GCP (Cloud Run / Cloud SQL / Secret Manager) **non è più in uso**: questa guida è conservata solo come traccia di come sono stati migrati i dati. Per lo stack corrente vedi `README.md` e `CI_CD_SETUP.md`.
+
 Guida passo-passo per migrare i dati da Cloud SQL (istanza `soluzione1-progetti-interni:europe-west1:s1-progetti-interni`) a Neon, in preparazione della migrazione completa backend/frontend a Cloudflare Workers.
 
 **Tutti i comandi in questo documento vanno eseguiti manualmente da te.** Nessuno script qui viene lanciato automaticamente. Cloud Run/Cloud SQL restano attivi e invariati finché non confermi che i dati su Neon sono corretti.
