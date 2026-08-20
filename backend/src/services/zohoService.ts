@@ -9,10 +9,10 @@
 // Rispetto alla v2 (EOL 31/12/2026) il costo in chiamate cala di ~3× grazie a
 // tre cose: i timelog si scaricavano solo per finestre mensili (una chiamata
 // per mese, anche per i mesi vuoti) mentre la v3 accetta finestre di 6 mesi
-// paginate a 200 record; la mappa tasklist→milestone e le date delle phase si
-// prendono una volta sola per tutto il portale (5 chiamate condivise, vedi
-// getPortalMaps) invece che progetto per progetto; i task si filtrano
-// server-side sulle sole tasklist con codice GO. Il preview resta orchestrato
+// paginate a 200 record; la mappa tasklist→milestone si prende una volta sola
+// per tutto il portale (poche chiamate condivise, vedi getPortalMaps) invece
+// che progetto per progetto; i task si filtrano server-side sulle sole
+// tasklist con codice GO. Il preview resta orchestrato
 // dal frontend un progetto per volta (limiti di subrequest su Cloudflare
 // Workers e rate limit Zoho di 200 richieste/2min per endpoint).
 //
@@ -33,8 +33,14 @@ export interface ZohoConfig {
 // GO-ORPR (ordine di produzione), ecc. — qualsiasi GO-OR<2 lettere>-YYYY-N.
 export const GO_CODE_RE = /GO-OR[A-Z]{2}-\d{4}-\d+/
 
-// Oltre questa finestra non scansioniamo: protegge da milestone con date
-// d'inizio errate (es. anno sbagliato) che farebbero esplodere le chiamate.
+// Quanto indietro scansioniamo i timelog, sempre: le date delle phase non
+// sono utilizzabili come inizio della finestra. In Zoho sono amministrative
+// (spesso start = end = un solo giorno, fissato a ordine acquisito) e i log
+// le precedono di mesi: partire dalla phase più vecchia del progetto tagliava
+// fuori quasi tutto il consuntivato — es. GO-ORDV-2025-228 (Tigros), phase al
+// 2025-12-19, 224h loggate da luglio a novembre 2025, di cui ne rientravano 7.
+// Le ore si attribuiscono al codice via tasklist→milestone, mai per data:
+// allargare la finestra può solo aggiungere log corretti, non log spuri.
 const MAX_MONTHS = 36
 // Massimo consentito dalla v3 su tutti gli endpoint di lista.
 const PER_PAGE = 200
@@ -129,8 +135,8 @@ async function zohoGet<T>(cfg: ZohoConfig, path: string): Promise<T | null> {
   return parseZohoJSON<T>(text)
 }
 
-// `page_info` è a volte un oggetto e a volte un array di un elemento
-// (es. /phases), e `has_next_page` può arrivare come booleano o come stringa.
+// `page_info` è a volte un oggetto e a volte un array di un elemento (dipende
+// dall'endpoint), e `has_next_page` arriva come booleano o come stringa.
 function hasNextPage(data: unknown): boolean {
   const raw = (data as { page_info?: unknown })?.page_info
   const info = (Array.isArray(raw) ? raw[0] : raw) as { has_next_page?: unknown } | undefined
@@ -189,12 +195,12 @@ export async function listZohoProjects(cfg: ZohoConfig): Promise<ZohoProject[]> 
 }
 
 // ── Mappe di portale (condivise fra i progetti di uno stesso import) ───────
-// Sia le tasklist sia le phase si possono leggere per tutto il portale in
-// poche chiamate (200 record/pagina), invece di una coppia di chiamate per
-// progetto. Siccome il frontend importa un progetto per richiesta, le mappe
-// stanno in cache a livello di modulo con un TTL breve: durante un import le
-// paga solo il primo progetto, e se l'isolate Workers viene riciclato al
-// massimo si rifanno 5 chiamate.
+// Le tasklist si leggono per tutto il portale in poche chiamate (200
+// record/pagina), invece di una chiamata per progetto. Siccome il frontend
+// importa un progetto per richiesta, la mappa sta in cache a livello di
+// modulo con un TTL breve: durante un import la paga solo il primo progetto,
+// e se l'isolate Workers viene riciclato al massimo si rifanno quelle poche
+// chiamate.
 
 const PORTAL_MAPS_TTL_MS = 10 * 60 * 1000
 
@@ -202,8 +208,6 @@ interface PortalMaps {
   scadenza: number
   // progetto → (tasklist → nome della milestone, solo quelle con codice GO)
   goTasklists: Map<string, Map<string, string>>
-  // progetto → inizio della phase GO più vecchia (timestamp)
-  inizioGo: Map<string, number>
 }
 
 const portalMapsCache = new Map<string, PortalMaps>()
@@ -211,12 +215,6 @@ const portalMapsCache = new Map<string, PortalMaps>()
 interface ZohoAllTasklistRow {
   id: string | number
   milestone?: { name?: string }
-  project?: { id?: string | number }
-}
-
-interface ZohoAllPhaseRow {
-  name?: string
-  start_date?: string
   project?: { id?: string | number }
 }
 
@@ -240,24 +238,7 @@ async function getPortalMaps(cfg: ZohoConfig, stats: { chiamate: number }): Prom
     goTasklists.set(String(progetto), perProgetto)
   }
 
-  const phases = await fetchPaged<ZohoAllPhaseRow>(
-    cfg,
-    (page) => `/phases?page=${page}&per_page=${PER_PAGE}`,
-    (d) => (d as { milestones?: ZohoAllPhaseRow[] }).milestones ?? [],
-    stats,
-  )
-  const inizioGo = new Map<string, number>()
-  for (const m of phases) {
-    const progetto = m.project?.id
-    if (!m.name || progetto === undefined || !GO_CODE_RE.test(m.name) || !m.start_date) continue
-    const ts = Date.parse(m.start_date)
-    if (!isFinite(ts)) continue
-    const key = String(progetto)
-    const attuale = inizioGo.get(key)
-    if (attuale === undefined || ts < attuale) inizioGo.set(key, ts)
-  }
-
-  const maps: PortalMaps = { scadenza: Date.now() + PORTAL_MAPS_TTL_MS, goTasklists, inizioGo }
+  const maps: PortalMaps = { scadenza: Date.now() + PORTAL_MAPS_TTL_MS, goTasklists }
   portalMapsCache.set(cfg.portalId, maps)
   return maps
 }
@@ -329,20 +310,16 @@ export async function fetchConsuntiviProgetto(
   const stats = { chiamate: 0 }
 
   // 1. mappe di portale (condivise, in cache): tasklist con codice GO del
-  //    progetto e inizio della sua phase GO più vecchia. Un progetto senza
-  //    codici GO non costa più nessuna chiamata dedicata.
+  //    progetto. Un progetto senza codici GO non costa più nessuna chiamata
+  //    dedicata.
   const maps = await getPortalMaps(cfg, stats)
   const msNameByTasklist = maps.goTasklists.get(projectId)
   if (!msNameByTasklist || msNameByTasklist.size === 0) return { codes: [], chiamate: stats.chiamate }
 
-  // 2. inizio scansione = start della phase (milestone) GO più vecchia, meno
-  //    un mese di margine (log registrati prima dell'avvio formale)
-  const earliest = maps.inizioGo.get(projectId) ?? Date.now()
+  // 2. inizio scansione = MAX_MONTHS mesi fa, sempre (vedi MAX_MONTHS: le
+  //    date delle phase non delimitano il periodo in cui si è lavorato)
   const now = new Date()
-  const from = new Date(earliest)
-  let cursor = new Date(from.getFullYear(), from.getMonth() - 1, 1)
-  const minStart = new Date(now.getFullYear(), now.getMonth() - (MAX_MONTHS - 1), 1)
-  if (cursor < minStart) cursor = minStart
+  const cursor = new Date(now.getFullYear(), now.getMonth() - (MAX_MONTHS - 1), 1)
 
   // 3. task → tasklist: in v3 il timelog espone solo il task, quindi serve la
   //    mappa dei task per chiudere la catena verso la milestone. Servono solo
