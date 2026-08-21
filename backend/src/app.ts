@@ -2834,7 +2834,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       }
 
       const nonTrovati = cleanIds.filter((id) => !sorgenti.some((s) => s.id === id))
-      return c.json({ creati: creati.length, saltati, nonTrovati }, creati.length > 0 ? 201 : 200)
+      // `creati` esce come lista di coppie, non come conteggio: al frontend
+      // serve `sorgenteId` per copiare il documento Drive del sorgente sul
+      // clone corrispondente.
+      return c.json({ creati, saltati, nonTrovati }, creati.length > 0 ? 201 : 200)
     } catch (err) {
       console.error('[contratti] clona-massivo error:', err)
       return c.json({ error: 'Errore nella clonazione massiva dei contratti' }, 500)

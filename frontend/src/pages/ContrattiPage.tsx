@@ -1371,6 +1371,16 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
         creati: Array<{ id: string; sorgenteId: string }>
         saltati: Array<{ titolo: string; cliente: string; motivo: string }>
       }
+      // I contratti a questo punto sono già stati creati: se la risposta non
+      // ha la forma attesa non si può dire "errore di rete" (il catch in
+      // fondo direbbe proprio quello) — si ricarica e si dice cosa è mancato.
+      if (!Array.isArray(esito.creati)) {
+        setBulkOpen(false); setSelected(new Set())
+        await fetchAll(); setFAnno(anno)
+        setBulkNotice(`Contratti clonati sul ${anno}, ma la risposta del server non ha la forma attesa: `
+          + 'la copia dei documenti su Drive è stata saltata.')
+        return
+      }
 
       // Copia dei documenti: una per contratto, in sequenza (ogni copia sono
       // più chiamate Drive). Il progresso finisce sul bottone perché su molte
