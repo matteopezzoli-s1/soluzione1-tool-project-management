@@ -222,6 +222,29 @@
 .cl-confirm-sub  { font-size: 0.82rem; color: #94A3B8; }
 .cl-confirm-warn { font-size: 0.82rem; color: #B45309; }
 
+/* ── Spinner / stato occupato ──────────────────────────────── */
+
+@keyframes cl-spin { to { transform: rotate(360deg); } }
+
+.cl-spinner { animation: cl-spin 0.8s linear infinite; flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) { .cl-spinner { animation-duration: 2.4s; } }
+
+.cl-busy {
+  display: flex; align-items: center; gap: 0.5rem;
+  background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 10px;
+  padding: 0.6rem 0.8rem; font-size: 0.8rem; color: #075985; line-height: 1.45;
+}
+.cl-busy .cl-spinner { color: #0284C7; }
+
+/* ── Scelta Drive in creazione ─────────────────────────────── */
+
+.cl-check {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.85rem; color: #374151; font-weight: 500; cursor: pointer;
+}
+.cl-check input { accent-color: #0D9488; width: 16px; height: 16px; cursor: pointer; }
+.cl-drive-pick { display: flex; flex-direction: column; gap: 0.35rem; }
+
 /* ── Sezione Drive nel modal ───────────────────────────────── */
 
 .cl-drive { border-top: 1px solid #E5E7EB; padding-top: 0.85rem; margin-top: 0.25rem; }

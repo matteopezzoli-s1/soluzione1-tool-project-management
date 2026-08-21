@@ -74,6 +74,9 @@ declare global {
             client_id: string
             scope: string
             callback: (resp: { access_token?: string; error?: string }) => void
+            // Invocata quando il popup non si apre o viene chiuso: senza di
+            // essa `callback` non arriva mai e la Promise resta pending.
+            error_callback?: (err: { type?: string; message?: string }) => void
           }) => { requestAccessToken: (opts?: { prompt?: string }) => void }
         }
       }
@@ -143,21 +146,35 @@ function ensurePickerLoaded(): Promise<void> {
   return pickerReady
 }
 
+// Motivo di un errore, senza punteggiatura finale: va incastonato in frasi
+// più lunghe ("… non è stata collegata: <motivo>. Collegala dalla modifica.")
+// e altrimenti si ottengono doppi punti.
+export function driveErrorReason(e: unknown): string {
+  const msg = e instanceof Error ? e.message : 'errore'
+  return msg.replace(/[.\s]+$/, '')
+}
+
 // ── Token OAuth (scope drive.file) ──────────────────────────────────────────
 // Il token vive in memoria per la sessione di pagina; Google mostra il popup
 // di consenso solo la prima volta per utente/scope.
 
 let cachedToken: { value: string; expiresAt: number } | null = null
 
+// Oltre questa attesa il consenso si considera non arrivato: il popup può
+// essere stato soppresso senza che GIS emetta alcun evento.
+const TOKEN_TIMEOUT_MS = 120_000
+
 function getAccessToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt) {
     return Promise.resolve(cachedToken.value)
   }
   return new Promise((resolve, reject) => {
+    let done = false
+    const settle = (fn: () => void) => { if (!done) { done = true; fn() } }
     const client = window.google!.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
       scope: DRIVE_SCOPE,
-      callback: (resp) => {
+      callback: (resp) => settle(() => {
         if (resp.error || !resp.access_token) {
           reject(new Error(resp.error ?? 'Autorizzazione Drive negata'))
           return
@@ -165,9 +182,21 @@ function getAccessToken(): Promise<string> {
         // Margine di 5 minuti sulla scadenza standard (1h)
         cachedToken = { value: resp.access_token, expiresAt: Date.now() + 55 * 60 * 1000 }
         resolve(resp.access_token)
-      },
+      }),
+      // Popup bloccato dal browser o chiuso dall'utente: `callback` non
+      // arriverebbe mai e chi attende resterebbe appeso per sempre.
+      error_callback: (err) => settle(() => reject(new Error(
+        err.type === 'popup_failed_to_open'
+          ? 'Il popup di autorizzazione Google è stato bloccato dal browser: consenti i popup per questo sito e riprova.'
+          : 'Autorizzazione Google Drive non completata.'
+      ))),
     })
     client.requestAccessToken({ prompt: '' })
+    // Rete di sicurezza: se GIS non richiama né callback né error_callback
+    // (popup soppresso senza evento), non lasciamo l'attesa senza esito.
+    setTimeout(() => settle(() => reject(new Error(
+      'Autorizzazione Google Drive scaduta senza risposta: riprova, e verifica che i popup siano consentiti.'
+    ))), TOKEN_TIMEOUT_MS)
   })
 }
 

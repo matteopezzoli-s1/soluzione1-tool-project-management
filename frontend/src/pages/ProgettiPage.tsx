@@ -6,6 +6,7 @@ import {
   findFolderInDriveByName, findFolderByTrimmedName, ensureChildFolder, moveDriveFolder,
   extractDriveFolderId, driveFolderUrl,
   PRODOTTI_FOLDER_NAME, GESTIONE_FOLDER_NAME, type DriveTreeNode,
+  driveErrorReason,
 } from '../lib/googleDrive'
 
 // Nomi delle cartelle-radice dell'archiviazione dentro il Drive Sviluppo.
@@ -94,6 +95,29 @@ function StatoBadge({ stato, statiMap }: { stato: StatoProgetto; statiMap: Map<s
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
+// ─── Spinner ──────────────────────────────────────────────────────────────────
+// La creazione dell'alberatura è la parte lenta (una chiamata Drive per
+// cartella, in sequenza): senza un segnale visibile il modal sembra bloccato.
+
+function Spinner() {
+  return (
+    <svg className="pr-spinner" viewBox="0 0 24 24" fill="none" width="15" height="15" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+type SavePhase = null | 'saving' | 'drive'
+
+const PHASE_LABEL: Record<'saving' | 'drive', string> = {
+  saving: 'Salvataggio…',
+  drive:  'Creazione cartelle su Drive…',
+}
+
+// Cartella scelta a mano quando si rinuncia alla creazione dell'alberatura.
+interface DriveScelta { id: string; url: string; nome: string }
+
 interface DriveSectionState {
   folderId: string | null
   folderUrl: string | null
@@ -106,13 +130,20 @@ interface ModalProps {
   clienti: ClienteOption[]; pos: PoOption[]; devHubs: DevHubOption[]; statiList: StatoProgettoConfig[]
   isEdit: boolean; drive: DriveSectionState; canPickDrive: boolean
   archiviato: boolean; archiviando: boolean
+  // Creazione: genera l'alberatura (default) o collega una cartella esistente
+  driveAuto: boolean; driveScelta: DriveScelta | null; pickingDrive: boolean
+  phase: SavePhase
+  onToggleDriveAuto: (v: boolean) => void; onPickRoot: () => void
   onLinkExisting: () => void; onCreateTree: () => void; onUnlinkDrive: () => void
   onArchivia: () => void
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
 function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, statiList,
-  isEdit, drive, canPickDrive, archiviato, archiviando, onLinkExisting, onCreateTree, onUnlinkDrive, onArchivia,
+  isEdit, drive, canPickDrive, archiviato, archiviando,
+  driveAuto, driveScelta, pickingDrive, phase,
+  onToggleDriveAuto, onPickRoot,
+  onLinkExisting, onCreateTree, onUnlinkDrive, onArchivia,
   onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -232,11 +263,45 @@ function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, st
           <div className="pr-field pr-drive">
             <span className="pr-label">Cartella Drive</span>
             {!isEdit ? (
-              <p className="pr-drive-hint">
-                {canPickDrive
-                  ? `Alla creazione verrà generata la cartella del ${entityLabelFor(tipo)} con l'alberatura standard su Drive.`
-                  : 'Collegabile dopo il salvataggio (Picker Drive non configurato).'}
-              </p>
+              !canPickDrive ? (
+                <p className="pr-drive-hint">Collegabile dopo il salvataggio (Picker Drive non configurato).</p>
+              ) : (
+                <>
+                  <label className="pr-check">
+                    <input type="checkbox" checked={driveAuto} disabled={loading}
+                      onChange={(e) => onToggleDriveAuto(e.target.checked)} />
+                    Crea la cartella del {entityLabelFor(tipo)} con l’alberatura standard
+                  </label>
+                  {driveAuto ? (
+                    <p className="pr-drive-hint">
+                      {tipo === 'PRODOTTO'
+                        ? 'Verrà creata sotto “Prodotti” nel Drive Sviluppo al salvataggio.'
+                        : 'Verrà creata dentro la cartella Drive del cliente al salvataggio.'}
+                    </p>
+                  ) : (
+                    <div className="pr-drive-pick">
+                      <div className="pr-drive-actions">
+                        <button className="pr-btn pr-btn--ghost pr-btn--sm" type="button"
+                          onClick={onPickRoot} disabled={pickingDrive || loading}>
+                          {pickingDrive
+                            ? <><Spinner /> Apertura Drive…</>
+                            : driveScelta ? 'Cambia cartella' : `Scegli la cartella del ${entityLabelFor(tipo)}`}
+                        </button>
+                        {driveScelta && (
+                          <a className="pr-link" href={driveScelta.url} target="_blank" rel="noopener noreferrer">
+                            {driveScelta.nome} ↗
+                          </a>
+                        )}
+                      </div>
+                      {!driveScelta && (
+                        <p className="pr-field-error">
+                          Senza creazione dell’alberatura devi indicare la cartella già esistente del {entityLabelFor(tipo)}.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )
             ) : drive.folderId ? (
               <div className="pr-drive-linked">
                 <a className="pr-link" href={drive.folderUrl ?? driveFolderUrl(drive.folderId)}
@@ -258,6 +323,11 @@ function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, st
               </div>
             )}
             {drive.msg && <p className={`pr-drive-msg pr-drive-msg--${drive.msg.kind}`}>{drive.msg.text}</p>}
+            {phase === 'drive' && (
+              <p className="pr-busy" role="status">
+                <Spinner /> Sto creando le cartelle su Google Drive — può richiedere qualche secondo.
+              </p>
+            )}
           </div>
         </div>
         <div className="pr-modal-footer">
@@ -270,9 +340,12 @@ function Modal({ tipo, title, form, loading, apiError, clienti, pos, devHubs, st
             </button>
           )}
           <span className="pr-footer-spacer" />
-          <button className="pr-btn pr-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
+          {/* Durante la fase Drive resta cliccabile: è la via d'uscita se il
+              consenso Google non arriva (il progetto è già stato creato). */}
+          <button className="pr-btn pr-btn--ghost" type="button" onClick={onClose}
+            disabled={loading && phase !== 'drive'}>Annulla</button>
           <button className="pr-btn pr-btn--primary" type="button" onClick={onSave} disabled={loading}>
-            {loading ? 'Salvataggio…' : 'Salva'}
+            {phase ? <><Spinner /> {PHASE_LABEL[phase]}</> : 'Salva'}
           </button>
         </div>
       </div>
@@ -336,6 +409,12 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
   const [drive,       setDrive]       = useState<DriveSectionState>({ folderId: null, folderUrl: null, busy: false, msg: null })
   const [tree,        setTree]        = useState<DriveTreeNode[] | null>(null)
   const [archiviando, setArchiviando] = useState(false)
+  // Scelta Drive in creazione: alberatura automatica (default) oppure
+  // collegamento di una cartella esistente, in quel caso obbligatoria.
+  const [driveAuto,    setDriveAuto]    = useState(true)
+  const [driveScelta,  setDriveScelta]  = useState<DriveScelta | null>(null)
+  const [pickingDrive, setPickingDrive] = useState(false)
+  const [phase,        setPhase]        = useState<SavePhase>(null)
   const [showArchiviati, setShowArchiviati] = useState(false)
 
   const driveCfg = useDriveConfig(token)
@@ -418,6 +497,7 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
   const openAdd = () => {
     setForm(emptyForm()); setFormErr(null)
     setDrive({ folderId: null, folderUrl: null, busy: false, msg: null })
+    setDriveAuto(true); setDriveScelta(null); setPickingDrive(false); setPhase(null)
     setModal('add')
   }
   const openEdit = (p: Progetto) => {
@@ -428,6 +508,27 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
     })
     setDrive({ folderId: p.driveFolderId, folderUrl: p.driveFolderUrl, busy: false, msg: null })
     setFormErr(null); setModal('edit')
+  }
+
+  // Scelta della cartella esistente in fase di creazione: il progetto non c'è
+  // ancora, quindi si memorizza soltanto — il binding va al salvataggio.
+  // La radice del picker segue il tipo, come per il collegamento in modifica.
+  const handlePickRoot = async () => {
+    setPickingDrive(true); setFormErr(null)
+    try {
+      const rootId = tipo === 'PRODOTTO'
+        ? (driveCfg?.prodottiId || driveCfg?.devId)
+        : (clienti.find(c => c.id === form.clienteId)?.driveFolderId || driveCfg?.gestioneId || driveCfg?.devId)
+      const picked = await openDrivePicker({
+        selectFolders: true, rootId: rootId || undefined,
+        title: `Seleziona la cartella del ${entityLabel}`,
+      })
+      if (!picked) return
+      const folderId = extractDriveFolderId(picked.url) ?? picked.fileId
+      setDriveScelta({ id: folderId, url: picked.url, nome: picked.name })
+    } catch (e) {
+      setFormErr(e instanceof Error ? e.message : 'Errore Drive')
+    } finally { setPickingDrive(false) }
   }
 
   // Collega una cartella progetto esistente e risolve la sottocartella
@@ -543,7 +644,13 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
 
   const handleSave = async () => {
     if (!form.nome.trim()) { setFormErr(`Il nome del ${entityLabel} è obbligatorio.`); return }
-    setSaving(true); setFormErr(null)
+    // Rinunciando all'alberatura la cartella esistente è obbligatoria: senza
+    // binding Drive il progetto resta scollegato dai documenti.
+    if (modal === 'add' && canPickDrive && !driveAuto && !driveScelta) {
+      setFormErr(`Scegli la cartella del ${entityLabel} su Drive, oppure riattiva la creazione dell'alberatura.`)
+      return
+    }
+    setSaving(true); setPhase('saving'); setFormErr(null)
     try {
       const url    = modal === 'edit' ? `${API_URL}/progetti/${editing!.id}` : `${API_URL}/progetti`
       const method = modal === 'edit' ? 'PUT' : 'POST'
@@ -552,29 +659,41 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
         const data = await res.json().catch(() => ({}))
         setFormErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
       }
-      // Nuovo progetto/prodotto: crea l'alberatura su Drive se possibile.
-      // L'errore Drive non annulla la creazione — si segnala e resta
-      // collegabile/creabile a mano dalla modifica.
-      if (modal === 'add' && canPickDrive && tree) {
+      // Nuovo progetto/prodotto: crea l'alberatura su Drive, oppure collega
+      // la cartella scelta a mano. L'errore Drive non annulla la creazione —
+      // si segnala e resta collegabile/creabile dalla modifica.
+      // L'avviso si mostra DOPO fetchAll: il fetch azzera apiError e
+      // altrimenti il messaggio spariva senza che l'utente lo vedesse.
+      let driveWarn: string | null = null
+      const Entita = entityLabel.charAt(0).toUpperCase() + entityLabel.slice(1)
+      if (modal === 'add' && canPickDrive) {
+        setPhase('drive')
         try {
           const created = await res.json() as Progetto
-          const target = await resolveParentAndName(created)
-          if (!target) {
-            setApiError(tipo === 'PRODOTTO'
-              ? `${entityLabel} creato, ma non ho trovato la cartella "Prodotti" nel Drive Sviluppo: crea le cartelle a mano dalla modifica.`
-              : `${entityLabel} creato, ma il cliente non ha una cartella Drive collegata: collegala dai Clienti e poi crea le cartelle dalla modifica.`)
+          if (!driveAuto && driveScelta) {
+            await patchDrive(created.id, driveScelta.id, driveScelta.url)
+          } else if (!tree) {
+            driveWarn = `${Entita} creato, ma il template alberatura non era caricato: crea le cartelle dalla modifica.`
           } else {
-            const { folderId, url: fUrl } = await createDriveFolder(target.name, target.parentId)
-            await createFolderTree(tree, folderId)
-            await patchDrive(created.id, folderId, fUrl)
+            const target = await resolveParentAndName(created)
+            if (!target) {
+              driveWarn = tipo === 'PRODOTTO'
+                ? `${Entita} creato, ma non ho trovato la cartella "Prodotti" nel Drive Sviluppo: crea le cartelle a mano dalla modifica.`
+                : `${Entita} creato, ma il cliente non ha una cartella Drive collegata: collegala dai Clienti e poi crea le cartelle dalla modifica.`
+            } else {
+              const { folderId, url: fUrl } = await createDriveFolder(target.name, target.parentId)
+              await createFolderTree(tree, folderId)
+              await patchDrive(created.id, folderId, fUrl)
+            }
           }
         } catch (e) {
-          setApiError(`${entityLabel} creato, ma le cartelle Drive non sono state create: ${e instanceof Error ? e.message : 'errore'}. Crealle dalla modifica.`)
+          driveWarn = `${Entita} creato, ma le cartelle Drive non sono state collegate: ${driveErrorReason(e)}. Sistemale dalla modifica.`
         }
       }
       setModal(null); await fetchAll()
+      if (driveWarn) setApiError(driveWarn)
     } catch { setFormErr('Errore di rete. Riprova.') }
-    finally { setSaving(false) }
+    finally { setSaving(false); setPhase(null) }
   }
 
   const handleDelete = async () => {
@@ -720,6 +839,8 @@ function ProgettiSezione({ token, tipo }: ProgettiSezioneProps) {
           form={form} loading={saving} apiError={formErr} clienti={clienti} pos={pos} devHubs={devHubs}
           statiList={statiList}
           isEdit={modal === 'edit'} drive={drive} canPickDrive={canPickDrive}
+          driveAuto={driveAuto} driveScelta={driveScelta} pickingDrive={pickingDrive} phase={phase}
+          onToggleDriveAuto={setDriveAuto} onPickRoot={handlePickRoot}
           archiviato={!!editing?.archiviato} archiviando={archiviando}
           onLinkExisting={handleLinkExisting} onCreateTree={handleCreateTree} onUnlinkDrive={handleUnlinkDrive}
           onArchivia={handleArchivia}
