@@ -21,6 +21,13 @@ const TIPO_LABELS: Record<TipoContratto, string> = {
   MANUTENZIONE_AMS: 'Manutenzione + AMS',
 }
 
+// Etichette compatte per la cella "Tipo" della tabella: la label piena
+// resta nei filtri e nel modal, dove non c'è concorrenza per lo spazio.
+const TIPO_LABELS_BREVI: Record<TipoContratto, string> = {
+  MANUTENZIONE:     'Manut.',
+  MANUTENZIONE_AMS: 'Manut. + AMS',
+}
+
 const OPT_FATTURATO = [
   { value: 'si', label: 'Fatturato' },
   { value: 'no', label: 'Da fatturare' },
@@ -30,6 +37,10 @@ const optTipi = (Object.keys(TIPO_LABELS) as TipoContratto[])
   .map((t) => ({ value: t, label: TIPO_LABELS[t] }))
 
 interface UserRef { id: string; firstName: string | null; lastName: string | null; name: string | null }
+
+// L'account non è un campo del contratto: si eredita dal Cliente, e /clienti
+// ne seleziona solo id + nome/cognome (nessun `name`).
+type AccountRef = Omit<UserRef, 'name'> & { name?: string | null }
 
 // Applicazione coperta = Progetto del cliente; il suo pmRiferimento è la
 // fonte (sola lettura) del "PM" mostrato sul contratto.
@@ -49,7 +60,7 @@ interface Contratto {
 }
 
 interface StatoContratto { id: string; chiave: string; label: string; colore: string; isChiuso: boolean; ordine: number }
-interface ClienteOption { id: string; nome: string }
+interface ClienteOption { id: string; nome: string; account: AccountRef | null }
 interface ProgettoOption { id: string; nome: string; clienteId: string | null; pmRiferimento: UserRef | null }
 
 type FormData = {
@@ -79,7 +90,7 @@ function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 }
 
-function displayUser(u: UserRef | null): string {
+function displayUser(u: UserRef | AccountRef | null): string {
   if (!u) return ''
   const full = [u.firstName, u.lastName].filter(Boolean).join(' ')
   return full || u.name || ''
@@ -101,6 +112,16 @@ function fmtEur(n: number): string {
 
 function fmtData(iso: string): string {
   return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+// Periodo compatto: quando inizio e fine cadono nello stesso anno (il caso
+// normale, l'anno di competenza) l'anno si scrive solo sulla data di fine.
+function fmtGiornoMese(iso: string): string {
+  return new Date(iso).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })
+}
+
+function stessoAnno(a: string, b: string): boolean {
+  return new Date(a).getFullYear() === new Date(b).getFullYear()
 }
 
 const MS_DAY = 86_400_000
@@ -919,6 +940,10 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
   const [contratti, setContratti] = useState<Contratto[]>([])
   const [stati, setStati]         = useState<StatoContratto[]>([])
   const [clienti, setClienti]     = useState<ClienteOption[]>([])
+  // Anagrafica completa di PM e Account: le opzioni dei filtri devono
+  // elencare tutti i ruoli, non solo quelli già usati sui contratti.
+  const [pmUsers, setPmUsers]           = useState<UserRef[]>([])
+  const [accountUsers, setAccountUsers] = useState<UserRef[]>([])
   const [progetti, setProgetti]   = useState<ProgettoOption[]>([])
   const [costoMedio, setCostoMedio]   = useState<number | null>(null)
   const [loading, setLoading]     = useState(true)
@@ -933,6 +958,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
   const [fTipo, setFTipo]       = useState<string[]>([])
   const [fCliente, setFCliente] = useState<string[]>([])
   const [fPm, setFPm]           = useState<string[]>([])
+  const [fAccount, setFAccount] = useState<string[]>([])
   const [fFatt, setFFatt]       = useState<string[]>([])
 
   // Modale / eliminazione / righe espanse
@@ -964,18 +990,22 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     setLoading(true); setApiError(null)
     try {
       const get = (path: string) => fetch(`${API_URL}${path}`, { headers: authHeaders(token) })
-      const [rCon, rStati, rCli, rProg, rCfg] = await Promise.all([
+      const [rCon, rStati, rCli, rProg, rCfg, rPm, rAcc] = await Promise.all([
         get('/api/contratti'),
         get('/api/stati-contratto'),
         get('/clienti'),
         get('/progetti?tipo=CLIENTE'),
         get('/api/config/contratti'),
+        get('/api/users?role=PM'),
+        get('/api/users?role=ACCOUNT'),
       ])
       if (!rCon.ok || !rStati.ok || !rCli.ok || !rProg.ok) throw new Error()
       setContratti(await rCon.json())
       setStati(await rStati.json())
       setClienti(await rCli.json())
       setProgetti(await rProg.json())
+      if (rPm.ok) setPmUsers(await rPm.json())
+      if (rAcc.ok) setAccountUsers(await rAcc.json())
       if (rCfg.ok) {
         const cfg = (await rCfg.json()) as { costoMedioGiornata: number | null }
         setCostoMedio(cfg.costoMedioGiornata)
@@ -1025,20 +1055,39 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
   const optClienti = useMemo<MultiSelectOption[]>(
     () => clienti.map((c) => ({ value: c.id, label: c.nome })), [clienti])
 
-  // Opzioni del filtro PM: i pmRiferimento distinti presenti sui contratti
-  const pmOptions = useMemo(() => {
-    const map = new Map<string, UserRef>()
-    for (const c of contratti) for (const pm of pmsDi(c.applicazioni)) map.set(pm.id, pm)
-    return Array.from(map.values()).sort((a, b) => displayUser(a).localeCompare(displayUser(b), 'it'))
-  }, [contratti])
+  // Ordinamento comune delle opzioni "persona"
+  const perNome = (a: MultiSelectOption, b: MultiSelectOption) => a.label.localeCompare(b.label, 'it')
 
-  const optPm = useMemo<MultiSelectOption[]>(
-    () => pmOptions.map((u) => ({ value: u.id, label: displayUser(u) })), [pmOptions])
+  // Opzioni del filtro PM: **tutti** gli utenti con ruolo PM, più eventuali
+  // pmRiferimento già sui contratti che non avessero (più) quel ruolo —
+  // altrimenti la tendina elencherebbe solo i PM già presenti a filtro vuoto.
+  const optPm = useMemo<MultiSelectOption[]>(() => {
+    const map = new Map<string, string>()
+    for (const u of pmUsers) map.set(u.id, displayUser(u))
+    for (const c of contratti) for (const pm of pmsDi(c.applicazioni)) map.set(pm.id, displayUser(pm))
+    return Array.from(map, ([value, label]) => ({ value, label })).sort(perNome)
+  }, [pmUsers, contratti])
 
-  const filtriAttivi = fStato.length + fTipo.length + fCliente.length + fPm.length + fFatt.length
+  // Account del cliente per id cliente: il contratto non ha un account
+  // proprio, lo eredita dall'anagrafica cliente (come il PM dai progetti).
+  const accountPerCliente = useMemo(() => {
+    const m = new Map<string, AccountRef>()
+    for (const cl of clienti) if (cl.account) m.set(cl.id, cl.account)
+    return m
+  }, [clienti])
+
+  const optAccount = useMemo<MultiSelectOption[]>(() => {
+    const map = new Map<string, string>()
+    for (const u of accountUsers) map.set(u.id, displayUser(u))
+    for (const a of accountPerCliente.values()) map.set(a.id, displayUser(a))
+    return Array.from(map, ([value, label]) => ({ value, label })).sort(perNome)
+  }, [accountUsers, accountPerCliente])
+
+  const filtriAttivi = fStato.length + fTipo.length + fCliente.length + fPm.length
+    + fAccount.length + fFatt.length
 
   const azzeraFiltri = () => {
-    setFStato([]); setFTipo([]); setFCliente([]); setFPm([]); setFFatt([])
+    setFStato([]); setFTipo([]); setFCliente([]); setFPm([]); setFAccount([]); setFFatt([])
   }
 
   // ── Filtri + raggruppamento per cliente ──
@@ -1048,17 +1097,24 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     (fTipo.length === 0 || fTipo.includes(c.tipo)) &&
     (fCliente.length === 0 || fCliente.includes(c.clienteId)) &&
     (fPm.length === 0 || pmsDi(c.applicazioni).some((pm) => fPm.includes(pm.id))) &&
+    (fAccount.length === 0 || fAccount.includes(accountPerCliente.get(c.clienteId)?.id ?? '')) &&
     (fFatt.length === 0 || fFatt.includes(c.fatturato ? 'si' : 'no'))
-  ), [contratti, fAnno, fStato, fTipo, fCliente, fPm, fFatt])
+  ), [contratti, fAnno, fStato, fTipo, fCliente, fPm, fAccount, fFatt, accountPerCliente])
 
   const gruppi = useMemo(() => {
-    const map = new Map<string, { nome: string; contratti: Contratto[] }>()
+    const map = new Map<string, { nome: string; account: AccountRef | null; contratti: Contratto[] }>()
     for (const c of filtered) {
-      if (!map.has(c.clienteId)) map.set(c.clienteId, { nome: c.cliente.nome, contratti: [] })
+      if (!map.has(c.clienteId)) {
+        map.set(c.clienteId, {
+          nome: c.cliente.nome,
+          account: accountPerCliente.get(c.clienteId) ?? null,
+          contratti: [],
+        })
+      }
       map.get(c.clienteId)!.contratti.push(c)
     }
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'it'))
-  }, [filtered])
+  }, [filtered, accountPerCliente])
 
   // Anni della barra: quelli con contratti, più l'anno corrente e **quello
   // selezionato** — così l'anno attivo è sempre visibile anche quando resta
@@ -1426,6 +1482,8 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
           allLabel="Tutti i clienti" itemsLabel="clienti" ariaLabel="Filtra per cliente" searchable />
         <MultiSelectFilter className="ct-filter" options={optPm} selected={fPm} onChange={setFPm}
           allLabel="Tutti i PM" itemsLabel="PM" ariaLabel="Filtra per PM" searchable />
+        <MultiSelectFilter className="ct-filter" options={optAccount} selected={fAccount} onChange={setFAccount}
+          allLabel="Tutti gli account" itemsLabel="account" ariaLabel="Filtra per account" searchable />
         <MultiSelectFilter className="ct-filter" options={OPT_FATTURATO} selected={fFatt} onChange={setFFatt}
           allLabel="Fatturato: tutti" itemsLabel="voci" ariaLabel="Filtra per fatturazione" />
         {filtriAttivi > 0 && (
@@ -1514,7 +1572,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                 <th scope="col">Stato</th>
                 <th scope="col">PM</th>
                 <th scope="col" className="ct-th--num">Importo</th>
-                <th scope="col">Fatturato</th>
+                <th scope="col" className="ct-th--fatt">Fatt.</th>
                 <th scope="col">Consumato</th>
                 <th scope="col" className="ct-th--actions">Azioni</th>
               </tr>
@@ -1535,6 +1593,11 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                   <td colSpan={10}>
                     <span className="ct-group-nome">{g.nome}</span>
                     <span className="ct-group-count">{g.contratti.length} contratt{g.contratti.length === 1 ? 'o' : 'i'}</span>
+                    {g.account && (
+                      <span className="ct-group-account" title="Account del cliente">
+                        Account: {displayUser(g.account)}
+                      </span>
+                    )}
                   </td>
                 </tr>
                 {g.contratti.map((c) => {
@@ -1587,12 +1650,17 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                           </div>
                         </td>
                         <td>
-                          <span className={`ct-tipo ct-tipo--${c.tipo === 'MANUTENZIONE_AMS' ? 'ams' : 'man'}`}>
-                            {TIPO_LABELS[c.tipo]}
+                          <span className={`ct-tipo ct-tipo--${c.tipo === 'MANUTENZIONE_AMS' ? 'ams' : 'man'}`}
+                            title={TIPO_LABELS[c.tipo]}>
+                            {TIPO_LABELS_BREVI[c.tipo]}
                           </span>
                         </td>
                         <td className="ct-cell-text">
-                          {c.dataInizio ? fmtData(c.dataInizio) : '—'}
+                          {c.dataInizio
+                            ? (c.dataFine && stessoAnno(c.dataInizio, c.dataFine)
+                                ? fmtGiornoMese(c.dataInizio)
+                                : fmtData(c.dataInizio))
+                            : '—'}
                           {' → '}
                           {c.dataFine ? fmtData(c.dataFine) : <span title="Continuativo">∞</span>}
                           {scad && (
@@ -1606,8 +1674,8 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                         <td className="ct-cell-num">{c.importoTotale !== null ? fmtEur(c.importoTotale) : <span className="ct-empty-cell">—</span>}</td>
                         <td>
                           {c.fatturato
-                            ? <span className="ct-fatt-badge ct-fatt-badge--si">Fatturato</span>
-                            : <span className="ct-fatt-badge">Da fatturare</span>}
+                            ? <span className="ct-fatt-badge ct-fatt-badge--si" title="Fatturato">Sì</span>
+                            : <span className="ct-fatt-badge" title="Da fatturare">No</span>}
                         </td>
                         <td className="ct-cell-budget">
                           {c.importoTotale !== null && consumato !== null

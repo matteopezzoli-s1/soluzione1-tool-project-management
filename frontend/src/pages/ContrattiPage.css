@@ -231,15 +231,26 @@
 
 .ct-table-wrap { background: #fff; border: 1px solid #E2E8F0; border-radius: 16px; overflow-x: auto; }
 .ct-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-.ct-table thead { background: #F8FAFC; border-bottom: 1px solid #E2E8F0; }
+.ct-table thead { border-bottom: 1px solid #E2E8F0; }
 .ct-table th {
-  padding: 0.75rem 0.9rem; text-align: left;
+  padding: 0.75rem 0.6rem; text-align: left;
+  background: #F8FAFC;
   font-size: 0.68rem; font-weight: 700; color: #94A3B8;
   letter-spacing: 0.07em; text-transform: uppercase; white-space: nowrap;
 }
-.ct-th--actions { text-align: right; }
 .ct-th--num { text-align: right; }
-.ct-table td { padding: 0.8rem 0.9rem; vertical-align: middle; }
+.ct-th--fatt { text-align: center; }
+.ct-table td { padding: 0.8rem 0.6rem; vertical-align: middle; }
+
+/* Azioni sempre a portata di clic: la colonna resta ancorata a destra anche
+   quando la tabella scorre in orizzontale. Le celle sticky devono essere
+   opache, quindi ogni riga dichiara il proprio sfondo e la cella lo eredita. */
+.ct-th--actions, .ct-cell-actions {
+  position: sticky; right: 0; z-index: 2;
+  text-align: right; white-space: nowrap;
+  box-shadow: -6px 0 8px -6px rgb(15 23 42 / 0.10);
+}
+.ct-cell-actions { background: inherit; }
 
 .ct-group-row td {
   background: #F8FAFC; border-top: 1px solid #E2E8F0; border-bottom: 1px solid #E2E8F0;
@@ -248,8 +259,9 @@
 .ct-group:first-of-type .ct-group-row td { border-top: none; }
 .ct-group-nome { font-weight: 700; color: #0F172A; font-size: 0.85rem; }
 .ct-group-count { margin-left: 0.6rem; font-size: 0.72rem; color: #94A3B8; font-weight: 600; }
+.ct-group-account { margin-left: 0.6rem; font-size: 0.72rem; color: #94A3B8; font-weight: 600; }
 
-.ct-row { border-bottom: 1px solid #F1F5F9; transition: background 120ms ease; }
+.ct-row { background: #fff; border-bottom: 1px solid #F1F5F9; transition: background 120ms ease; }
 .ct-row:hover { background: #FAFCFF; }
 .ct-row--warn { background: #FFFDF5; }
 .ct-row--warn:hover { background: #FFFBEB; }
@@ -271,11 +283,11 @@
 .ct-expand-btn--open { transform: rotate(90deg); }
 .ct-expand-btn:focus-visible { outline: 2px solid #0D9488; outline-offset: 1px; }
 
-.ct-cell-titolo { display: flex; flex-direction: column; gap: 0.15rem; min-width: 225px; }
+.ct-cell-titolo { display: flex; flex-direction: column; gap: 0.15rem; min-width: 200px; }
 .ct-titolo { font-weight: 600; color: #1E293B; }
 .ct-app-count {
   font-size: 0.72rem; color: #94A3B8;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;
 }
 
 /* ── Campi da compilare (pill in riga) ─────────────────────── */
@@ -302,8 +314,8 @@
 /* ── Badge fatturato ───────────────────────────────────────── */
 
 .ct-fatt-badge {
-  display: inline-flex; align-items: center;
-  padding: 0.2rem 0.6rem; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center; min-width: 30px;
+  padding: 0.2rem 0.45rem; border-radius: 999px;
   background: #F8FAFC; border: 1px solid #E2E8F0; color: #94A3B8;
   font-size: 0.72rem; font-weight: 700; white-space: nowrap;
 }
@@ -314,7 +326,7 @@
 
 .ct-tipo {
   display: inline-flex; align-items: center;
-  padding: 0.2rem 0.6rem; border-radius: 999px;
+  padding: 0.2rem 0.5rem; border-radius: 999px;
   font-size: 0.72rem; font-weight: 700; white-space: nowrap;
 }
 .ct-tipo--man { background: #EFF6FF; border: 1px solid #BFDBFE; color: #1D4ED8; }
@@ -341,7 +353,7 @@
 
 /* ── Budget bar ────────────────────────────────────────────── */
 
-.ct-cell-budget { min-width: 150px; }
+.ct-cell-budget { min-width: 128px; }
 .ct-budget { display: flex; flex-direction: column; gap: 0.3rem; }
 .ct-budget-labels { display: flex; align-items: baseline; gap: 0.3rem; font-size: 0.78rem; font-weight: 700; color: #1E293B; white-space: nowrap; }
 .ct-budget-tot { color: #94A3B8; font-weight: 500; font-size: 0.72rem; }
