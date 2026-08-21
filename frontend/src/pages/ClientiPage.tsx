@@ -342,11 +342,11 @@ export default function ClientiPage({ token }: ClientiPageProps) {
       ])
       if (!rC.ok || !rA.ok) throw new Error()
       const [c, a] = await Promise.all([rC.json(), rA.json()])
-      setClienti((c as Cliente[]).sort((a, b) => {
-        const aAcc = a.account?.lastName ?? ''
-        const bAcc = b.account?.lastName ?? ''
-        return aAcc.localeCompare(bAcc, 'it') || a.nome.localeCompare(b.nome, 'it')
-      })); setAccounts(a)
+      // Ordine alfabetico per nome cliente. Il backend ordina già per nome, ma
+      // col collation Postgres: qui si riordina con quello italiano, che tratta
+      // accenti e maiuscole come si aspetta chi legge l'elenco.
+      setClienti((c as Cliente[]).sort((x, y) => x.nome.localeCompare(y.nome, 'it')))
+      setAccounts(a)
     } catch { setApiError('Impossibile caricare i dati.') }
     finally { setLoading(false) }
   }, [token])
