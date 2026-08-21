@@ -464,16 +464,6 @@
 
 /* ── Pannello copertura assistenza ─────────────────────────── */
 
-.ct-cop-chip {
-  display: inline-flex; align-items: center; gap: 0.3rem;
-  margin-left: 0.6rem; padding: 0.1rem 0.5rem; border-radius: 999px;
-  background: #FFFBEB; border: 1px solid #FDE68A; color: #B45309;
-  font-size: 0.72rem; font-weight: 700; text-decoration: none; white-space: nowrap;
-  transition: background 120ms ease;
-}
-.ct-cop-chip:hover { background: #FEF3C7; }
-.ct-cop-chip:focus-visible { outline: 2px solid #D97706; outline-offset: 2px; }
-
 .ct-cop {
   background: #fff; border: 1px solid #E2E8F0; border-radius: 16px;
   overflow: hidden; scroll-margin-top: 1rem;
@@ -488,6 +478,16 @@
 .ct-cop-head:focus-visible { outline: 2px solid #0D9488; outline-offset: -2px; }
 .ct-cop-title { font-size: 0.95rem; font-weight: 700; color: #0F172A; letter-spacing: -0.01em; }
 .ct-cop-summary { margin-left: auto; font-size: 0.76rem; color: #94A3B8; font-weight: 600; text-align: right; }
+.ct-cop-alert { color: #D97706; flex-shrink: 0; }
+
+/* Lacune da attenzionare: l'intestazione vira in ambra */
+.ct-cop--lacune { border-color: #FDE68A; }
+.ct-cop--lacune .ct-cop-head { background: #FFFBEB; }
+.ct-cop--lacune .ct-cop-head:hover { background: #FEF3C7; }
+.ct-cop--lacune .ct-cop-title { color: #92400E; }
+.ct-cop--lacune .ct-cop-summary { color: #B45309; }
+.ct-cop--lacune .ct-cop-caret { color: #D97706; }
+.ct-cop--lacune .ct-cop-body { border-top-color: #FDE68A; }
 .ct-cop-caret { color: #94A3B8; flex-shrink: 0; transition: transform 150ms ease; }
 .ct-cop-caret--open { transform: rotate(90deg); }
 

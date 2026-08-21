@@ -369,13 +369,21 @@ function CoperturaPanel({
   const aperto = open ?? daAttenzionare > 0
 
   return (
-    <section className="ct-cop" id="ct-copertura">
+    // In cima alla pagina l'intestazione è la parte sempre a vista: quando c'è
+    // una lacuna vira in ambra, così si nota anche a pannello chiuso.
+    <section className={`ct-cop${daAttenzionare > 0 ? ' ct-cop--lacune' : ''}`} id="ct-copertura">
       <button type="button" className="ct-cop-head" aria-expanded={aperto}
         onClick={() => setOpen(!aperto)}>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14"
           className={`ct-cop-caret${aperto ? ' ct-cop-caret--open' : ''}`} aria-hidden="true">
           <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
+        {daAttenzionare > 0 && (
+          <svg className="ct-cop-alert" viewBox="0 0 20 20" fill="currentColor"
+            width="15" height="15" aria-hidden="true">
+            <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 6a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 6Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+          </svg>
+        )}
         <h2 className="ct-cop-title">Copertura assistenza {anno}</h2>
         <span className="ct-cop-summary">
           {daAttenzionare === 0
@@ -1134,8 +1142,6 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     () => calcolaCopertura(clienti, progetti, contratti, fAnno),
     [clienti, progetti, contratti, fAnno])
 
-  const lacune = copertura.rinnovi.length + copertura.buchi.length
-
   // Un solo contratto sull'anno → lo si estende al progetto scoperto;
   // più di uno → non si può indovinare quale, si parte da un contratto nuovo.
   const copriProgetto = (b: ClienteConBuchi, progettoId: string) => {
@@ -1346,14 +1352,6 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
           <h1 className="ct-title">Contratti Assistenza / AMS</h1>
           <p className="ct-subtitle">
             {loading ? '' : `${filtered.length} contratt${filtered.length === 1 ? 'o' : 'i'} nel ${fAnno}${totaleImporto > 0 ? ` · ${fmtEur(totaleImporto)}` : ''}`}
-            {!loading && lacune > 0 && (
-              <a className="ct-cop-chip" href="#ct-copertura">
-                <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13" aria-hidden="true">
-                  <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 6a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 6Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
-                </svg>
-                {lacune} client{lacune === 1 ? 'e' : 'i'} senza copertura piena
-              </a>
-            )}
           </p>
         </div>
         <button className="ct-btn ct-btn--primary" type="button" onClick={() => openAdd()}>
@@ -1418,6 +1416,14 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
           </svg>
         </button>
       </div>
+
+      {/* ── Copertura: subito sotto la barra anni, dove si vede ── */}
+      {!loading && !apiError && (
+        <CoperturaPanel anno={fAnno} copertura={copertura}
+          onClona={(c) => { setCloneErr(null); setCloneTarget(c) }}
+          onNuovo={openAdd}
+          onCopri={copriProgetto} />
+      )}
 
       {/* ── Filtri (tutti a selezione multipla) ── */}
       <div className="ct-filters">
@@ -1701,13 +1707,6 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
             ))}
           </table>
         </div>
-      )}
-
-      {!loading && !apiError && (
-        <CoperturaPanel anno={fAnno} copertura={copertura}
-          onClona={(c) => { setCloneErr(null); setCloneTarget(c) }}
-          onNuovo={openAdd}
-          onCopri={copriProgetto} />
       )}
 
       {(modal === 'add' || modal === 'edit') && (
