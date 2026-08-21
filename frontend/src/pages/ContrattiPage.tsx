@@ -362,28 +362,19 @@ function CoperturaPanel({
 }) {
   const { rinnovi, buchi, mai } = copertura
   const daAttenzionare = rinnovi.length + buchi.length
-  // Aperto d'ufficio quando c'è qualcosa da attenzionare; `null` = ancora
-  // sulla scelta automatica, così il default segue i dati senza useEffect.
-  const [open, setOpen] = useState<boolean | null>(null)
+  // Sempre chiuso all'ingresso: avere qualche scoperto è la normalità, non
+  // un'emergenza — si apre quando si vuole guardarci dentro.
+  const [aperto, setOpen] = useState(false)
   const [maiOpen, setMaiOpen] = useState(false)
-  const aperto = open ?? daAttenzionare > 0
 
   return (
-    // In cima alla pagina l'intestazione è la parte sempre a vista: quando c'è
-    // una lacuna vira in ambra, così si nota anche a pannello chiuso.
-    <section className={`ct-cop${daAttenzionare > 0 ? ' ct-cop--lacune' : ''}`} id="ct-copertura">
+    <section className="ct-cop" id="ct-copertura">
       <button type="button" className="ct-cop-head" aria-expanded={aperto}
         onClick={() => setOpen(!aperto)}>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14"
           className={`ct-cop-caret${aperto ? ' ct-cop-caret--open' : ''}`} aria-hidden="true">
           <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        {daAttenzionare > 0 && (
-          <svg className="ct-cop-alert" viewBox="0 0 20 20" fill="currentColor"
-            width="15" height="15" aria-hidden="true">
-            <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 6a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 6Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
-          </svg>
-        )}
         <h2 className="ct-cop-title">Copertura assistenza {anno}</h2>
         <span className="ct-cop-summary">
           {daAttenzionare === 0

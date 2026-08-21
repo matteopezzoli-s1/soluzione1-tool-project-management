@@ -478,16 +478,7 @@
 .ct-cop-head:focus-visible { outline: 2px solid #0D9488; outline-offset: -2px; }
 .ct-cop-title { font-size: 0.95rem; font-weight: 700; color: #0F172A; letter-spacing: -0.01em; }
 .ct-cop-summary { margin-left: auto; font-size: 0.76rem; color: #94A3B8; font-weight: 600; text-align: right; }
-.ct-cop-alert { color: #D97706; flex-shrink: 0; }
 
-/* Lacune da attenzionare: l'intestazione vira in ambra */
-.ct-cop--lacune { border-color: #FDE68A; }
-.ct-cop--lacune .ct-cop-head { background: #FFFBEB; }
-.ct-cop--lacune .ct-cop-head:hover { background: #FEF3C7; }
-.ct-cop--lacune .ct-cop-title { color: #92400E; }
-.ct-cop--lacune .ct-cop-summary { color: #B45309; }
-.ct-cop--lacune .ct-cop-caret { color: #D97706; }
-.ct-cop--lacune .ct-cop-body { border-top-color: #FDE68A; }
 .ct-cop-caret { color: #94A3B8; flex-shrink: 0; transition: transform 150ms ease; }
 .ct-cop-caret--open { transform: rotate(90deg); }
 
