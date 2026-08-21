@@ -2718,18 +2718,15 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
   // riscrivere tutto): date shiftate della differenza di anni, stato reset a
   // IN_DEFINIZIONE, fatturato/consuntivato/ordine di vendita/Drive/note
   // azzerati (sono dell'anno nuovo), applicazioni e importo copiati.
-  hono.post('/api/contratti/:id/clona', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
-    const id = c.req.param('id')
-    const { anno } = await readJSON<{ anno?: unknown }>(c)
-    const annoNum = typeof anno === 'number' ? anno : Number(anno)
-    if (!Number.isInteger(annoNum) || annoNum < 2000 || annoNum > 2100) {
-      return c.json({ error: 'Anno di competenza non valido' }, 400)
-    }
-    const prisma = c.get('prisma')
-    const src = await prisma.contratto.findUnique({ where: { id }, include: { applicazioni: true } })
-    if (!src) return c.json({ error: 'Contratto non trovato' }, 404)
-    if (annoNum === src.anno) return c.json({ error: 'Scegli un anno diverso da quello del contratto' }, 400)
 
+  // Payload del clone di una singola riga: condiviso tra clone singolo e
+  // massivo, così la semantica del rinnovo resta in un solo posto.
+  const clonePayload = (
+    src: { titolo: string; tipo: TipoContratto; anno: number; clienteId: string
+           dataInizio: Date | null; dataFine: Date | null; importoTotale: unknown
+           applicazioni: Array<{ progettoId: string }> },
+    annoNum: number,
+  ) => {
     const shift = annoNum - src.anno
     const shiftAnno = (d: Date | null): Date | null => {
       if (!d) return null
@@ -2737,33 +2734,107 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       r.setFullYear(r.getFullYear() + shift)
       return r
     }
-    // Se il titolo contiene l'anno di origine, lo aggiorna al nuovo
-    const titolo = src.titolo.split(String(src.anno)).join(String(annoNum))
+    return {
+      // Se il titolo contiene l'anno di origine, lo aggiorna al nuovo
+      titolo: src.titolo.split(String(src.anno)).join(String(annoNum)),
+      tipo: src.tipo,
+      anno: annoNum,
+      stato: 'IN_DEFINIZIONE',
+      clienteId: src.clienteId,
+      dataInizio: shiftAnno(src.dataInizio),
+      dataFine: shiftAnno(src.dataFine),
+      importoTotale: src.importoTotale as never,
+      fatturato: false,
+      riferimentoOrdineVendita: null,
+      giornateConsuntivate: null,
+      driveUrl: null,
+      driveFolderId: null,
+      note: null,
+      applicazioni: { create: src.applicazioni.map((a) => ({ progettoId: a.progettoId })) },
+    }
+  }
+
+  const parseAnnoClone = (anno: unknown): number | null => {
+    const n = typeof anno === 'number' ? anno : Number(anno)
+    return Number.isInteger(n) && n >= 2000 && n <= 2100 ? n : null
+  }
+
+  hono.post('/api/contratti/:id/clona', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
+    const id = c.req.param('id')
+    const { anno } = await readJSON<{ anno?: unknown }>(c)
+    const annoNum = parseAnnoClone(anno)
+    if (annoNum === null) return c.json({ error: 'Anno di competenza non valido' }, 400)
+    const prisma = c.get('prisma')
+    const src = await prisma.contratto.findUnique({ where: { id }, include: { applicazioni: true } })
+    if (!src) return c.json({ error: 'Contratto non trovato' }, 404)
+    if (annoNum === src.anno) return c.json({ error: 'Scegli un anno diverso da quello del contratto' }, 400)
+
     try {
       const nuovo = await prisma.contratto.create({
-        data: {
-          titolo,
-          tipo: src.tipo,
-          anno: annoNum,
-          stato: 'IN_DEFINIZIONE',
-          clienteId: src.clienteId,
-          dataInizio: shiftAnno(src.dataInizio),
-          dataFine: shiftAnno(src.dataFine),
-          importoTotale: src.importoTotale,
-          fatturato: false,
-          riferimentoOrdineVendita: null,
-          giornateConsuntivate: null,
-          driveUrl: null,
-          driveFolderId: null,
-          note: null,
-          applicazioni: { create: src.applicazioni.map((a) => ({ progettoId: a.progettoId })) },
-        },
+        data: clonePayload(src, annoNum),
         include: CONTRATTI_INCLUDE,
       })
       return c.json(serializeContratto(nuovo), 201)
     } catch (err) {
       console.error('[contratti] clona error:', err)
       return c.json({ error: 'Errore nella clonazione del contratto' }, 500)
+    }
+  })
+
+  // Clone massivo: stessa semantica del clone singolo applicata a più
+  // contratti (rinnovo di fine anno in un colpo solo). Le righe già
+  // sull'anno di destinazione, o che hanno già un clone lì (stesso cliente
+  // + stesso titolo risultante), vengono saltate e riportate al chiamante
+  // invece di far fallire l'intera operazione.
+  hono.post('/api/contratti/clona-massivo', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
+    const { ids, anno } = await readJSON<{ ids?: unknown; anno?: unknown }>(c)
+    const annoNum = parseAnnoClone(anno)
+    if (annoNum === null) return c.json({ error: 'Anno di competenza non valido' }, 400)
+    const cleanIds = Array.isArray(ids)
+      ? [...new Set(ids.filter((x): x is string => typeof x === 'string' && x.trim() !== ''))]
+      : []
+    if (cleanIds.length === 0) return c.json({ error: 'Seleziona almeno un contratto da clonare' }, 400)
+
+    const prisma = c.get('prisma')
+    try {
+      const sorgenti = await prisma.contratto.findMany({
+        where: { id: { in: cleanIds } },
+        include: { applicazioni: true, cliente: { select: { nome: true } } },
+      })
+      if (sorgenti.length === 0) return c.json({ error: 'Nessuno dei contratti selezionati è stato trovato' }, 404)
+
+      // Titoli già presenti sull'anno di destinazione, per cliente
+      const esistenti = await prisma.contratto.findMany({
+        where: { anno: annoNum, clienteId: { in: [...new Set(sorgenti.map((s) => s.clienteId))] } },
+        select: { clienteId: true, titolo: true },
+      })
+      const giaPresenti = new Set(esistenti.map((e) => `${e.clienteId}::${e.titolo}`))
+
+      const creati: string[] = []
+      const saltati: Array<{ id: string; titolo: string; cliente: string; motivo: string }> = []
+
+      for (const src of sorgenti) {
+        const payload = clonePayload(src, annoNum)
+        const etichetta = { id: src.id, titolo: src.titolo, cliente: src.cliente.nome }
+        if (src.anno === annoNum) {
+          saltati.push({ ...etichetta, motivo: `già sull'anno ${annoNum}` })
+          continue
+        }
+        const chiave = `${src.clienteId}::${payload.titolo}`
+        if (giaPresenti.has(chiave)) {
+          saltati.push({ ...etichetta, motivo: `clone già presente sul ${annoNum}` })
+          continue
+        }
+        const nuovo = await prisma.contratto.create({ data: payload, select: { id: true } })
+        giaPresenti.add(chiave)
+        creati.push(nuovo.id)
+      }
+
+      const nonTrovati = cleanIds.filter((id) => !sorgenti.some((s) => s.id === id))
+      return c.json({ creati: creati.length, saltati, nonTrovati }, creati.length > 0 ? 201 : 200)
+    } catch (err) {
+      console.error('[contratti] clona-massivo error:', err)
+      return c.json({ error: 'Errore nella clonazione massiva dei contratti' }, 500)
     }
   })
 
