@@ -1,7 +1,13 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
+import { MultiSelectFilter, type MultiSelectOption } from '../components/MultiSelectFilter'
 import { DriveLinkField } from '../components/DriveLinkField'
 import { useDriveConfig } from '../lib/useDriveConfig'
+import {
+  isDrivePickerConfigured, extractDriveFileId, ensureChildFolder,
+  getDriveNodeMeta, findChildFileByName, copyDriveFile, driveErrorReason,
+  findChildFolderByYear,
+} from '../lib/googleDrive'
 import './ContrattiPage.css'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -14,6 +20,14 @@ const TIPO_LABELS: Record<TipoContratto, string> = {
   MANUTENZIONE:     'Manutenzione',
   MANUTENZIONE_AMS: 'Manutenzione + AMS',
 }
+
+const OPT_FATTURATO = [
+  { value: 'si', label: 'Fatturato' },
+  { value: 'no', label: 'Da fatturare' },
+]
+
+const optTipi = (Object.keys(TIPO_LABELS) as TipoContratto[])
+  .map((t) => ({ value: t, label: TIPO_LABELS[t] }))
 
 interface UserRef { id: string; firstName: string | null; lastName: string | null; name: string | null }
 
@@ -112,6 +126,75 @@ function scadenzaLabel(s: ScadenzaInfo): string {
   if (s.giorni < 0) return `scaduto il ${fmtData(s.data)}`
   if (s.giorni === 0) return 'scade oggi'
   return `scade il ${fmtData(s.data)} (${s.giorni} gg)`
+}
+
+// ─── Clone del documento su Drive ─────────────────────────────────────────────
+// Rinnovando un contratto si vuole anche il documento dell'anno prima nella
+// cartella dell'anno nuovo. La struttura non è assunta ma **ricavata dal file
+// di origine**: dal documento si risale alla sua cartella ("2026 - Contratti
+// Alltub") e al nonno ("Contratti 2026"), si sostituisce l'anno in entrambi i
+// nomi e si ricrea il percorso sulla destinazione, riusando le cartelle già
+// esistenti. Così una cartella con una convenzione diversa viene rispettata
+// invece di generarne una parallela.
+//
+// Tutto client-side: i token Drive vivono nel browser, il server non ne ha.
+
+// Sostituisce l'anno in un nome, se c'è. Stessa tecnica del titolo contratto:
+// quando l'anno non compare il nome resta identico.
+function conAnno(nome: string, da: number, a: number): string {
+  return nome.split(String(da)).join(String(a))
+}
+
+type EsitoDoc =
+  | { kind: 'ok';      url: string; nome: string }
+  | { kind: 'esiste';  url: string; nome: string }
+  | { kind: 'skip';    motivo: string }
+  | { kind: 'errore';  motivo: string }
+
+async function clonaDocumentoDrive(
+  sorgente: Contratto, annoDest: number, radiceContratti: string | null,
+): Promise<EsitoDoc> {
+  const fileId = extractDriveFileId(sorgente.driveUrl)
+  if (!fileId) return { kind: 'skip', motivo: 'nessun documento collegato' }
+
+  try {
+    // Cartella che contiene il documento: quella salvata sul contratto, o
+    // ricavata dal file per i link incollati a mano prima del picker.
+    const fileMeta = await getDriveNodeMeta(fileId)
+    if (!fileMeta) return { kind: 'errore', motivo: 'documento non leggibile su Drive' }
+    const cartellaId = sorgente.driveFolderId || fileMeta.parentId
+    if (!cartellaId) return { kind: 'errore', motivo: 'cartella del documento non determinabile' }
+
+    const cartella = await getDriveNodeMeta(cartellaId)
+    if (!cartella) return { kind: 'errore', motivo: 'cartella del documento non leggibile' }
+
+    // Cartella "anno" in testa: si eredita il nome del nonno con l'anno
+    // sostituito. Se il documento non è annidato (nonno assente o coincidente
+    // con la radice) si ricade sulla convenzione "Contratti <anno>".
+    const nonno = cartella.parentId && cartella.parentId !== radiceContratti
+      ? await getDriveNodeMeta(cartella.parentId)
+      : null
+    const nomeAnno = nonno
+      ? conAnno(nonno.name, sorgente.anno, annoDest)
+      : `Contratti ${annoDest}`
+
+    const radice = radiceContratti ?? nonno?.parentId ?? cartella.parentId
+    if (!radice) return { kind: 'errore', motivo: 'radice Drive dei contratti non configurata' }
+
+    const idAnno    = await ensureChildFolder(radice, nomeAnno)
+    const idCliente = await ensureChildFolder(idAnno, conAnno(cartella.name, sorgente.anno, annoDest))
+
+    const nomeFile = conAnno(fileMeta.name, sorgente.anno, annoDest)
+
+    // Clone rilanciato: se il documento è già lì non si duplica.
+    const esistente = await findChildFileByName(idCliente, nomeFile)
+    if (esistente) return { kind: 'esiste', url: esistente.url, nome: nomeFile }
+
+    const copia = await copyDriveFile(fileId, nomeFile, idCliente)
+    return { kind: 'ok', url: copia.url, nome: nomeFile }
+  } catch (e) {
+    return { kind: 'errore', motivo: driveErrorReason(e) }
+  }
 }
 
 // ─── Copertura assistenza ─────────────────────────────────────────────────────
@@ -563,7 +646,18 @@ function ContrattoModal({
               onChange={(url) => set('driveUrl', url)}
               onPicked={(f) => onChange({ ...form, driveUrl: f.url, driveFolderId: f.parentId ?? '' })}
               rootId={contrattiRootId || undefined}
-              pickerTitle="Contratto — Contratti annuali clienti e prodotti"
+              // Il picker si apre sulla cartella dell'anno del contratto
+              // ("Contratti 2027"), non sulla radice: risolta al click, non
+              // all'apertura del modal, per non chiedere il consenso Google
+              // a chi non sta usando Drive. Se quell'anno non ha ancora una
+              // cartella si resta sulla radice, da cui si naviga a mano.
+              resolveRoot={contrattiRootId ? async () => {
+                const anno = Number(form.anno)
+                if (!Number.isInteger(anno)) return { rootId: contrattiRootId }
+                const idAnno = await findChildFolderByYear(contrattiRootId, anno).catch(() => null)
+                return { rootId: idAnno ?? contrattiRootId }
+              } : undefined}
+              pickerTitle={`Contratto ${form.anno || ''} — Contratti annuali clienti e prodotti`.replace('  ', ' ')}
               placeholder="https://drive.google.com/… o https://docs.google.com/…"
               inputClassName="ct-input"
             />
@@ -618,14 +712,19 @@ function ContrattoModal({
 // Rinnovo annuale senza riscrivere tutto: crea una copia del contratto
 // sull'anno scelto (date shiftate, stato/fatturato/consuntivato/ordine reset).
 
-function ClonaModal({ contratto, annoSuggerito, loading, error, onConfirm, onClose }: {
+function ClonaModal({ contratto, annoSuggerito, loading, error, driveAttivo, fase, onConfirm, onClose }: {
   contratto: Contratto; annoSuggerito?: number; loading: boolean; error: string | null
-  onConfirm: (anno: number) => void; onClose: () => void
+  // false = integrazione Drive non configurata: il flag non ha senso
+  driveAttivo: boolean
+  fase: string | null
+  onConfirm: (anno: number, copiaDoc: boolean) => void; onClose: () => void
 }) {
   // Di norma il rinnovo è l'anno dopo; dal pannello copertura arriva invece
   // l'anno filtrato, che è quello su cui manca il contratto.
   const [anno, setAnno] = useState(String(
     annoSuggerito !== undefined && annoSuggerito !== contratto.anno ? annoSuggerito : contratto.anno + 1))
+  const haDoc = driveAttivo && !!contratto.driveUrl
+  const [copiaDoc, setCopiaDoc] = useState(haDoc)
   const annoNum = Number(anno)
   const annoValido = Number.isInteger(annoNum) && annoNum >= 2000 && annoNum <= 2100 && annoNum !== contratto.anno
 
@@ -651,16 +750,31 @@ function ClonaModal({ contratto, annoSuggerito, loading, error, onConfirm, onClo
               value={anno} onChange={(e) => setAnno(e.target.value)} autoFocus />
             {annoNum === contratto.anno && <span className="ct-field-error">Scegli un anno diverso da quello del contratto.</span>}
           </div>
+          {driveAttivo && (
+            <div className="ct-clona-drive">
+              <label className={`ct-check${haDoc ? '' : ' ct-check--off'}`}>
+                <input type="checkbox" checked={copiaDoc} disabled={!haDoc || loading}
+                  onChange={(e) => setCopiaDoc(e.target.checked)} />
+                Copia anche il documento su Drive
+              </label>
+              <span className="ct-hint">
+                {haDoc
+                  ? `Il documento viene duplicato in «Contratti ${annoValido ? annoNum : '…'}», nella cartella del cliente creata se non c'è già.`
+                  : 'Questo contratto non ha un documento collegato: niente da copiare.'}
+              </span>
+            </div>
+          )}
           <p className="ct-confirm-sub">
             Le date vengono spostate sul nuovo anno; applicazioni e importo copiati.
-            Stato, fatturato, consuntivato, ordine di vendita, link Drive e note ripartono da zero.
+            Stato, fatturato, consuntivato e ordine di vendita ripartono da zero.
           </p>
         </div>
         <div className="ct-modal-footer">
-          <button className="ct-btn ct-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
+          <button className="ct-btn ct-btn--ghost" type="button" onClick={onClose}
+            disabled={loading && fase === null}>Annulla</button>
           <button className="ct-btn ct-btn--primary" type="button" disabled={!annoValido || loading}
-            onClick={() => onConfirm(annoNum)}>
-            {loading ? 'Clonazione…' : `Clona sul ${annoValido ? annoNum : '…'}`}
+            onClick={() => onConfirm(annoNum, copiaDoc)}>
+            {loading ? (fase ?? 'Clonazione…') : `Clona sul ${annoValido ? annoNum : '…'}`}
           </button>
         </div>
       </div>
@@ -672,14 +786,18 @@ function ClonaModal({ contratto, annoSuggerito, loading, error, onConfirm, onClo
 // Rinnovo di fine anno di più contratti in un colpo solo: stessa semantica
 // del clone singolo applicata alla selezione.
 
-function ClonaMassivoModal({ contratti, loading, error, onConfirm, onClose }: {
+function ClonaMassivoModal({ contratti, loading, error, driveAttivo, fase, onConfirm, onClose }: {
   contratti: Contratto[]; loading: boolean; error: string | null
-  onConfirm: (anno: number) => void; onClose: () => void
+  driveAttivo: boolean
+  fase: string | null
+  onConfirm: (anno: number, copiaDoc: boolean) => void; onClose: () => void
 }) {
   // Se la selezione è tutta sullo stesso anno, proponi l'anno successivo
   const anniSel = Array.from(new Set(contratti.map((c) => c.anno)))
   const defaultAnno = anniSel.length === 1 ? anniSel[0] + 1 : Math.max(...anniSel) + 1
   const [anno, setAnno] = useState(String(defaultAnno))
+  const conDoc = contratti.filter((c) => !!c.driveUrl).length
+  const [copiaDoc, setCopiaDoc] = useState(driveAttivo && conDoc > 0)
   const annoNum = Number(anno)
   const annoValido = Number.isInteger(annoNum) && annoNum >= 2000 && annoNum <= 2100
   // Le righe già sull'anno di destinazione verrebbero saltate dal server
@@ -725,17 +843,33 @@ function ClonaMassivoModal({ contratti, loading, error, onConfirm, onClose }: {
               {daSaltare.length} contratt{daSaltare.length === 1 ? 'o è' : 'i sono'} già sul {annoNum} e verr{daSaltare.length === 1 ? 'à' : 'anno'} saltat{daSaltare.length === 1 ? 'o' : 'i'}.
             </p>
           )}
+          {driveAttivo && (
+            <div className="ct-clona-drive">
+              <label className={`ct-check${conDoc === 0 ? ' ct-check--off' : ''}`}>
+                <input type="checkbox" checked={copiaDoc} disabled={conDoc === 0 || loading}
+                  onChange={(e) => setCopiaDoc(e.target.checked)} />
+                Copia anche i documenti su Drive
+              </label>
+              <span className="ct-hint">
+                {conDoc === 0
+                  ? 'Nessuno dei contratti selezionati ha un documento collegato.'
+                  : `${conDoc} su ${contratti.length} ${conDoc === 1 ? 'ha' : 'hanno'} un documento. `
+                    + 'La copia avviene una alla volta e può richiedere qualche minuto.'}
+              </span>
+            </div>
+          )}
           <p className="ct-confirm-sub">
             Per ciascuno: date spostate sul nuovo anno, applicazioni e importo copiati.
-            Stato, fatturato, consuntivato, ordine di vendita, link Drive e note ripartono da zero.
+            Stato, fatturato, consuntivato e ordine di vendita ripartono da zero.
             I contratti che hanno già un clone sull'anno scelto vengono saltati.
           </p>
         </div>
         <div className="ct-modal-footer">
-          <button className="ct-btn ct-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
+          <button className="ct-btn ct-btn--ghost" type="button" onClick={onClose}
+            disabled={loading && fase === null}>Annulla</button>
           <button className="ct-btn ct-btn--primary" type="button" disabled={!annoValido || daClonare === 0 || loading}
-            onClick={() => onConfirm(annoNum)}>
-            {loading ? 'Clonazione…' : `Clona ${daClonare} sul ${annoValido ? annoNum : '…'}`}
+            onClick={() => onConfirm(annoNum, copiaDoc)}>
+            {loading ? (fase ?? 'Clonazione…') : `Clona ${daClonare} sul ${annoValido ? annoNum : '…'}`}
           </button>
         </div>
       </div>
@@ -795,11 +929,12 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
 
   // Filtri
   const [fAnno, setFAnno]       = useState<number>(ANNO_CORRENTE)
-  const [fStato, setFStato]     = useState('')
-  const [fTipo, setFTipo]       = useState('')
-  const [fCliente, setFCliente] = useState('')
-  const [fPm, setFPm]           = useState('')
-  const [fFatt, setFFatt]       = useState<'' | 'si' | 'no'>('')
+  // Filtri a selezione multipla: lista vuota = nessun filtro (tutti passano)
+  const [fStato, setFStato]     = useState<string[]>([])
+  const [fTipo, setFTipo]       = useState<string[]>([])
+  const [fCliente, setFCliente] = useState<string[]>([])
+  const [fPm, setFPm]           = useState<string[]>([])
+  const [fFatt, setFFatt]       = useState<string[]>([])
 
   // Modale / eliminazione / righe espanse
   const [modal, setModal]       = useState<'add' | 'edit' | null>(null)
@@ -821,6 +956,10 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
   const [bulkOpen, setBulkOpen]     = useState(false)
   const [bulkErr, setBulkErr]       = useState<string | null>(null)
   const [bulkNotice, setBulkNotice] = useState<string | null>(null)
+  // Fase mostrata sul bottone durante il clone (la copia Drive è lenta) e
+  // link dei documenti copiati, elencati nell'esito.
+  const [fase, setFase]         = useState<string | null>(null)
+  const [docLinks, setDocLinks] = useState<Array<{ nome: string; url: string; esiste: boolean }>>([])
 
   const fetchAll = useCallback(async () => {
     setLoading(true); setApiError(null)
@@ -850,6 +989,18 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     queueMicrotask(() => { fetchAll() })
   }, [fetchAll])
 
+  // L'integrazione Drive vive nel browser: senza le env Vite non c'è token,
+  // quindi il flag di copia non ha senso.
+  const canDrive = isDrivePickerConfigured()
+
+  const patchDriveContratto = useCallback(async (contrattoId: string, url: string) => {
+    const res = await fetch(`${API_URL}/api/contratti/${contrattoId}/drive`, {
+      method: 'PATCH', headers: authHeaders(token),
+      body: JSON.stringify({ driveUrl: url }),
+    })
+    if (!res.ok) throw new Error(`Errore ${res.status}`)
+  }, [token])
+
   const statoChiuso = useCallback((chiave: string) =>
     stati.find((s) => s.chiave === chiave)?.isChiuso ?? false, [stati])
 
@@ -868,6 +1019,13 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
       .sort((a, b) => a.s.giorni - b.s.giorni),
   [contratti, statoChiuso])
 
+  // ── Opzioni dei filtri ──
+  const optStati = useMemo<MultiSelectOption[]>(
+    () => stati.map((s) => ({ value: s.chiave, label: s.label, colore: s.colore })), [stati])
+
+  const optClienti = useMemo<MultiSelectOption[]>(
+    () => clienti.map((c) => ({ value: c.id, label: c.nome })), [clienti])
+
   // Opzioni del filtro PM: i pmRiferimento distinti presenti sui contratti
   const pmOptions = useMemo(() => {
     const map = new Map<string, UserRef>()
@@ -875,14 +1033,23 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     return Array.from(map.values()).sort((a, b) => displayUser(a).localeCompare(displayUser(b), 'it'))
   }, [contratti])
 
+  const optPm = useMemo<MultiSelectOption[]>(
+    () => pmOptions.map((u) => ({ value: u.id, label: displayUser(u) })), [pmOptions])
+
+  const filtriAttivi = fStato.length + fTipo.length + fCliente.length + fPm.length + fFatt.length
+
+  const azzeraFiltri = () => {
+    setFStato([]); setFTipo([]); setFCliente([]); setFPm([]); setFFatt([])
+  }
+
   // ── Filtri + raggruppamento per cliente ──
   const filtered = useMemo(() => contratti.filter((c) =>
     c.anno === fAnno &&
-    (fStato === '' || c.stato === fStato) &&
-    (fTipo === '' || c.tipo === fTipo) &&
-    (fCliente === '' || c.clienteId === fCliente) &&
-    (fPm === '' || pmsDi(c.applicazioni).some((pm) => pm.id === fPm)) &&
-    (fFatt === '' || (fFatt === 'si' ? c.fatturato : !c.fatturato))
+    (fStato.length === 0 || fStato.includes(c.stato)) &&
+    (fTipo.length === 0 || fTipo.includes(c.tipo)) &&
+    (fCliente.length === 0 || fCliente.includes(c.clienteId)) &&
+    (fPm.length === 0 || pmsDi(c.applicazioni).some((pm) => fPm.includes(pm.id))) &&
+    (fFatt.length === 0 || fFatt.includes(c.fatturato ? 'si' : 'no'))
   ), [contratti, fAnno, fStato, fTipo, fCliente, fPm, fFatt])
 
   const gruppi = useMemo(() => {
@@ -1059,49 +1226,109 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     finally { setDeleting(false) }
   }
 
-  const handleClona = async (anno: number) => {
+  const handleClona = async (anno: number, copiaDoc: boolean) => {
     if (!cloneTarget) return
-    setCloning(true); setCloneErr(null)
+    const sorgente = cloneTarget
+    setCloning(true); setCloneErr(null); setFase('Clonazione…')
     try {
-      const res = await fetch(`${API_URL}/api/contratti/${cloneTarget.id}/clona`, {
+      const res = await fetch(`${API_URL}/api/contratti/${sorgente.id}/clona`, {
         method: 'POST', headers: authHeaders(token), body: JSON.stringify({ anno }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setCloneErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
       }
+      const clone = await res.json() as Contratto
+
+      // Copia del documento: il contratto è già creato, un errore Drive non
+      // lo annulla — si segnala e il link resta collegabile a mano.
+      let avviso: string | null = null
+      const links: typeof docLinks = []
+      if (copiaDoc && canDrive) {
+        setFase('Copia documento…')
+        const esito = await clonaDocumentoDrive(sorgente, anno, driveCfg?.contrattiId || null)
+        if (esito.kind === 'ok' || esito.kind === 'esiste') {
+          links.push({ nome: esito.nome, url: esito.url, esiste: esito.kind === 'esiste' })
+          await patchDriveContratto(clone.id, esito.url).catch(() => {
+            avviso = 'documento copiato, ma non collegato al contratto: collegalo dalla modifica'
+          })
+        } else if (esito.kind === 'errore') {
+          avviso = `documento non copiato: ${esito.motivo}`
+        }
+      }
+
       setCloneTarget(null)
-      setFAnno(anno) // porta il filtro sull'anno del clone, così si vede subito
       await fetchAll()
+      setFAnno(anno) // porta il filtro sull'anno del clone, così si vede subito
+      setDocLinks(links)
+      setBulkNotice(`Contratto clonato sul ${anno}.${avviso ? ` Attenzione: ${avviso}.` : ''}`)
     } catch { setCloneErr('Errore di rete. Riprova.') }
-    finally { setCloning(false) }
+    finally { setCloning(false); setFase(null) }
   }
 
-  const handleClonaMassivo = async (anno: number) => {
-    const ids = selectedContratti.map((c) => c.id)
-    if (ids.length === 0) return
-    setCloning(true); setBulkErr(null)
+  const handleClonaMassivo = async (anno: number, copiaDoc: boolean) => {
+    const sorgenti = selectedContratti
+    if (sorgenti.length === 0) return
+    setCloning(true); setBulkErr(null); setFase('Clonazione…')
     try {
       const res = await fetch(`${API_URL}/api/contratti/clona-massivo`, {
-        method: 'POST', headers: authHeaders(token), body: JSON.stringify({ ids, anno }),
+        method: 'POST', headers: authHeaders(token),
+        body: JSON.stringify({ ids: sorgenti.map((c) => c.id), anno }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         setBulkErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
       }
-      const esito = data as { creati: number; saltati: Array<{ titolo: string; cliente: string; motivo: string }> }
+      const esito = data as {
+        creati: Array<{ id: string; sorgenteId: string }>
+        saltati: Array<{ titolo: string; cliente: string; motivo: string }>
+      }
+
+      // Copia dei documenti: una per contratto, in sequenza (ogni copia sono
+      // più chiamate Drive). Il progresso finisce sul bottone perché su molte
+      // righe l'attesa è di minuti.
+      const links: typeof docLinks = []
+      const erroriDoc: string[] = []
+      if (copiaDoc && canDrive) {
+        const daCopiare = esito.creati
+          .map((k) => ({ clone: k, sorgente: sorgenti.find((c) => c.id === k.sorgenteId) }))
+          .filter((x): x is { clone: { id: string; sorgenteId: string }; sorgente: Contratto } =>
+            x.sorgente !== undefined && !!x.sorgente.driveUrl)
+        for (const [i, x] of daCopiare.entries()) {
+          setFase(`Copia documenti… ${i + 1} di ${daCopiare.length}`)
+          const e = await clonaDocumentoDrive(x.sorgente, anno, driveCfg?.contrattiId || null)
+          if (e.kind === 'ok' || e.kind === 'esiste') {
+            links.push({ nome: e.nome, url: e.url, esiste: e.kind === 'esiste' })
+            await patchDriveContratto(x.clone.id, e.url).catch(() => {
+              erroriDoc.push(`${x.sorgente.cliente.nome}: copiato ma non collegato`)
+            })
+          } else if (e.kind === 'errore') {
+            erroriDoc.push(`${x.sorgente.cliente.nome}: ${e.motivo}`)
+          }
+        }
+      }
+
       setBulkOpen(false)
       setSelected(new Set())
       await fetchAll()
-      setFAnno(anno) // dopo il fetch, così l'anno nuovo è già tra le opzioni
-      const parti = [`${esito.creati} contratt${esito.creati === 1 ? 'o' : 'i'} clonat${esito.creati === 1 ? 'o' : 'i'} sul ${anno}`]
+      setFAnno(anno) // dopo il fetch, così l'anno nuovo è già in barra
+      setDocLinks(links)
+
+      const n = esito.creati.length
+      const parti = [`${n} contratt${n === 1 ? 'o' : 'i'} clonat${n === 1 ? 'o' : 'i'} sul ${anno}`]
+      if (links.length > 0) {
+        const nuovi = links.filter((l) => !l.esiste).length
+        parti.push(`${nuovi} documento${nuovi === 1 ? '' : 'i'} copiat${nuovi === 1 ? 'o' : 'i'}`
+          + (links.length > nuovi ? `, ${links.length - nuovi} già presenti` : ''))
+      }
       if (esito.saltati.length > 0) {
         parti.push(`${esito.saltati.length} saltat${esito.saltati.length === 1 ? 'o' : 'i'}: ` +
           esito.saltati.map((x) => `${x.cliente} — ${x.titolo} (${x.motivo})`).join('; '))
       }
+      if (erroriDoc.length > 0) parti.push(`documenti non copiati — ${erroriDoc.join('; ')}`)
       setBulkNotice(parti.join('. ') + '.')
     } catch { setBulkErr('Errore di rete. Riprova.') }
-    finally { setCloning(false) }
+    finally { setCloning(false); setFase(null) }
   }
 
   const toggleExpand = (id: string) =>
@@ -1192,43 +1419,45 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
         </button>
       </div>
 
-      {/* ── Filtri ── */}
+      {/* ── Filtri (tutti a selezione multipla) ── */}
       <div className="ct-filters">
-        <select className="ct-input ct-select ct-filter" value={fStato} aria-label="Filtra per stato"
-          onChange={(e) => setFStato(e.target.value)}>
-          <option value="">Tutti gli stati</option>
-          {stati.map((s) => <option key={s.chiave} value={s.chiave}>{s.label}</option>)}
-        </select>
-        <select className="ct-input ct-select ct-filter" value={fTipo} aria-label="Filtra per tipo"
-          onChange={(e) => setFTipo(e.target.value)}>
-          <option value="">Tutti i tipi</option>
-          {(Object.keys(TIPO_LABELS) as TipoContratto[]).map((t) => (
-            <option key={t} value={t}>{TIPO_LABELS[t]}</option>
-          ))}
-        </select>
-        <select className="ct-input ct-select ct-filter" value={fCliente} aria-label="Filtra per cliente"
-          onChange={(e) => setFCliente(e.target.value)}>
-          <option value="">Tutti i clienti</option>
-          {clienti.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-        </select>
-        <select className="ct-input ct-select ct-filter" value={fPm} aria-label="Filtra per PM"
-          onChange={(e) => setFPm(e.target.value)}>
-          <option value="">Tutti i PM</option>
-          {pmOptions.map((u) => <option key={u.id} value={u.id}>{displayUser(u)}</option>)}
-        </select>
-        <select className="ct-input ct-select ct-filter" value={fFatt} aria-label="Filtra per fatturazione"
-          onChange={(e) => setFFatt(e.target.value as '' | 'si' | 'no')}>
-          <option value="">Fatturato: tutti</option>
-          <option value="si">Fatturato</option>
-          <option value="no">Da fatturare</option>
-        </select>
+        <MultiSelectFilter className="ct-filter" options={optStati} selected={fStato} onChange={setFStato}
+          allLabel="Tutti gli stati" itemsLabel="stati" ariaLabel="Filtra per stato" />
+        <MultiSelectFilter className="ct-filter" options={optTipi} selected={fTipo} onChange={setFTipo}
+          allLabel="Tutti i tipi" itemsLabel="tipi" ariaLabel="Filtra per tipo" />
+        <MultiSelectFilter className="ct-filter ct-filter--wide" options={optClienti} selected={fCliente} onChange={setFCliente}
+          allLabel="Tutti i clienti" itemsLabel="clienti" ariaLabel="Filtra per cliente" searchable />
+        <MultiSelectFilter className="ct-filter" options={optPm} selected={fPm} onChange={setFPm}
+          allLabel="Tutti i PM" itemsLabel="PM" ariaLabel="Filtra per PM" searchable />
+        <MultiSelectFilter className="ct-filter" options={OPT_FATTURATO} selected={fFatt} onChange={setFFatt}
+          allLabel="Fatturato: tutti" itemsLabel="voci" ariaLabel="Filtra per fatturazione" />
+        {filtriAttivi > 0 && (
+          <button type="button" className="ct-filters-reset" onClick={azzeraFiltri}>
+            Azzera filtri
+            <span className="ct-filters-reset-n">{filtriAttivi}</span>
+          </button>
+        )}
       </div>
 
       {bulkNotice && (
         <div className="ct-notice" role="status">
-          <span>{bulkNotice}</span>
+          <div className="ct-notice-body">
+            <span>{bulkNotice}</span>
+            {/* I documenti copiati si aprono da qui: aprire tab da codice dopo
+                un await non è una user gesture e il browser le blocca. */}
+            {docLinks.length > 0 && (
+              <ul className="ct-notice-links">
+                {docLinks.map((l) => (
+                  <li key={l.url}>
+                    <a href={l.url} target="_blank" rel="noreferrer">{l.nome} ↗</a>
+                    {l.esiste && <span className="ct-notice-tag">già presente</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <button className="ct-notice-close" type="button" aria-label="Chiudi avviso"
-            onClick={() => setBulkNotice(null)}>
+            onClick={() => { setBulkNotice(null); setDocLinks([]) }}>
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" aria-hidden="true">
               <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
             </svg>
@@ -1493,10 +1722,12 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
       )}
       {cloneTarget && (
         <ClonaModal contratto={cloneTarget} annoSuggerito={fAnno} loading={cloning} error={cloneErr}
+          driveAttivo={canDrive} fase={fase}
           onConfirm={handleClona} onClose={() => setCloneTarget(null)} />
       )}
       {bulkOpen && selectedContratti.length > 0 && (
         <ClonaMassivoModal contratti={selectedContratti} loading={cloning} error={bulkErr}
+          driveAttivo={canDrive} fase={fase}
           onConfirm={handleClonaMassivo} onClose={() => setBulkOpen(false)} />
       )}
       {delTarget && (

@@ -430,6 +430,112 @@ export async function findChildFolderByName(parentId: string, name: string): Pro
   return data.files?.[0]?.id ?? null
 }
 
+// ── Copia di documenti (rinnovo contratti) ──────────────────────────────────
+// Il rinnovo annuale di un contratto ricrea la stessa alberatura sull'anno
+// nuovo: serve leggere nome e genitore di una cartella per replicarne la
+// struttura, e duplicare il file al suo interno.
+
+export interface DriveNodeMeta { name: string; parentId: string | null }
+
+// Nome e cartella genitore di un file o di una cartella (null se non leggibile).
+export async function getDriveNodeMeta(id: string): Promise<DriveNodeMeta | null> {
+  const token = await driveApiToken()
+  const params = new URLSearchParams({
+    fields: 'name,parents',
+    supportsAllDrives: 'true',
+  })
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  if (!res.ok) return null
+  const data = await res.json() as { name?: string; parents?: string[] }
+  if (!data.name) return null
+  return { name: data.name, parentId: data.parents?.[0] ?? null }
+}
+
+// Cerca un file (non cartella) per nome esatto dentro parentId. Serve a non
+// duplicare un documento già copiato quando il clone viene rilanciato.
+export async function findChildFileByName(
+  parentId: string, name: string,
+): Promise<{ fileId: string; url: string } | null> {
+  const token = await driveApiToken()
+  const q = `'${parentId}' in parents and name = '${name.replace(/'/g, "\\'")}' `
+    + `and mimeType != 'application/vnd.google-apps.folder' and trashed = false`
+  const params = new URLSearchParams({
+    q,
+    fields: 'files(id,webViewLink)',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+    corpora: 'allDrives',
+    pageSize: '1',
+  })
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) return null
+  const f = (await res.json() as { files?: Array<{ id: string; webViewLink?: string }> }).files?.[0]
+  return f ? { fileId: f.id, url: f.webViewLink ?? driveFileUrl(f.id) } : null
+}
+
+// Duplica un file dentro parentId col nome dato. `webViewLink` arriva da Drive
+// perché l'URL corretto dipende dal tipo (Google Doc vs file binario).
+export async function copyDriveFile(
+  fileId: string, name: string, parentId: string,
+): Promise<{ fileId: string; url: string }> {
+  const token = await driveApiToken()
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/copy`
+    + '?supportsAllDrives=true&fields=id,webViewLink',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parents: [parentId] }),
+    },
+  )
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: { message?: string } }
+    throw new Error(data.error?.message ?? `Errore Drive ${res.status}`)
+  }
+  const d = await res.json() as { id: string; webViewLink?: string }
+  return { fileId: d.id, url: d.webViewLink ?? driveFileUrl(d.id) }
+}
+
+// Fallback quando Drive non espone webViewLink
+function driveFileUrl(fileId: string): string {
+  return `https://drive.google.com/file/d/${fileId}/view`
+}
+
+// Cartella dell'anno dentro la radice dei contratti ("Contratti 2027" e simili),
+// null se non c'è. Una sola query su `name contains <anno>`, poi si preferisce
+// il match esatto sulla convenzione; se restano più candidate ambigue si
+// risponde null e chi chiama ricade sulla radice, che è sempre corretta.
+export async function findChildFolderByYear(
+  parentId: string, anno: number, prefisso = 'Contratti',
+): Promise<string | null> {
+  const token = await driveApiToken()
+  const q = `'${parentId}' in parents and name contains '${anno}' `
+    + `and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+  const params = new URLSearchParams({
+    q,
+    fields: 'files(id,name)',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+    corpora: 'allDrives',
+    pageSize: '20',
+  })
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) return null
+  const files = (await res.json() as { files?: Array<{ id: string; name: string }> }).files ?? []
+  if (files.length === 0) return null
+  const atteso = `${prefisso} ${anno}`.toLowerCase()
+  const esatto = files.find((f) => f.name.trim().toLowerCase() === atteso)
+  if (esatto) return esatto.id
+  return files.length === 1 ? files[0].id : null
+}
+
 // Cerca una cartella per nome esatto in TUTTO uno shared drive (null se assente
 // o ambigua). Usata per ricavare le ancore "Sviluppo - Progetti in gestione" e
 // "Prodotti" dal Drive Sviluppo, senza doverle configurare a mano.

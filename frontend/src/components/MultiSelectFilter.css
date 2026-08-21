@@ -1,0 +1,94 @@
+/* =============================================================
+   MultiSelectFilter — filtro a selezione multipla
+   (prefisso msf-)
+   ============================================================= */
+
+.msf { position: relative; min-width: 0; }
+
+/* ── Bottone ───────────────────────────────────────────────── */
+
+.msf-btn {
+  display: flex; align-items: center; gap: 0.4rem; width: 100%;
+  padding: 0.6rem 0.75rem 0.6rem 0.875rem;
+  border: 1.5px solid #E2E8F0; border-radius: 9px;
+  background: #fff; color: #1E293B;
+  font-family: inherit; font-size: 0.85rem; font-weight: 500;
+  cursor: pointer; text-align: left;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+.msf-btn:hover { border-color: #CBD5E1; }
+.msf-btn:focus-visible { outline: none; border-color: #0D9488; box-shadow: 0 0 0 3px rgba(13,148,136,.12); }
+
+/* Filtro attivo: si distingue a colpo d'occhio da quelli inerti */
+.msf-btn--on { border-color: #0D9488; background: #F0FDFA; color: #0F766E; font-weight: 600; }
+.msf-btn--on:hover { border-color: #0F766E; }
+
+.msf-btn-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msf-caret { color: #94A3B8; flex-shrink: 0; }
+.msf-btn--on .msf-caret { color: #0D9488; }
+
+.msf-badge {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  min-width: 18px; padding: 0 0.3rem; border-radius: 999px;
+  background: #0D9488; color: #fff; font-size: 0.68rem; font-weight: 800;
+}
+
+/* ── Pannello ──────────────────────────────────────────────── */
+
+@keyframes msf-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.msf-panel {
+  position: absolute; z-index: 40; top: calc(100% + 0.35rem); left: 0;
+  width: 240px; max-width: calc(100vw - 2rem);
+  display: flex; flex-direction: column;
+  background: #fff; border: 1px solid #E2E8F0; border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15,23,42,.14), 0 2px 6px rgba(15,23,42,.06);
+  padding: 0.4rem;
+  animation: msf-in 0.14s ease both;
+}
+/* Sugli ultimi filtri della barra si ancora a destra per non sbordare */
+.msf-panel--dx { left: auto; right: 0; }
+@media (prefers-reduced-motion: reduce) { .msf-panel { animation: none; } }
+
+.msf-search {
+  margin: 0.1rem 0.1rem 0.35rem;
+  padding: 0.45rem 0.6rem; border: 1.5px solid #E2E8F0; border-radius: 8px;
+  font-family: inherit; font-size: 0.82rem; color: #1E293B;
+  outline: none; transition: border-color 150ms ease;
+}
+.msf-search:focus { border-color: #0D9488; }
+.msf-search::placeholder { color: #CBD5E1; }
+
+.msf-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }
+
+.msf-opt {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.45rem 0.5rem; border-radius: 7px;
+  font-size: 0.83rem; color: #334155; cursor: pointer;
+  transition: background 120ms ease;
+}
+.msf-opt:hover { background: #F8FAFC; }
+.msf-opt input {
+  accent-color: #0D9488; width: 15px; height: 15px; margin: 0;
+  flex-shrink: 0; cursor: pointer;
+}
+.msf-opt input:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+.msf-opt-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.msf-dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; }
+
+.msf-vuoto { padding: 0.6rem 0.5rem; font-size: 0.8rem; color: #94A3B8; }
+
+.msf-clear {
+  margin-top: 0.3rem; padding: 0.45rem 0.5rem;
+  border: none; border-top: 1px solid #F1F5F9; border-radius: 0 0 8px 8px;
+  background: transparent; color: #0D9488;
+  font-family: inherit; font-size: 0.8rem; font-weight: 600;
+  cursor: pointer; text-align: left;
+  transition: background 120ms ease;
+}
+.msf-clear:hover { background: #F0FDFA; }
+.msf-clear:focus-visible { outline: 2px solid #0D9488; outline-offset: -2px; }

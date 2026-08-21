@@ -83,6 +83,21 @@
   background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 12px;
   padding: 0.7rem 0.9rem; font-size: 0.83rem; color: #075985; line-height: 1.5;
 }
+.ct-notice-body { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+.ct-notice-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.ct-notice-links li { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.8rem; }
+.ct-notice-links a { color: #0369A1; font-weight: 600; text-decoration: none; }
+.ct-notice-links a:hover { text-decoration: underline; }
+.ct-notice-tag {
+  padding: 0.05rem 0.4rem; border-radius: 999px;
+  background: #E0F2FE; color: #0369A1; font-size: 0.68rem; font-weight: 700;
+}
+
+/* Flag "copia il documento" nei modal di clone */
+.ct-clona-drive { display: flex; flex-direction: column; gap: 0.3rem; }
+.ct-check--off { opacity: 0.55; cursor: not-allowed; }
+.ct-check--off input { cursor: not-allowed; }
+
 .ct-notice-close {
   margin-left: auto; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -174,8 +189,24 @@
 
 /* ── Filtri ────────────────────────────────────────────────── */
 
-.ct-filters { display: flex; gap: 0.6rem; flex-wrap: wrap; }
-.ct-filter { min-width: 130px; max-width: 220px; font-size: 0.85rem; }
+.ct-filters { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.ct-filter { width: 165px; flex-shrink: 0; font-size: 0.85rem; }
+.ct-filter--wide { width: 200px; }
+
+.ct-filters-reset {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.55rem 0.8rem; border-radius: 9px;
+  border: 1.5px dashed #CBD5E1; background: transparent; color: #64748B;
+  font-family: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.ct-filters-reset:hover { background: #FEF2F2; border-color: #FECACA; color: #DC2626; }
+.ct-filters-reset:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+.ct-filters-reset-n {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; padding: 0 0.3rem; border-radius: 999px;
+  background: #E2E8F0; color: #475569; font-size: 0.68rem; font-weight: 800;
+}
 
 /* ── Error / empty / skeleton ──────────────────────────────── */
 

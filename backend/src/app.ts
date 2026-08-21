@@ -2810,7 +2810,10 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
       })
       const giaPresenti = new Set(esistenti.map((e) => `${e.clienteId}::${e.titolo}`))
 
-      const creati: string[] = []
+      // Le coppie clone↔sorgente servono al frontend per copiare il documento
+      // Drive del sorgente sul clone: la copia gira nel browser (i token Drive
+      // sono client-side), quindi qui non basta un conteggio.
+      const creati: Array<{ id: string; sorgenteId: string }> = []
       const saltati: Array<{ id: string; titolo: string; cliente: string; motivo: string }> = []
 
       for (const src of sorgenti) {
@@ -2827,7 +2830,7 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
         }
         const nuovo = await prisma.contratto.create({ data: payload, select: { id: true } })
         giaPresenti.add(chiave)
-        creati.push(nuovo.id)
+        creati.push({ id: nuovo.id, sorgenteId: src.id })
       }
 
       const nonTrovati = cleanIds.filter((id) => !sorgenti.some((s) => s.id === id))
@@ -2835,6 +2838,40 @@ export function registerRoutes<E extends Env>(app: Hono<E>): void {
     } catch (err) {
       console.error('[contratti] clona-massivo error:', err)
       return c.json({ error: 'Errore nella clonazione massiva dei contratti' }, 500)
+    }
+  })
+
+  // Binding cartella/documento Drive del contratto, isolato dal PUT: la copia
+  // del documento avviene nel browser (token Drive client-side) e va salvata
+  // senza rimandare tutto il payload del contratto. Stessa forma dei PATCH
+  // /clienti/:id/drive e /progetti/:id/drive.
+  hono.patch('/api/contratti/:id/drive', requireAuth(), requireRole(...CONTRATTO_ROLES), async (c) => {
+    const id = c.req.param('id')
+    const { driveUrl, driveFolderId } = await readJSON<{
+      driveUrl?: unknown; driveFolderId?: unknown
+    }>(c)
+    const str = (v: unknown): string | null | 'invalid' => {
+      if (v === null || v === undefined || v === '') return null
+      return typeof v === 'string' ? v.trim() || null : 'invalid'
+    }
+    const url = str(driveUrl)
+    const folderId = str(driveFolderId)
+    if (url === 'invalid' || folderId === 'invalid') {
+      return c.json({ error: 'driveUrl e driveFolderId devono essere stringhe (vuote per scollegare)' }, 400)
+    }
+    const linkError = invalidLinkError({ 'Link contratto': url })
+    if (linkError) return c.json({ error: linkError }, 400)
+    try {
+      const contratto = await c.get('prisma').contratto.update({
+        where: { id },
+        data: { driveUrl: url, driveFolderId: folderId },
+        include: CONTRATTI_INCLUDE,
+      })
+      return c.json(serializeContratto(contratto))
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'Contratto non trovato' }, 404)
+      console.error('[contratti] PATCH drive error:', err)
+      return c.json({ error: 'Errore nel collegamento del documento Drive' }, 500)
     }
   })
 
