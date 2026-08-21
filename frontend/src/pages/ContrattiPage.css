@@ -108,6 +108,22 @@
 .ct-notice-close:hover { background: #E0F2FE; }
 .ct-notice-close:focus-visible { outline: 2px solid #0284C7; outline-offset: 1px; }
 
+/* ── Spinner / stato occupato ──────────────────────────────── */
+/* Stessa resa di ClientiPage/ProgettiPage: spinner sul bottone + avviso nel
+   corpo del modal, perché la copia su Drive è lenta. */
+
+@keyframes ct-spin { to { transform: rotate(360deg); } }
+
+.ct-spinner { animation: ct-spin 0.8s linear infinite; flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) { .ct-spinner { animation-duration: 2.4s; } }
+
+.ct-busy {
+  display: flex; align-items: center; gap: 0.5rem;
+  background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 10px;
+  padding: 0.6rem 0.8rem; font-size: 0.8rem; color: #075985; line-height: 1.45;
+}
+.ct-busy .ct-spinner { color: #0284C7; }
+
 /* ── Banner scadenze ───────────────────────────────────────── */
 
 .ct-warning {
