@@ -149,6 +149,23 @@ function scadenzaLabel(s: ScadenzaInfo): string {
   return `scade il ${fmtData(s.data)} (${s.giorni} gg)`
 }
 
+// ─── Spinner ──────────────────────────────────────────────────────────────────
+// La copia su Drive è lenta (più chiamate API in sequenza, una per contratto):
+// senza un segnale visibile il modal sembra bloccato.
+
+function Spinner() {
+  return (
+    <svg className="ct-spinner" viewBox="0 0 24 24" fill="none" width="15" height="15" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// Fase del clone, per dire all'utente *cosa* sta aspettando: `clone` è la
+// chiamata al backend, `drive` la copia dei documenti (l'attesa lunga).
+interface ClonaFase { step: 'clone' | 'drive'; label: string }
+
 // ─── Clone del documento su Drive ─────────────────────────────────────────────
 // Rinnovando un contratto si vuole anche il documento dell'anno prima nella
 // cartella dell'anno nuovo. La struttura non è assunta ma **ricavata dal file
@@ -736,7 +753,7 @@ function ClonaModal({ contratto, annoSuggerito, loading, error, driveAttivo, fas
   contratto: Contratto; annoSuggerito?: number; loading: boolean; error: string | null
   // false = integrazione Drive non configurata: il flag non ha senso
   driveAttivo: boolean
-  fase: string | null
+  fase: ClonaFase | null
   onConfirm: (anno: number, copiaDoc: boolean) => void; onClose: () => void
 }) {
   // Di norma il rinnovo è l'anno dopo; dal pannello copertura arriva invece
@@ -761,6 +778,11 @@ function ClonaModal({ contratto, annoSuggerito, loading, error, driveAttivo, fas
         </div>
         <div className="ct-modal-body">
           {error && <p className="ct-field-error ct-field-error--banner" role="alert">{error}</p>}
+          {fase?.step === 'drive' && (
+            <p className="ct-busy" role="status">
+              <Spinner /> Sto copiando il documento su Google Drive — può richiedere qualche secondo.
+            </p>
+          )}
           <p className="ct-confirm-text">
             Crea una copia di <strong>{contratto.titolo}</strong> ({contratto.cliente.nome}, {contratto.anno}) su un altro anno di competenza.
           </p>
@@ -790,11 +812,15 @@ function ClonaModal({ contratto, annoSuggerito, loading, error, driveAttivo, fas
           </p>
         </div>
         <div className="ct-modal-footer">
+          {/* Durante la copia su Drive resta cliccabile: è la via d'uscita se
+              il consenso Google non arriva (il clone è già stato creato). */}
           <button className="ct-btn ct-btn--ghost" type="button" onClick={onClose}
-            disabled={loading && fase === null}>Annulla</button>
+            disabled={loading && fase?.step !== 'drive'}>Annulla</button>
           <button className="ct-btn ct-btn--primary" type="button" disabled={!annoValido || loading}
             onClick={() => onConfirm(annoNum, copiaDoc)}>
-            {loading ? (fase ?? 'Clonazione…') : `Clona sul ${annoValido ? annoNum : '…'}`}
+            {loading
+              ? <><Spinner /> {fase?.label ?? 'Clonazione…'}</>
+              : `Clona sul ${annoValido ? annoNum : '…'}`}
           </button>
         </div>
       </div>
@@ -809,7 +835,7 @@ function ClonaModal({ contratto, annoSuggerito, loading, error, driveAttivo, fas
 function ClonaMassivoModal({ contratti, loading, error, driveAttivo, fase, onConfirm, onClose }: {
   contratti: Contratto[]; loading: boolean; error: string | null
   driveAttivo: boolean
-  fase: string | null
+  fase: ClonaFase | null
   onConfirm: (anno: number, copiaDoc: boolean) => void; onClose: () => void
 }) {
   // Se la selezione è tutta sullo stesso anno, proponi l'anno successivo
@@ -839,6 +865,11 @@ function ClonaMassivoModal({ contratti, loading, error, driveAttivo, fase, onCon
         </div>
         <div className="ct-modal-body">
           {error && <p className="ct-field-error ct-field-error--banner" role="alert">{error}</p>}
+          {fase?.step === 'drive' && (
+            <p className="ct-busy" role="status">
+              <Spinner /> {fase.label} — la copia su Google Drive avviene una alla volta e può richiedere qualche minuto.
+            </p>
+          )}
           <p className="ct-confirm-text">
             Crea una copia {contratti.length === 1 ? 'del' : 'dei'}{' '}
             <strong>{contratti.length} contratt{contratti.length === 1 ? 'o selezionato' : 'i selezionati'}</strong>{' '}
@@ -885,11 +916,15 @@ function ClonaMassivoModal({ contratti, loading, error, driveAttivo, fase, onCon
           </p>
         </div>
         <div className="ct-modal-footer">
+          {/* Come nel clone singolo: durante la copia su Drive l'uscita resta
+              possibile — i contratti sono già stati creati dal server. */}
           <button className="ct-btn ct-btn--ghost" type="button" onClick={onClose}
-            disabled={loading && fase === null}>Annulla</button>
+            disabled={loading && fase?.step !== 'drive'}>Annulla</button>
           <button className="ct-btn ct-btn--primary" type="button" disabled={!annoValido || daClonare === 0 || loading}
             onClick={() => onConfirm(annoNum, copiaDoc)}>
-            {loading ? (fase ?? 'Clonazione…') : `Clona ${daClonare} sul ${annoValido ? annoNum : '…'}`}
+            {loading
+              ? <><Spinner /> {fase?.label ?? 'Clonazione…'}</>
+              : `Clona ${daClonare} sul ${annoValido ? annoNum : '…'}`}
           </button>
         </div>
       </div>
@@ -983,7 +1018,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
   const [bulkNotice, setBulkNotice] = useState<string | null>(null)
   // Fase mostrata sul bottone durante il clone (la copia Drive è lenta) e
   // link dei documenti copiati, elencati nell'esito.
-  const [fase, setFase]         = useState<string | null>(null)
+  const [fase, setFase]         = useState<ClonaFase | null>(null)
   const [docLinks, setDocLinks] = useState<Array<{ nome: string; url: string; esiste: boolean }>>([])
 
   const fetchAll = useCallback(async () => {
@@ -1282,7 +1317,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
   const handleClona = async (anno: number, copiaDoc: boolean) => {
     if (!cloneTarget) return
     const sorgente = cloneTarget
-    setCloning(true); setCloneErr(null); setFase('Clonazione…')
+    setCloning(true); setCloneErr(null); setFase({ step: 'clone', label: 'Clonazione…' })
     try {
       const res = await fetch(`${API_URL}/api/contratti/${sorgente.id}/clona`, {
         method: 'POST', headers: authHeaders(token), body: JSON.stringify({ anno }),
@@ -1298,7 +1333,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
       let avviso: string | null = null
       const links: typeof docLinks = []
       if (copiaDoc && canDrive) {
-        setFase('Copia documento…')
+        setFase({ step: 'drive', label: 'Copia documento…' })
         const esito = await clonaDocumentoDrive(sorgente, anno, driveCfg?.contrattiId || null)
         if (esito.kind === 'ok' || esito.kind === 'esiste') {
           links.push({ nome: esito.nome, url: esito.url, esiste: esito.kind === 'esiste' })
@@ -1322,7 +1357,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
   const handleClonaMassivo = async (anno: number, copiaDoc: boolean) => {
     const sorgenti = selectedContratti
     if (sorgenti.length === 0) return
-    setCloning(true); setBulkErr(null); setFase('Clonazione…')
+    setCloning(true); setBulkErr(null); setFase({ step: 'clone', label: 'Clonazione…' })
     try {
       const res = await fetch(`${API_URL}/api/contratti/clona-massivo`, {
         method: 'POST', headers: authHeaders(token),
@@ -1348,7 +1383,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
           .filter((x): x is { clone: { id: string; sorgenteId: string }; sorgente: Contratto } =>
             x.sorgente !== undefined && !!x.sorgente.driveUrl)
         for (const [i, x] of daCopiare.entries()) {
-          setFase(`Copia documenti… ${i + 1} di ${daCopiare.length}`)
+          setFase({ step: 'drive', label: `Copia documenti… ${i + 1} di ${daCopiare.length}` })
           const e = await clonaDocumentoDrive(x.sorgente, anno, driveCfg?.contrattiId || null)
           if (e.kind === 'ok' || e.kind === 'esiste') {
             links.push({ nome: e.nome, url: e.url, esiste: e.kind === 'esiste' })
