@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { SectionModal } from '../components/SectionModal'
 import { DriveLinkField } from '../components/DriveLinkField'
 import { useDriveConfig } from '../lib/useDriveConfig'
@@ -47,6 +47,9 @@ type FormData = {
 }
 
 const ANNO_CORRENTE = new Date().getFullYear()
+// Estremi accettati dal backend (validateContrattoBody): oltre non si naviga.
+const ANNO_MIN = 2000
+const ANNO_MAX = 2100
 
 const EMPTY_FORM: FormData = {
   clienteId: '', titolo: '', tipo: 'MANUTENZIONE', anno: String(ANNO_CORRENTE), stato: '',
@@ -111,6 +114,128 @@ function scadenzaLabel(s: ScadenzaInfo): string {
   return `scade il ${fmtData(s.data)} (${s.giorni} gg)`
 }
 
+// ─── Copertura assistenza ─────────────────────────────────────────────────────
+// Il registro dice chi È coperto; questa sezione dice chi NON lo è, che è il
+// dato che serve a gennaio. Tutto calcolato sui dati già in pagina (clienti,
+// progetti cliente e contratti di ogni anno): nessuna chiamata extra.
+// Un contratto copre a prescindere dallo stato — anche chiuso conta.
+
+interface CoperturaProg { id: string; nome: string }
+
+// Cliente coperto in un altro anno ma non in quello filtrato: il rinnovo
+// non è stato fatto. Il contratto più vicino è il candidato da clonare.
+interface RinnovoMancante {
+  clienteId: string; cliente: string
+  ultimo: Contratto
+  progetti: CoperturaProg[]
+}
+
+// Cliente CON contratto nell'anno, ma alcuni suoi progetti non sono tra le
+// applicazioni coperte: la dimenticanza più insidiosa.
+interface ClienteConBuchi {
+  clienteId: string; cliente: string
+  contrattiAnno: Contratto[]
+  progetti: CoperturaProg[]
+}
+
+interface MaiCoperto {
+  clienteId: string; cliente: string
+  progetti: CoperturaProg[]
+}
+
+interface Copertura {
+  rinnovi: RinnovoMancante[]
+  buchi: ClienteConBuchi[]
+  mai: MaiCoperto[]
+}
+
+function calcolaCopertura(
+  clienti: ClienteOption[], progetti: ProgettoOption[], contratti: Contratto[], anno: number,
+): Copertura {
+  const progettiPerCliente = new Map<string, ProgettoOption[]>()
+  for (const p of progetti) {
+    if (!p.clienteId) continue
+    const arr = progettiPerCliente.get(p.clienteId)
+    if (arr) arr.push(p); else progettiPerCliente.set(p.clienteId, [p])
+  }
+
+  const contrattiAnnoPerCliente = new Map<string, Contratto[]>()
+  const appCoperte = new Set<string>()
+  // Contratto di riferimento su un altro anno: il più vicino all'anno
+  // filtrato, a pari distanza vince quello precedente (è il rinnovo naturale).
+  const altroAnno = new Map<string, Contratto>()
+  for (const c of contratti) {
+    if (c.anno === anno) {
+      const arr = contrattiAnnoPerCliente.get(c.clienteId)
+      if (arr) arr.push(c); else contrattiAnnoPerCliente.set(c.clienteId, [c])
+      for (const a of c.applicazioni) appCoperte.add(a.id)
+      continue
+    }
+    const cur = altroAnno.get(c.clienteId)
+    const dist = (x: Contratto) => Math.abs(x.anno - anno) * 2 + (x.anno > anno ? 1 : 0)
+    if (!cur || dist(c) < dist(cur)) altroAnno.set(c.clienteId, c)
+  }
+
+  const rinnovi: RinnovoMancante[] = []
+  const buchi: ClienteConBuchi[] = []
+  const mai: MaiCoperto[] = []
+
+  for (const cli of clienti) {
+    const suoi = (progettiPerCliente.get(cli.id) ?? []).map((p) => ({ id: p.id, nome: p.nome }))
+    const dellAnno = contrattiAnnoPerCliente.get(cli.id)
+    if (dellAnno && dellAnno.length > 0) {
+      const scoperti = suoi.filter((p) => !appCoperte.has(p.id))
+      if (scoperti.length > 0) {
+        buchi.push({ clienteId: cli.id, cliente: cli.nome, contrattiAnno: dellAnno, progetti: scoperti })
+      }
+      continue
+    }
+    const prec = altroAnno.get(cli.id)
+    if (prec) {
+      rinnovi.push({
+        clienteId: cli.id, cliente: cli.nome, ultimo: prec,
+        progetti: prec.applicazioni.map((a) => ({ id: a.id, nome: a.nome })),
+      })
+      continue
+    }
+    mai.push({ clienteId: cli.id, cliente: cli.nome, progetti: suoi })
+  }
+
+  const perNome = <T extends { cliente: string }>(a: T, b: T) => a.cliente.localeCompare(b.cliente, 'it')
+  return { rinnovi: rinnovi.sort(perNome), buchi: buchi.sort(perNome), mai: mai.sort(perNome) }
+}
+
+// ─── Campi da compilare ───────────────────────────────────────────────────────
+// Importo totale, ordine di vendita e contratto su Drive non sono obbligatori
+// al salvataggio (un contratto nasce spesso incompleto), ma senza di loro il
+// registro non serve a nulla: niente confronto economico, niente aggancio dei
+// consuntivi Zoho, nessun documento raggiungibile. Li segnaliamo in riga per
+// indurre a completarli, e li nascondiamo sui contratti chiusi — lì non c'è
+// più nulla da rincorrere.
+
+type CampoMancante = 'importo' | 'ordine' | 'drive'
+
+const CAMPO_LABEL: Record<CampoMancante, string> = {
+  importo: 'Importo',
+  ordine:  'Ordine',
+  drive:   'Drive',
+}
+
+const CAMPO_TITLE: Record<CampoMancante, string> = {
+  importo: 'Importo totale non compilato — senza di esso non c\u2019è confronto economico',
+  ordine:  'Ordine di vendita non compilato — l\u2019import Zoho non può agganciare le ore',
+  drive:   'Link al contratto su Drive non compilato',
+}
+
+function campiMancanti(c: Contratto, isChiuso: boolean): CampoMancante[] {
+  if (isChiuso) return []
+  const out: CampoMancante[] = []
+  if (c.importoTotale === null) out.push('importo')
+  if (!c.riferimentoOrdineVendita?.trim()) out.push('ordine')
+  if (!c.driveUrl?.trim()) out.push('drive')
+  return out
+}
+
 // ─── Stato chip ───────────────────────────────────────────────────────────────
 
 function StatoChip({ stato, stati }: { stato: string; stati: StatoContratto[] }) {
@@ -142,6 +267,159 @@ function BudgetBar({ consumato, totale }: { consumato: number; totale: number })
   )
 }
 
+// ─── Pannello copertura ───────────────────────────────────────────────────────
+
+function CoperturaPanel({
+  anno, copertura, onClona, onNuovo, onCopri,
+}: {
+  anno: number; copertura: Copertura
+  onClona: (c: Contratto) => void
+  onNuovo: (clienteId: string, applicazioniIds: string[]) => void
+  onCopri: (b: ClienteConBuchi, progettoId: string) => void
+}) {
+  const { rinnovi, buchi, mai } = copertura
+  const daAttenzionare = rinnovi.length + buchi.length
+  // Aperto d'ufficio quando c'è qualcosa da attenzionare; `null` = ancora
+  // sulla scelta automatica, così il default segue i dati senza useEffect.
+  const [open, setOpen] = useState<boolean | null>(null)
+  const [maiOpen, setMaiOpen] = useState(false)
+  const aperto = open ?? daAttenzionare > 0
+
+  return (
+    <section className="ct-cop" id="ct-copertura">
+      <button type="button" className="ct-cop-head" aria-expanded={aperto}
+        onClick={() => setOpen(!aperto)}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" width="14" height="14"
+          className={`ct-cop-caret${aperto ? ' ct-cop-caret--open' : ''}`} aria-hidden="true">
+          <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <h2 className="ct-cop-title">Copertura assistenza {anno}</h2>
+        <span className="ct-cop-summary">
+          {daAttenzionare === 0
+            ? `Nessuna lacuna · ${mai.length} client${mai.length === 1 ? 'e' : 'i'} mai copert${mai.length === 1 ? 'o' : 'i'}`
+            : `${rinnovi.length} rinnov${rinnovi.length === 1 ? 'o' : 'i'} mancant${rinnovi.length === 1 ? 'e' : 'i'} · ${buchi.length} con progetti scoperti · ${mai.length} mai copert${mai.length === 1 ? 'o' : 'i'}`}
+        </span>
+      </button>
+
+      {aperto && (
+        <div className="ct-cop-body">
+          {/* ── Rinnovi mancanti ── */}
+          <div className="ct-cop-group">
+            <h3 className="ct-cop-group-title">
+              Rinnovi mancanti
+              <span className="ct-cop-badge ct-cop-badge--warn">{rinnovi.length}</span>
+            </h3>
+            <p className="ct-cop-group-sub">Coperti in un altro anno, nulla sul {anno}.</p>
+            {rinnovi.length === 0 ? (
+              <p className="ct-cop-none">Nessuno — tutti i clienti già in assistenza hanno un contratto sul {anno}.</p>
+            ) : (
+              <ul className="ct-cop-list">
+                {rinnovi.map((r) => (
+                  <li key={r.clienteId} className="ct-cop-item">
+                    <div className="ct-cop-item-main">
+                      <span className="ct-cop-cliente">{r.cliente}</span>
+                      <span className="ct-cop-meta">
+                        coperto nel {r.ultimo.anno} — {r.ultimo.titolo}
+                        {r.progetti.length > 0 && ` · ${r.progetti.map((p) => p.nome).join(', ')}`}
+                      </span>
+                    </div>
+                    <button className="ct-btn ct-btn--ghost ct-btn--sm" type="button"
+                      onClick={() => onClona(r.ultimo)}
+                      title={`Clona il contratto ${r.ultimo.anno} sul ${anno}`}>
+                      Clona sul {anno}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* ── Progetti scoperti di clienti in assistenza ── */}
+          <div className="ct-cop-group">
+            <h3 className="ct-cop-group-title">
+              Progetti scoperti
+              <span className="ct-cop-badge ct-cop-badge--warn">{buchi.length}</span>
+            </h3>
+            <p className="ct-cop-group-sub">
+              Il cliente ha un contratto sul {anno}, ma questi suoi progetti non sono tra le applicazioni coperte.
+            </p>
+            {buchi.length === 0 ? (
+              <p className="ct-cop-none">Nessuno — ogni progetto dei clienti in assistenza è coperto.</p>
+            ) : (
+              <ul className="ct-cop-list">
+                {buchi.map((b) => (
+                  <li key={b.clienteId} className="ct-cop-item ct-cop-item--col">
+                    <div className="ct-cop-item-main">
+                      <span className="ct-cop-cliente">{b.cliente}</span>
+                      <span className="ct-cop-meta">
+                        {b.contrattiAnno.length === 1
+                          ? b.contrattiAnno[0].titolo
+                          : `${b.contrattiAnno.length} contratti sul ${anno}`}
+                      </span>
+                    </div>
+                    <div className="ct-cop-progetti">
+                      {b.progetti.map((p) => (
+                        <button key={p.id} type="button" className="ct-cop-prog"
+                          onClick={() => onCopri(b, p.id)}
+                          title={b.contrattiAnno.length === 1
+                            ? `Aggiungi ${p.nome} alle applicazioni di «${b.contrattiAnno[0].titolo}»`
+                            : `Crea un contratto ${anno} per ${b.cliente} che copra ${p.nome}`}>
+                          {p.nome}
+                          <span className="ct-cop-prog-add" aria-hidden="true">+</span>
+                        </button>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* ── Mai coperti (informativo) ── */}
+          <div className="ct-cop-group">
+            <button type="button" className="ct-cop-subhead" aria-expanded={maiOpen}
+              onClick={() => setMaiOpen((v) => !v)}>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" width="12" height="12"
+                className={`ct-cop-caret${maiOpen ? ' ct-cop-caret--open' : ''}`} aria-hidden="true">
+                <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <h3 className="ct-cop-group-title">
+                Mai coperti
+                <span className="ct-cop-badge">{mai.length}</span>
+              </h3>
+              <span className="ct-cop-group-sub">Nessun contratto di assistenza in nessun anno.</span>
+            </button>
+            {maiOpen && (
+              mai.length === 0 ? (
+                <p className="ct-cop-none">Nessuno — ogni cliente ha almeno un contratto a registro.</p>
+              ) : (
+                <ul className="ct-cop-list">
+                  {mai.map((m) => (
+                    <li key={m.clienteId} className="ct-cop-item">
+                      <div className="ct-cop-item-main">
+                        <span className="ct-cop-cliente">{m.cliente}</span>
+                        <span className="ct-cop-meta">
+                          {m.progetti.length === 0
+                            ? 'nessun progetto registrato'
+                            : `${m.progetti.length} progett${m.progetti.length === 1 ? 'o' : 'i'}: ${m.progetti.map((p) => p.nome).join(', ')}`}
+                        </span>
+                      </div>
+                      <button className="ct-btn ct-btn--ghost ct-btn--sm" type="button"
+                        onClick={() => onNuovo(m.clienteId, [])}>
+                        Crea contratto
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 // ─── Modal form ───────────────────────────────────────────────────────────────
 
 interface ModalProps {
@@ -149,13 +427,31 @@ interface ModalProps {
   clienti: ClienteOption[]; stati: StatoContratto[]
   progetti: ProgettoOption[]
   contrattiRootId?: string
+  // Campo su cui atterrare: arriva dalle pill "da compilare" in riga
+  focusCampo?: CampoMancante
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
+}
+
+const CAMPO_INPUT_ID: Record<CampoMancante, string> = {
+  importo: 'ct-importo',
+  ordine:  'ct-ordine-vendita',
+  drive:   'ct-drive',
 }
 
 function ContrattoModal({
   title, form, loading, apiError, clienti, stati, progetti,
-  contrattiRootId, onChange, onSave, onClose,
+  contrattiRootId, focusCampo, onChange, onSave, onClose,
 }: ModalProps) {
+  // Entrando da una pill "da compilare" il campo va portato a fuoco: il DOM
+  // del modal esiste solo dopo il mount, da qui l'effect (una volta sola).
+  useEffect(() => {
+    if (!focusCampo) return
+    const el = document.getElementById(CAMPO_INPUT_ID[focusCampo])
+    if (!(el instanceof HTMLInputElement)) return
+    el.focus()
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [focusCampo])
+
   const set = <K extends keyof FormData>(key: K, value: FormData[K]) => onChange({ ...form, [key]: value })
   const setEv = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -192,7 +488,7 @@ function ContrattoModal({
             <div className="ct-field">
               <label htmlFor="ct-cliente" className="ct-label">Cliente <span aria-hidden="true">*</span></label>
               <select id="ct-cliente" className="ct-input ct-select" value={form.clienteId}
-                onChange={(e) => setCliente(e.target.value)} autoFocus>
+                onChange={(e) => setCliente(e.target.value)} autoFocus={focusCampo === undefined}>
                 <option value="">— Seleziona cliente —</option>
                 {clienti.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
               </select>
@@ -322,11 +618,14 @@ function ContrattoModal({
 // Rinnovo annuale senza riscrivere tutto: crea una copia del contratto
 // sull'anno scelto (date shiftate, stato/fatturato/consuntivato/ordine reset).
 
-function ClonaModal({ contratto, loading, error, onConfirm, onClose }: {
-  contratto: Contratto; loading: boolean; error: string | null
+function ClonaModal({ contratto, annoSuggerito, loading, error, onConfirm, onClose }: {
+  contratto: Contratto; annoSuggerito?: number; loading: boolean; error: string | null
   onConfirm: (anno: number) => void; onClose: () => void
 }) {
-  const [anno, setAnno] = useState(String(contratto.anno + 1))
+  // Di norma il rinnovo è l'anno dopo; dal pannello copertura arriva invece
+  // l'anno filtrato, che è quello su cui manca il contratto.
+  const [anno, setAnno] = useState(String(
+    annoSuggerito !== undefined && annoSuggerito !== contratto.anno ? annoSuggerito : contratto.anno + 1))
   const annoNum = Number(anno)
   const annoValido = Number.isInteger(annoNum) && annoNum >= 2000 && annoNum <= 2100 && annoNum !== contratto.anno
 
@@ -362,6 +661,81 @@ function ClonaModal({ contratto, loading, error, onConfirm, onClose }: {
           <button className="ct-btn ct-btn--primary" type="button" disabled={!annoValido || loading}
             onClick={() => onConfirm(annoNum)}>
             {loading ? 'Clonazione…' : `Clona sul ${annoValido ? annoNum : '…'}`}
+          </button>
+        </div>
+      </div>
+    </SectionModal>
+  )
+}
+
+// ─── Clona massivo ────────────────────────────────────────────────────────────
+// Rinnovo di fine anno di più contratti in un colpo solo: stessa semantica
+// del clone singolo applicata alla selezione.
+
+function ClonaMassivoModal({ contratti, loading, error, onConfirm, onClose }: {
+  contratti: Contratto[]; loading: boolean; error: string | null
+  onConfirm: (anno: number) => void; onClose: () => void
+}) {
+  // Se la selezione è tutta sullo stesso anno, proponi l'anno successivo
+  const anniSel = Array.from(new Set(contratti.map((c) => c.anno)))
+  const defaultAnno = anniSel.length === 1 ? anniSel[0] + 1 : Math.max(...anniSel) + 1
+  const [anno, setAnno] = useState(String(defaultAnno))
+  const annoNum = Number(anno)
+  const annoValido = Number.isInteger(annoNum) && annoNum >= 2000 && annoNum <= 2100
+  // Le righe già sull'anno di destinazione verrebbero saltate dal server
+  const daSaltare = contratti.filter((c) => c.anno === annoNum)
+  const daClonare = contratti.length - daSaltare.length
+
+  return (
+    <SectionModal onClose={onClose} labelledBy="ct-clona-multi-title">
+      <div className="ct-modal ct-modal--sm">
+        <div className="ct-modal-header">
+          <h2 id="ct-clona-multi-title" className="ct-modal-title">
+            Clona {contratti.length} contratt{contratti.length === 1 ? 'o' : 'i'}
+          </h2>
+          <button className="ct-modal-close" onClick={onClose} aria-label="Chiudi" type="button">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="ct-modal-body">
+          {error && <p className="ct-field-error ct-field-error--banner" role="alert">{error}</p>}
+          <p className="ct-confirm-text">
+            Crea una copia {contratti.length === 1 ? 'del' : 'dei'}{' '}
+            <strong>{contratti.length} contratt{contratti.length === 1 ? 'o selezionato' : 'i selezionati'}</strong>{' '}
+            su un altro anno di competenza.
+          </p>
+          <ul className="ct-bulk-list">
+            {contratti.map((c) => (
+              <li key={c.id}>
+                <span className="ct-bulk-cliente">{c.cliente.nome}</span>
+                <span className="ct-bulk-titolo">{c.titolo}</span>
+                <span className="ct-bulk-anno">{c.anno}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="ct-field ct-field--half">
+            <label htmlFor="ct-clona-multi-anno" className="ct-label">Anno di competenza</label>
+            <input id="ct-clona-multi-anno" className="ct-input" type="number" min={2000} max={2100}
+              value={anno} onChange={(e) => setAnno(e.target.value)} autoFocus />
+          </div>
+          {annoValido && daSaltare.length > 0 && (
+            <p className="ct-confirm-warn">
+              {daSaltare.length} contratt{daSaltare.length === 1 ? 'o è' : 'i sono'} già sul {annoNum} e verr{daSaltare.length === 1 ? 'à' : 'anno'} saltat{daSaltare.length === 1 ? 'o' : 'i'}.
+            </p>
+          )}
+          <p className="ct-confirm-sub">
+            Per ciascuno: date spostate sul nuovo anno, applicazioni e importo copiati.
+            Stato, fatturato, consuntivato, ordine di vendita, link Drive e note ripartono da zero.
+            I contratti che hanno già un clone sull'anno scelto vengono saltati.
+          </p>
+        </div>
+        <div className="ct-modal-footer">
+          <button className="ct-btn ct-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
+          <button className="ct-btn ct-btn--primary" type="button" disabled={!annoValido || daClonare === 0 || loading}
+            onClick={() => onConfirm(annoNum)}>
+            {loading ? 'Clonazione…' : `Clona ${daClonare} sul ${annoValido ? annoNum : '…'}`}
           </button>
         </div>
       </div>
@@ -425,11 +799,13 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
   const [fTipo, setFTipo]       = useState('')
   const [fCliente, setFCliente] = useState('')
   const [fPm, setFPm]           = useState('')
+  const [fFatt, setFFatt]       = useState<'' | 'si' | 'no'>('')
 
   // Modale / eliminazione / righe espanse
   const [modal, setModal]       = useState<'add' | 'edit' | null>(null)
   const [editing, setEditing]   = useState<Contratto | null>(null)
   const [form, setForm]         = useState<FormData>(EMPTY_FORM)
+  const [focusCampo, setFocusCampo] = useState<CampoMancante | undefined>(undefined)
   const [saving, setSaving]     = useState(false)
   const [formErr, setFormErr]   = useState<string | null>(null)
   const [delTarget, setDelTarget] = useState<Contratto | null>(null)
@@ -439,6 +815,12 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
   const [cloning, setCloning]     = useState(false)
   const [cloneErr, setCloneErr]   = useState<string | null>(null)
   const [expanded, setExpanded]   = useState<Set<string>>(new Set())
+
+  // Selezione multipla per il clone massivo + esito dell'ultima operazione
+  const [selected, setSelected]     = useState<Set<string>>(new Set())
+  const [bulkOpen, setBulkOpen]     = useState(false)
+  const [bulkErr, setBulkErr]       = useState<string | null>(null)
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
     setLoading(true); setApiError(null)
@@ -499,8 +881,9 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     (fStato === '' || c.stato === fStato) &&
     (fTipo === '' || c.tipo === fTipo) &&
     (fCliente === '' || c.clienteId === fCliente) &&
-    (fPm === '' || pmsDi(c.applicazioni).some((pm) => pm.id === fPm))
-  ), [contratti, fAnno, fStato, fTipo, fCliente, fPm])
+    (fPm === '' || pmsDi(c.applicazioni).some((pm) => pm.id === fPm)) &&
+    (fFatt === '' || (fFatt === 'si' ? c.fatturato : !c.fatturato))
+  ), [contratti, fAnno, fStato, fTipo, fCliente, fPm, fFatt])
 
   const gruppi = useMemo(() => {
     const map = new Map<string, { nome: string; contratti: Contratto[] }>()
@@ -511,22 +894,103 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'it'))
   }, [filtered])
 
-  const anniOptions = useMemo(() => {
-    const anni = new Set<number>(contratti.map((c) => c.anno))
-    anni.add(ANNO_CORRENTE)
-    return Array.from(anni).sort((a, b) => b - a)
+  // Anni della barra: quelli con contratti, più l'anno corrente e **quello
+  // selezionato** — così l'anno attivo è sempre visibile anche quando resta
+  // senza contratti (ultimo eliminato, o clonato altrove).
+  const contrattiPerAnno = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const c of contratti) m.set(c.anno, (m.get(c.anno) ?? 0) + 1)
+    return m
   }, [contratti])
+
+  const anniBarra = useMemo(() => {
+    const noti = [...contrattiPerAnno.keys(), ANNO_CORRENTE, fAnno]
+    // Timeline continua tra il primo e l'ultimo anno noto: senza buchi le
+    // frecce non fanno apparire e sparire pulsanti mentre si scorre.
+    let da = Math.min(...noti)
+    let a  = Math.max(...noti)
+    // Un anno molto vecchio a registro non deve generare una striscia
+    // interminabile: oltre il tetto la finestra si centra sull'anno attivo.
+    const MAX_ANNI = 24
+    if (a - da + 1 > MAX_ANNI) {
+      da = fAnno - Math.floor(MAX_ANNI / 2)
+      a  = da + MAX_ANNI - 1
+    }
+    da = Math.max(ANNO_MIN, da); a = Math.min(ANNO_MAX, a)
+    const out: number[] = []
+    for (let y = da; y <= a; y++) out.push(y)
+    return out
+  }, [contrattiPerAnno, fAnno])
+
+  // Le frecce si muovono di un anno alla volta, anche su anni senza contratti:
+  // è così che si prepara il rinnovo dell'anno prossimo.
+  const vaiAnno = (delta: number) =>
+    setFAnno((a) => Math.min(ANNO_MAX, Math.max(ANNO_MIN, a + delta)))
+
+  // L'anno attivo resta a vista quando lo si raggiunge con le frecce.
+  const barraRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    barraRef.current
+      ?.querySelector('[aria-pressed="true"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+  }, [fAnno, anniBarra])
 
   const totaleImporto = filtered.reduce((s, c) => s + (c.importoTotale ?? 0), 0)
 
-  // ── CRUD handlers ──
-  const openAdd = () => {
-    setForm({ ...EMPTY_FORM, anno: String(fAnno), stato: stati[0]?.chiave ?? 'IN_DEFINIZIONE' })
-    setEditing(null); setFormErr(null); setModal('add')
+  // ── Selezione multipla (clone massivo) ──
+  // La selezione conta solo sulle righe visibili: `selectedContratti` è
+  // l'intersezione con i filtri correnti, così cambiare filtro o ricaricare
+  // non porta con sé righe non più a schermo (senza dover potare lo stato).
+  const filteredIds = useMemo(() => filtered.map((c) => c.id), [filtered])
+
+  const selectedContratti = useMemo(
+    () => filtered.filter((c) => selected.has(c.id)), [filtered, selected])
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+
+  const setSelezione = (ids: string[], on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      for (const id of ids) { if (on) next.add(id); else next.delete(id) }
+      return next
+    })
+
+  const tuttiSelezionati = filteredIds.length > 0 && filteredIds.every((id) => selected.has(id))
+
+  // ── Copertura assistenza sull'anno filtrato ──
+  const copertura = useMemo(
+    () => calcolaCopertura(clienti, progetti, contratti, fAnno),
+    [clienti, progetti, contratti, fAnno])
+
+  const lacune = copertura.rinnovi.length + copertura.buchi.length
+
+  // Un solo contratto sull'anno → lo si estende al progetto scoperto;
+  // più di uno → non si può indovinare quale, si parte da un contratto nuovo.
+  const copriProgetto = (b: ClienteConBuchi, progettoId: string) => {
+    if (b.contrattiAnno.length === 1) openEdit(b.contrattiAnno[0], progettoId)
+    else openAdd(b.clienteId, [progettoId])
   }
 
-  const openEdit = (c: Contratto) => {
+  // ── CRUD handlers ──
+  const openAdd = (clienteId = '', applicazioniIds: string[] = []) => {
+    setForm({
+      ...EMPTY_FORM, anno: String(fAnno), stato: stati[0]?.chiave ?? 'IN_DEFINIZIONE',
+      clienteId, applicazioniIds,
+    })
+    setEditing(null); setFocusCampo(undefined); setFormErr(null); setModal('add')
+  }
+
+  // `aggiungiApplicazione` arriva dal pannello copertura: apre il contratto
+  // con il progetto scoperto già acceso tra le applicazioni.
+  // `focus` arriva dalle pill "da compilare" in riga.
+  const openEdit = (c: Contratto, aggiungiApplicazione?: string, focus?: CampoMancante) => {
     setEditing(c)
+    setFocusCampo(focus)
     setForm({
       clienteId: c.clienteId, titolo: c.titolo, tipo: c.tipo, anno: String(c.anno), stato: c.stato,
       dataInizio: c.dataInizio?.slice(0, 10) ?? '', dataFine: c.dataFine?.slice(0, 10) ?? '',
@@ -534,7 +998,9 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
       fatturato: c.fatturato,
       riferimentoOrdineVendita: c.riferimentoOrdineVendita ?? '', driveUrl: c.driveUrl ?? '',
       driveFolderId: c.driveFolderId ?? '', note: c.note ?? '',
-      applicazioniIds: c.applicazioni.map((a) => a.id),
+      applicazioniIds: aggiungiApplicazione
+        ? [...new Set([...c.applicazioni.map((a) => a.id), aggiungiApplicazione])]
+        : c.applicazioni.map((a) => a.id),
     })
     setFormErr(null); setModal('edit')
   }
@@ -611,6 +1077,33 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
     finally { setCloning(false) }
   }
 
+  const handleClonaMassivo = async (anno: number) => {
+    const ids = selectedContratti.map((c) => c.id)
+    if (ids.length === 0) return
+    setCloning(true); setBulkErr(null)
+    try {
+      const res = await fetch(`${API_URL}/api/contratti/clona-massivo`, {
+        method: 'POST', headers: authHeaders(token), body: JSON.stringify({ ids, anno }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setBulkErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
+      }
+      const esito = data as { creati: number; saltati: Array<{ titolo: string; cliente: string; motivo: string }> }
+      setBulkOpen(false)
+      setSelected(new Set())
+      await fetchAll()
+      setFAnno(anno) // dopo il fetch, così l'anno nuovo è già tra le opzioni
+      const parti = [`${esito.creati} contratt${esito.creati === 1 ? 'o' : 'i'} clonat${esito.creati === 1 ? 'o' : 'i'} sul ${anno}`]
+      if (esito.saltati.length > 0) {
+        parti.push(`${esito.saltati.length} saltat${esito.saltati.length === 1 ? 'o' : 'i'}: ` +
+          esito.saltati.map((x) => `${x.cliente} — ${x.titolo} (${x.motivo})`).join('; '))
+      }
+      setBulkNotice(parti.join('. ') + '.')
+    } catch { setBulkErr('Errore di rete. Riprova.') }
+    finally { setCloning(false) }
+  }
+
   const toggleExpand = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -626,9 +1119,17 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
           <h1 className="ct-title">Contratti Assistenza / AMS</h1>
           <p className="ct-subtitle">
             {loading ? '' : `${filtered.length} contratt${filtered.length === 1 ? 'o' : 'i'} nel ${fAnno}${totaleImporto > 0 ? ` · ${fmtEur(totaleImporto)}` : ''}`}
+            {!loading && lacune > 0 && (
+              <a className="ct-cop-chip" href="#ct-copertura">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13" aria-hidden="true">
+                  <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 6a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 6Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+                </svg>
+                {lacune} client{lacune === 1 ? 'e' : 'i'} senza copertura piena
+              </a>
+            )}
           </p>
         </div>
-        <button className="ct-btn ct-btn--primary" type="button" onClick={openAdd}>
+        <button className="ct-btn ct-btn--primary" type="button" onClick={() => openAdd()}>
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
             <path d="M10 4v12M4 10h12" strokeLinecap="round" />
           </svg>
@@ -661,12 +1162,38 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
         </div>
       )}
 
+      {/* ── Barra anni ── */}
+      <div className="ct-yearbar">
+        <button type="button" className="ct-year-arrow" onClick={() => vaiAnno(-1)}
+          disabled={fAnno <= ANNO_MIN} aria-label={`Vai al ${fAnno - 1}`} title={`Anno precedente (${fAnno - 1})`}>
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="17" height="17" aria-hidden="true">
+            <path d="M12 5l-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <div className="ct-year-strip" ref={barraRef} role="group" aria-label="Anno di competenza">
+          {anniBarra.map((a) => {
+            const n = contrattiPerAnno.get(a) ?? 0
+            return (
+              <button key={a} type="button" aria-pressed={a === fAnno}
+                className={`ct-year${a === fAnno ? ' ct-year--on' : ''}${a === ANNO_CORRENTE ? ' ct-year--now' : ''}${n === 0 ? ' ct-year--vuoto' : ''}`}
+                title={a === ANNO_CORRENTE ? 'Anno in corso' : undefined}
+                onClick={() => setFAnno(a)}>
+                {a}
+                {n > 0 && <span className="ct-year-count">{n}</span>}
+              </button>
+            )
+          })}
+        </div>
+        <button type="button" className="ct-year-arrow" onClick={() => vaiAnno(1)}
+          disabled={fAnno >= ANNO_MAX} aria-label={`Vai al ${fAnno + 1}`} title={`Anno successivo (${fAnno + 1})`}>
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="17" height="17" aria-hidden="true">
+            <path d="M8 5l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+
       {/* ── Filtri ── */}
       <div className="ct-filters">
-        <select className="ct-input ct-select ct-filter" value={fAnno} aria-label="Filtra per anno"
-          onChange={(e) => setFAnno(Number(e.target.value))}>
-          {anniOptions.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
         <select className="ct-input ct-select ct-filter" value={fStato} aria-label="Filtra per stato"
           onChange={(e) => setFStato(e.target.value)}>
           <option value="">Tutti gli stati</option>
@@ -689,7 +1216,45 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
           <option value="">Tutti i PM</option>
           {pmOptions.map((u) => <option key={u.id} value={u.id}>{displayUser(u)}</option>)}
         </select>
+        <select className="ct-input ct-select ct-filter" value={fFatt} aria-label="Filtra per fatturazione"
+          onChange={(e) => setFFatt(e.target.value as '' | 'si' | 'no')}>
+          <option value="">Fatturato: tutti</option>
+          <option value="si">Fatturato</option>
+          <option value="no">Da fatturare</option>
+        </select>
       </div>
+
+      {bulkNotice && (
+        <div className="ct-notice" role="status">
+          <span>{bulkNotice}</span>
+          <button className="ct-notice-close" type="button" aria-label="Chiudi avviso"
+            onClick={() => setBulkNotice(null)}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* ── Barra azioni sulla selezione ── */}
+      {selectedContratti.length > 0 && (
+        <div className="ct-selbar" role="region" aria-label="Azioni sui contratti selezionati">
+          <strong className="ct-selbar-count">
+            {selectedContratti.length} contratt{selectedContratti.length === 1 ? 'o' : 'i'} selezionat{selectedContratti.length === 1 ? 'o' : 'i'}
+          </strong>
+          <button className="ct-btn ct-btn--ghost ct-btn--sm" type="button" onClick={() => setSelected(new Set())}>
+            Deseleziona
+          </button>
+          <button className="ct-btn ct-btn--primary ct-btn--sm" type="button"
+            onClick={() => { setBulkErr(null); setBulkOpen(true) }}>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" width="15" height="15" aria-hidden="true">
+              <rect x="7" y="7" width="10" height="10" rx="1.5" strokeLinejoin="round" />
+              <path d="M13 7V4.5A1.5 1.5 0 0 0 11.5 3h-7A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13H7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Clona su un altro anno
+          </button>
+        </div>
+      )}
 
       {apiError && !loading && <p className="ct-page-error" role="alert">{apiError}</p>}
 
@@ -702,13 +1267,20 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
             <path d="M18 20h12M18 26h12M18 32h7" stroke="#CBD5E1" strokeWidth="2" strokeLinecap="round" />
           </svg>
           <p className="ct-empty-text">Nessun contratto per i filtri selezionati.</p>
-          <button className="ct-btn ct-btn--primary" type="button" onClick={openAdd}>Aggiungi il primo contratto</button>
+          <button className="ct-btn ct-btn--primary" type="button" onClick={() => openAdd()}>Aggiungi il primo contratto</button>
         </div>
       ) : (
         <div className="ct-table-wrap">
           <table className="ct-table" aria-label="Elenco contratti">
             <thead>
               <tr>
+                <th scope="col" className="ct-th--check">
+                  <input type="checkbox" className="ct-row-check"
+                    aria-label="Seleziona tutti i contratti filtrati"
+                    checked={tuttiSelezionati}
+                    ref={(el) => { if (el) el.indeterminate = !tuttiSelezionati && selectedContratti.length > 0 }}
+                    onChange={(e) => setSelezione(filteredIds, e.target.checked)} />
+                </th>
                 <th scope="col" aria-label="Espandi" />
                 <th scope="col">Contratto</th>
                 <th scope="col">Tipo</th>
@@ -724,6 +1296,16 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
             {gruppi.map((g) => (
               <tbody key={g.nome} className="ct-group">
                 <tr className="ct-group-row">
+                  <td className="ct-cell-check">
+                    <input type="checkbox" className="ct-row-check"
+                      aria-label={`Seleziona i contratti di ${g.nome}`}
+                      checked={g.contratti.every((c) => selected.has(c.id))}
+                      ref={(el) => {
+                        if (el) el.indeterminate = g.contratti.some((c) => selected.has(c.id))
+                          && !g.contratti.every((c) => selected.has(c.id))
+                      }}
+                      onChange={(e) => setSelezione(g.contratti.map((c) => c.id), e.target.checked)} />
+                  </td>
                   <td colSpan={10}>
                     <span className="ct-group-nome">{g.nome}</span>
                     <span className="ct-group-count">{g.contratti.length} contratt{g.contratti.length === 1 ? 'o' : 'i'}</span>
@@ -734,9 +1316,16 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                   const scad = scadenzaInfo(c, statoChiuso(c.stato))
                   const consumato = consumatoDi(c)
                   const pms = pmsDi(c.applicazioni)
+                  const mancanti = campiMancanti(c, statoChiuso(c.stato))
                   return (
                     <FragmentRow key={c.id}>
-                      <tr className={`ct-row${scad ? ' ct-row--warn' : ''}`}>
+                      <tr className={`ct-row${scad ? ' ct-row--warn' : ''}${selected.has(c.id) ? ' ct-row--sel' : ''}`}>
+                        <td className="ct-cell-check">
+                          <input type="checkbox" className="ct-row-check"
+                            aria-label={`Seleziona ${c.titolo}`}
+                            checked={selected.has(c.id)}
+                            onChange={() => toggleSelect(c.id)} />
+                        </td>
                         <td className="ct-cell-expand">
                           <button type="button" className={`ct-expand-btn${isOpen ? ' ct-expand-btn--open' : ''}`}
                             aria-expanded={isOpen} aria-label={`Dettagli di ${c.titolo}`}
@@ -751,6 +1340,23 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                             <span className="ct-titolo">{c.titolo}</span>
                             {c.applicazioni.length > 0 && (
                               <span className="ct-app-count">{c.applicazioni.map((a) => a.nome).join(', ')}</span>
+                            )}
+                            {mancanti.length > 0 && (
+                              <div className="ct-todo" role="group"
+                                aria-label={`Da compilare su ${c.titolo}: ${mancanti.map((m) => CAMPO_LABEL[m]).join(', ')}`}>
+                                <svg className="ct-todo-icon" viewBox="0 0 20 20" fill="currentColor"
+                                  width="12" height="12" aria-hidden="true">
+                                  <title>Da compilare</title>
+                                  <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 6a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 6Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+                                </svg>
+                                {mancanti.map((m) => (
+                                  <button key={m} type="button" className="ct-todo-pill"
+                                    title={CAMPO_TITLE[m]}
+                                    onClick={() => openEdit(c, undefined, m)}>
+                                    {CAMPO_LABEL[m]}
+                                  </button>
+                                ))}
+                              </div>
                             )}
                           </div>
                         </td>
@@ -821,7 +1427,7 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
                       </tr>
                       {isOpen && (
                         <tr className="ct-detail-row">
-                          <td colSpan={10}>
+                          <td colSpan={11}>
                             <div className="ct-detail">
                               <div className="ct-detail-grid">
                                 <div>
@@ -868,18 +1474,30 @@ export default function ContrattiPage({ token }: ContrattiPageProps) {
         </div>
       )}
 
+      {!loading && !apiError && (
+        <CoperturaPanel anno={fAnno} copertura={copertura}
+          onClona={(c) => { setCloneErr(null); setCloneTarget(c) }}
+          onNuovo={openAdd}
+          onCopri={copriProgetto} />
+      )}
+
       {(modal === 'add' || modal === 'edit') && (
         <ContrattoModal
           title={modal === 'add' ? 'Nuovo contratto' : 'Modifica contratto'}
           form={form} loading={saving} apiError={formErr}
           clienti={clienti} stati={stati} progetti={progetti}
           contrattiRootId={driveCfg?.contrattiId || undefined}
+          focusCampo={focusCampo}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)}
         />
       )}
       {cloneTarget && (
-        <ClonaModal contratto={cloneTarget} loading={cloning} error={cloneErr}
+        <ClonaModal contratto={cloneTarget} annoSuggerito={fAnno} loading={cloning} error={cloneErr}
           onConfirm={handleClona} onClose={() => setCloneTarget(null)} />
+      )}
+      {bulkOpen && selectedContratti.length > 0 && (
+        <ClonaMassivoModal contratti={selectedContratti} loading={cloning} error={bulkErr}
+          onConfirm={handleClonaMassivo} onClose={() => setBulkOpen(false)} />
       )}
       {delTarget && (
         <ConfirmDelete contratto={delTarget} loading={deleting} error={delErr}

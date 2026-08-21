@@ -4,6 +4,7 @@ import { useDriveConfig } from '../lib/useDriveConfig'
 import {
   isDrivePickerConfigured, openDrivePicker, createDriveFolder,
   extractDriveFolderId, driveFolderUrl, findFolderInDriveByName, GESTIONE_FOLDER_NAME,
+  driveErrorReason,
 } from '../lib/googleDrive'
 import './ClientiPage.css'
 
@@ -51,6 +52,30 @@ function Initials({ nome }: { nome: string }) {
   return <span className="cl-avatar" aria-hidden="true">{letters}</span>
 }
 
+// ─── Spinner ──────────────────────────────────────────────────────────────────
+// La creazione su Drive è lenta (più chiamate API in sequenza): senza un
+// segnale visibile il modal sembra bloccato.
+
+function Spinner() {
+  return (
+    <svg className="cl-spinner" viewBox="0 0 24 24" fill="none" width="15" height="15" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// Fase del salvataggio, per dire all'utente *cosa* sta aspettando.
+type SavePhase = null | 'saving' | 'drive'
+
+const PHASE_LABEL: Record<'saving' | 'drive', string> = {
+  saving: 'Salvataggio…',
+  drive:  'Creazione cartella su Drive…',
+}
+
+// Cartella scelta a mano quando si rinuncia alla creazione automatica.
+interface DriveScelta { id: string; url: string; nome: string }
+
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
 interface DriveSectionState {
@@ -66,11 +91,17 @@ interface ModalProps {
   isEdit: boolean
   drive: DriveSectionState
   canPickDrive: boolean
+  // Creazione: crea la cartella (default) o collega una esistente scelta a mano
+  driveAuto: boolean; driveScelta: DriveScelta | null; pickingDrive: boolean
+  phase: SavePhase
+  onToggleDriveAuto: (v: boolean) => void; onPickRoot: () => void
   onLinkExisting: () => void; onCreateFolder: () => void; onUnlinkDrive: () => void
   onChange: (f: FormData) => void; onSave: () => void; onClose: () => void
 }
 
 function Modal({ title, form, loading, apiError, accounts, isEdit, drive, canPickDrive,
+  driveAuto, driveScelta, pickingDrive, phase,
+  onToggleDriveAuto, onPickRoot,
   onLinkExisting, onCreateFolder, onUnlinkDrive, onChange, onSave, onClose }: ModalProps) {
   const set = (key: keyof FormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -89,6 +120,11 @@ function Modal({ title, form, loading, apiError, accounts, isEdit, drive, canPic
         </div>
         <div className="cl-modal-body">
           {apiError && <p className="cl-field-error cl-field-error--banner" role="alert">{apiError}</p>}
+          {phase === 'drive' && (
+            <p className="cl-busy" role="status">
+              <Spinner /> Sto creando la cartella su Google Drive — può richiedere qualche secondo.
+            </p>
+          )}
           <div className="cl-field-row">
             <div className="cl-field" style={{ gridColumn: '1 / -1' }}>
               <label htmlFor="cl-nome" className="cl-label">Nome cliente <span aria-hidden="true">*</span></label>
@@ -139,11 +175,43 @@ function Modal({ title, form, loading, apiError, accounts, isEdit, drive, canPic
           <div className="cl-field cl-drive">
             <span className="cl-label">Cartella Drive</span>
             {!isEdit ? (
-              <p className="cl-drive-hint">
-                {canPickDrive
-                  ? 'La cartella del cliente verrà creata su Drive al salvataggio.'
-                  : 'Collegabile dopo il salvataggio (Picker Drive non configurato).'}
-              </p>
+              !canPickDrive ? (
+                <p className="cl-drive-hint">Collegabile dopo il salvataggio (Picker Drive non configurato).</p>
+              ) : (
+                <>
+                  <label className="cl-check">
+                    <input type="checkbox" checked={driveAuto} disabled={loading}
+                      onChange={(e) => onToggleDriveAuto(e.target.checked)} />
+                    Crea la cartella del cliente su Drive
+                  </label>
+                  {driveAuto ? (
+                    <p className="cl-drive-hint">
+                      Verrà creata sotto “Sviluppo - Progetti in gestione” al salvataggio.
+                    </p>
+                  ) : (
+                    <div className="cl-drive-pick">
+                      <div className="cl-drive-actions">
+                        <button className="cl-btn cl-btn--ghost cl-btn--sm" type="button"
+                          onClick={onPickRoot} disabled={pickingDrive || loading}>
+                          {pickingDrive
+                            ? <><Spinner /> Apertura Drive…</>
+                            : driveScelta ? 'Cambia cartella' : 'Scegli la cartella del cliente'}
+                        </button>
+                        {driveScelta && (
+                          <a className="cl-link" href={driveScelta.url} target="_blank" rel="noopener noreferrer">
+                            {driveScelta.nome} ↗
+                          </a>
+                        )}
+                      </div>
+                      {!driveScelta && (
+                        <p className="cl-field-error">
+                          Senza creazione automatica devi indicare la cartella già esistente del cliente.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )
             ) : drive.folderId ? (
               <div className="cl-drive-linked">
                 <a className="cl-link" href={drive.folderUrl ?? driveFolderUrl(drive.folderId)}
@@ -170,9 +238,12 @@ function Modal({ title, form, loading, apiError, accounts, isEdit, drive, canPic
           </div>
         </div>
         <div className="cl-modal-footer">
-          <button className="cl-btn cl-btn--ghost" type="button" onClick={onClose} disabled={loading}>Annulla</button>
+          {/* Durante la fase Drive resta cliccabile: è la via d'uscita se il
+              consenso Google non arriva (il cliente è già stato creato). */}
+          <button className="cl-btn cl-btn--ghost" type="button" onClick={onClose}
+            disabled={loading && phase !== 'drive'}>Annulla</button>
           <button className="cl-btn cl-btn--primary" type="button" onClick={onSave} disabled={loading}>
-            {loading ? 'Salvataggio…' : 'Salva'}
+            {phase ? <><Spinner /> {PHASE_LABEL[phase]}</> : 'Salva'}
           </button>
         </div>
       </div>
@@ -232,6 +303,12 @@ export default function ClientiPage({ token }: ClientiPageProps) {
   const [delTarget, setDelTarget] = useState<Cliente | null>(null)
   const [deleting,  setDeleting]  = useState(false)
   const [drive,     setDrive]    = useState<DriveSectionState>({ folderId: null, folderUrl: null, busy: false, msg: null })
+  // Scelta Drive in creazione: crea l'alberatura (default) oppure collega una
+  // cartella già esistente, che in quel caso diventa obbligatoria.
+  const [driveAuto,    setDriveAuto]    = useState(true)
+  const [driveScelta,  setDriveScelta]  = useState<DriveScelta | null>(null)
+  const [pickingDrive, setPickingDrive] = useState(false)
+  const [phase,        setPhase]        = useState<SavePhase>(null)
 
   const driveCfg = useDriveConfig(token)
   const canPickDrive = isDrivePickerConfigured()
@@ -265,11 +342,11 @@ export default function ClientiPage({ token }: ClientiPageProps) {
       ])
       if (!rC.ok || !rA.ok) throw new Error()
       const [c, a] = await Promise.all([rC.json(), rA.json()])
-      setClienti((c as Cliente[]).sort((a, b) => {
-        const aAcc = a.account?.lastName ?? ''
-        const bAcc = b.account?.lastName ?? ''
-        return aAcc.localeCompare(bAcc, 'it') || a.nome.localeCompare(b.nome, 'it')
-      })); setAccounts(a)
+      // Ordine alfabetico per nome cliente. Il backend ordina già per nome, ma
+      // col collation Postgres: qui si riordina con quello italiano, che tratta
+      // accenti e maiuscole come si aspetta chi legge l'elenco.
+      setClienti((c as Cliente[]).sort((x, y) => x.nome.localeCompare(y.nome, 'it')))
+      setAccounts(a)
     } catch { setApiError('Impossibile caricare i dati.') }
     finally { setLoading(false) }
   }, [token])
@@ -281,6 +358,7 @@ export default function ClientiPage({ token }: ClientiPageProps) {
   const openAdd = () => {
     setForm(EMPTY_FORM); setFormErr(null)
     setDrive({ folderId: null, folderUrl: null, busy: false, msg: null })
+    setDriveAuto(true); setDriveScelta(null); setPickingDrive(false); setPhase(null)
     setModal('add')
   }
   const openEdit = (c: Cliente) => {
@@ -291,6 +369,25 @@ export default function ClientiPage({ token }: ClientiPageProps) {
     })
     setDrive({ folderId: c.driveFolderId, folderUrl: c.driveFolderUrl, busy: false, msg: null })
     setFormErr(null); setModal('edit')
+  }
+
+  // Scelta della cartella esistente in fase di creazione: il cliente non c'è
+  // ancora, quindi si memorizza soltanto — il binding va al salvataggio.
+  const handlePickRoot = async () => {
+    setPickingDrive(true); setFormErr(null)
+    try {
+      const gestioneId = await resolveGestioneId().catch(() => null)
+      const picked = await openDrivePicker({
+        selectFolders: true,
+        rootId: gestioneId || driveCfg?.devId || undefined,
+        title: 'Seleziona la cartella del cliente',
+      })
+      if (!picked) return
+      const folderId = extractDriveFolderId(picked.url) ?? picked.fileId
+      setDriveScelta({ id: folderId, url: picked.url, nome: picked.name })
+    } catch (e) {
+      setFormErr(e instanceof Error ? e.message : 'Errore Drive')
+    } finally { setPickingDrive(false) }
   }
 
   // Collega una cartella Drive esistente al cliente in modifica (picker cartelle).
@@ -344,7 +441,13 @@ export default function ClientiPage({ token }: ClientiPageProps) {
 
   const handleSave = async () => {
     if (!form.nome.trim()) { setFormErr('Il nome del cliente è obbligatorio.'); return }
-    setSaving(true); setFormErr(null)
+    // Rinunciando alla creazione automatica la cartella esistente è obbligatoria:
+    // un cliente senza cartella Drive rompe a valle la creazione dei progetti.
+    if (modal === 'add' && canPickDrive && !driveAuto && !driveScelta) {
+      setFormErr('Scegli la cartella del cliente su Drive, oppure riattiva la creazione automatica.')
+      return
+    }
+    setSaving(true); setPhase('saving'); setFormErr(null)
     try {
       const url    = modal === 'edit' ? `${API_URL}/clienti/${editing!.id}` : `${API_URL}/clienti`
       const method = modal === 'edit' ? 'PUT' : 'POST'
@@ -353,26 +456,35 @@ export default function ClientiPage({ token }: ClientiPageProps) {
         const data = await res.json().catch(() => ({}))
         setFormErr((data as { error?: string }).error ?? `Errore ${res.status}`); return
       }
-      // Nuovo cliente: se il Picker è configurato, crea la cartella su Drive
-      // e la collega. Un errore Drive non annulla la creazione del cliente —
-      // si segnala e resta collegabile a mano.
+      // Nuovo cliente: crea la cartella su Drive e la collega, oppure collega
+      // quella scelta a mano. Un errore Drive non annulla la creazione del
+      // cliente — si segnala e resta collegabile dalla modifica.
+      // L'avviso si mostra DOPO fetchAll: il fetch azzera apiError e
+      // altrimenti il messaggio spariva senza che l'utente lo vedesse.
+      let driveWarn: string | null = null
       if (modal === 'add' && canPickDrive) {
+        setPhase('drive')
         try {
           const created = await res.json() as Cliente
-          const parent = await resolveGestioneId()
-          if (!parent) {
-            setApiError('Cliente creato, ma non ho trovato la cartella "Progetti in gestione" nel Drive Sviluppo: collega la cartella dalla modifica.')
+          if (!driveAuto && driveScelta) {
+            await patchDrive(created.id, driveScelta.id, driveScelta.url)
           } else {
-            const { folderId, url: fUrl } = await createDriveFolder(clienteFolderName(created.nome), parent)
-            await patchDrive(created.id, folderId, fUrl)
+            const parent = await resolveGestioneId()
+            if (!parent) {
+              driveWarn = 'Cliente creato, ma non ho trovato la cartella "Progetti in gestione" nel Drive Sviluppo: collega la cartella dalla modifica.'
+            } else {
+              const { folderId, url: fUrl } = await createDriveFolder(clienteFolderName(created.nome), parent)
+              await patchDrive(created.id, folderId, fUrl)
+            }
           }
         } catch (e) {
-          setApiError(`Cliente creato, ma la cartella Drive non è stata creata: ${e instanceof Error ? e.message : 'errore'}. Collegala dalla modifica.`)
+          driveWarn = `Cliente creato, ma la cartella Drive non è stata collegata: ${driveErrorReason(e)}. Collegala dalla modifica.`
         }
       }
       setModal(null); await fetchAll()
+      if (driveWarn) setApiError(driveWarn)
     } catch { setFormErr('Errore di rete. Riprova.') }
-    finally { setSaving(false) }
+    finally { setSaving(false); setPhase(null) }
   }
 
   const handleDelete = async () => {
@@ -483,6 +595,8 @@ export default function ClientiPage({ token }: ClientiPageProps) {
         <Modal title={modal === 'add' ? 'Aggiungi cliente' : 'Modifica cliente'}
           form={form} loading={saving} apiError={formErr} accounts={accounts}
           isEdit={modal === 'edit'} drive={drive} canPickDrive={canPickDrive}
+          driveAuto={driveAuto} driveScelta={driveScelta} pickingDrive={pickingDrive} phase={phase}
+          onToggleDriveAuto={setDriveAuto} onPickRoot={handlePickRoot}
           onLinkExisting={handleLinkExisting} onCreateFolder={handleCreateFolder} onUnlinkDrive={handleUnlinkDrive}
           onChange={setForm} onSave={handleSave} onClose={() => setModal(null)} />
       )}
